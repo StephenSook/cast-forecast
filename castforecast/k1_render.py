@@ -213,7 +213,12 @@ def check_monotonic(renders: list[dict], tol: float = THRESHOLDS["mono_tol_l"]) 
     return {"pass": all(s["pass"] for s in series), "series": series}
 
 
-def check_texture(usable: list[dict], curves: dict[int, dict[int, float]], ctx: dict) -> dict:
+def check_texture(
+    usable: list[dict],
+    curves: dict[int, dict[int, float]],
+    ctx: dict,
+    min_a: float | None = None,
+) -> dict:
     """Texture check against the IDEAL linear-light film on the input image.
 
     ctx: img (input upload copy, uint8), mask, scale_px, hf_energy of the input. For each usable
@@ -226,7 +231,7 @@ def check_texture(usable: list[dict], curves: dict[int, dict[int, float]], ctx: 
     rows = []
     for r in usable:
         a = curves.get(r["colorIntensity"], {}).get(r["coverageIntensity"])
-        if a is None or a < THRESHOLDS["texture_min_a"]:
+        if a is None or a < (THRESHOLDS["texture_min_a"] if min_a is None else min_a):
             continue
         ideal = (1 - a) * lin_in + a * _hex_linear(r["color"])
         ideal_u8 = np.clip(np.rint(_encode(np.clip(ideal, 0.0, 1.0)) * 255.0), 0, 255).astype(
