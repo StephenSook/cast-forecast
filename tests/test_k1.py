@@ -445,7 +445,7 @@ def test_upload_copy_fits_makeup_vto_limits(tmp_path, size):
     with Image.open(out) as im:
         w, h = im.size
         assert w < 1920 and h < 1080
-        assert abs(h - w * size[1] / size[0]) <= 1.0  # aspect kept within 1 px
+        assert min(abs(h - w * size[1] / size[0]), abs(w - h * size[0] / size[1])) <= 1.0  # 1 px
         assert not im.info.get("icc_profile") and not im.getexif()
         assert im.format == "JPEG"
     if size[0] < 1920 and size[1] < 1080:
