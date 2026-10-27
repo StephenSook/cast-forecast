@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 from castforecast.color import _decode, _encode, de2000, srgb_to_lab
 from castforecast.k2_tone import _write
@@ -32,6 +32,7 @@ from castforecast.youcam import YouCamClient, YouCamError
 
 ENDPOINT = "task/makeup-vto"  # client.run adds the /s2s/v2.0/ prefix
 MIN_BALANCE = 200
+MONO_MIN_POINTS = 4
 COLORS = ("#FFFFFF", "#D2D2D2", "#BDBDBD")
 COVERAGES = (0, 20, 40, 60, 80, 100)
 COLOR_INTENSITIES = (50, 100)
@@ -64,10 +65,20 @@ def _lab_of_linear(lin) -> np.ndarray:
     return srgb_to_lab(np.clip(_encode(np.asarray(lin, dtype=np.float64)), 0.0, 1.0))
 
 
-def measure(path: Path) -> dict | None:
-    """Cheek stats of the image at path, re-detecting the cheeks on THIS image. None if no face."""
+def load_rgb(path: Path) -> np.ndarray:
+    """Load as RGB uint8 with the EXIF orientation applied."""
     with Image.open(path) as im:
-        img = np.asarray(im.convert("RGB"))
+        return np.asarray(ImageOps.exif_transpose(im).convert("RGB"))
+
+
+def has_icc(path: Path) -> bool:
+    with Image.open(path) as im:
+        return im.info.get("icc_profile") is not None
+
+
+def measure(path: Path, with_context: bool = False) -> dict | None:
+    """Cheek stats of the image at path, re-detecting the cheeks on THIS image. None if no face."""
+    img = load_rgb(path)
     patches = cheek_patches(img)
     if patches is None:
         return None
@@ -80,6 +91,7 @@ def measure(path: Path) -> dict | None:
         "lab_of_mean": _lab_of_linear(lin).tolist(),
         "hf_energy": float(stats["hf_energy"]),
         "scale_px": float(patches["scale_px"]),
+        **({"_img": img, "_mask": mask} if with_context else {}),
     }
 
 
@@ -112,12 +124,16 @@ def fit_blend(usable: list[dict], skin) -> dict:
     for r in usable:
         cells.setdefault((r["colorIntensity"], r["coverageIntensity"]), []).append(r)
     raw: dict[int, dict[int, tuple[float, float]]] = {}
+    by_color: dict[str, dict[str, dict[str, float]]] = {}
     for (ci, cov), rs in cells.items():
         num = den = 0.0
         for r in rs:
             d = _hex_linear(r["color"]) - skin
-            num += float(d @ (np.asarray(r["linear_rgb"]) - skin))
-            den += float(d @ d)
+            n_r, d_r = float(d @ (np.asarray(r["linear_rgb"]) - skin)), float(d @ d)
+            num += n_r
+            den += d_r
+            if d_r > 0:
+                by_color.setdefault(str(ci), {}).setdefault(str(cov), {})[r["color"]] = n_r / d_r
         if den > 0:
             raw.setdefault(ci, {})[cov] = (num / den, den)
     curves: dict[int, dict[int, float]] = {}
@@ -141,6 +157,7 @@ def fit_blend(usable: list[dict], skin) -> dict:
     return {
         "curves": {str(ci): {str(c): a for c, a in cv.items()} for ci, cv in curves.items()},
         "raw_alpha": {str(ci): {str(c): v[0] for c, v in byc.items()} for ci, byc in raw.items()},
+        "raw_alpha_by_color": by_color,
         "r2": r2,
         "n_fitted": len(obs),
     }
@@ -168,9 +185,15 @@ def check_monotonic(renders: list[dict], tol: float = THRESHOLDS["mono_tol_l"]) 
                 "n_usable": len(ok),
                 "n_no_face": n_no_face,
                 "l_star": [r["lab_mean"][0] for r in ok],
-                "evaluable": len(ok) >= 2,
+                "evaluable": len(ok) >= MONO_MIN_POINTS
+                and any(r["coverageIntensity"] == 100 for r in ok),
                 "violation": None,
             }
+            if not entry["evaluable"]:
+                entry["reason"] = (
+                    f"unevaluable: needs >= {MONO_MIN_POINTS} usable points including "
+                    f"coverage 100, have {len(ok)}"
+                )
             run_max = -np.inf
             for r in ok:
                 l_val = r["lab_mean"][0]
@@ -187,16 +210,34 @@ def check_monotonic(renders: list[dict], tol: float = THRESHOLDS["mono_tol_l"]) 
     return {"pass": all(s["pass"] for s in series), "series": series}
 
 
-def check_texture(usable: list[dict], curves: dict[int, dict[int, float]], hf_in: float) -> dict:
+def check_texture(usable: list[dict], curves: dict[int, dict[int, float]], ctx: dict) -> dict:
+    """Texture check against the IDEAL linear-light film on the input image.
+
+    ctx: img (input upload copy, uint8), mask, scale_px, hf_energy of the input. For each usable
+    render with fitted a >= 0.2, the ideal film (1 - a) * skin + a * palette is built per pixel in
+    linear light, encoded to sRGB, and measured on the input's own mask and scale_px; the
+    predicted ratio is hf_ideal / hf_input and the observed ratio is hf_render / hf_input.
+    """
+    hf_in = ctx["hf_energy"]
+    lin_in = _decode(ctx["img"].astype(np.float64) / 255.0)
     rows = []
     for r in usable:
         a = curves.get(r["colorIntensity"], {}).get(r["coverageIntensity"])
         if a is None or a < THRESHOLDS["texture_min_a"]:
             continue
-        ratio = r["hf_energy"] / hf_in if hf_in > 0 else None
-        target = 1.0 - a
-        ok = ratio is not None and abs(ratio - target) <= THRESHOLDS["texture_rel_tol"] * target
-        rows.append({"id": r["id"], "a": a, "ratio": ratio, "target": target, "ok": ok})
+        ideal = (1 - a) * lin_in + a * _hex_linear(r["color"])
+        ideal_u8 = np.clip(np.rint(_encode(np.clip(ideal, 0.0, 1.0)) * 255.0), 0, 255).astype(
+            np.uint8
+        )
+        hf_ideal = patch_stats(ideal_u8, ctx["mask"], ctx["scale_px"])["hf_energy"]
+        pred = hf_ideal / hf_in if hf_in > 0 else None
+        obs = r["hf_energy"] / hf_in if hf_in > 0 else None
+        ok = (
+            pred is not None
+            and obs is not None
+            and abs(obs - pred) <= THRESHOLDS["texture_rel_tol"] * pred
+        )
+        rows.append({"id": r["id"], "a": a, "predicted": pred, "observed": obs, "ok": bool(ok)})
     frac = (sum(x["ok"] for x in rows) / len(rows)) if rows else None
     return {
         "n_eligible": len(rows),
@@ -246,6 +287,7 @@ def plan_inverse(curves: dict[int, dict[int, float]], target: float) -> dict | N
                     "colorIntensity": int(ci),
                     "predicted_alpha": a_at,
                     "reachable": reachable,
+                    "cov100_lost": 100 not in curves[ci],
                 },
             )
     return None if best is None else best[1]
@@ -288,7 +330,6 @@ def _render(client, renders_dir: Path, rec: dict, file_id: str, sink: list, on_p
     url = res.get("url") if isinstance(res, dict) else None
     if not isinstance(url, str) or not url:
         raise YouCamError(f"task {task_id} result had no url", code="bad_shape", task_id=task_id)
-    rec["result_url"] = url
     tmp = Path(renders_dir) / f"{rec['id']}.download"
     client.download(url, tmp)
     head = tmp.read_bytes()[:8]
@@ -304,8 +345,9 @@ def _render(client, renders_dir: Path, rec: dict, file_id: str, sink: list, on_p
     tmp.replace(dest)
     rec["file"] = dest.name
     try:
+        rec["icc_profile"] = has_icc(dest)
         m = measure(dest)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:
         raise YouCamError(
             f"task {task_id} render unreadable: {exc}", code="bad_download", task_id=task_id
         ) from exc
@@ -433,12 +475,18 @@ def run_k1(
     try:
         copy_a = upload_copy(selfie_a, copies_dir)
         copy_b = upload_copy(selfie_b, copies_dir)
-        in_a, in_b = measure(copy_a), measure(copy_b)
+        in_a, in_b = measure(copy_a, with_context=True), measure(copy_b)
     except (ValueError, OSError) as exc:
         return fail("local_prep", str(exc))
     if in_a is None or in_b is None:
         return fail("local_prep", "no usable cheek patch on an input upload copy")
     state["input_a"] = copy_a
+    tex_ctx = {
+        "img": in_a.pop("_img"),
+        "mask": in_a.pop("_mask"),
+        "scale_px": in_a["scale_px"],
+        "hf_energy": in_a["hf_energy"],
+    }
     result["inputs"] = {"A": in_a, "B": in_b}
     skin_a = np.asarray(in_a["linear_rgb"])
     skin_b = np.asarray(in_b["linear_rgb"])
@@ -464,6 +512,8 @@ def run_k1(
                     save()  # nothing paid is lost
     except YouCamError as exc:
         return fail(exc.code or "error", str(exc), exc.task_id)
+    except Exception as exc:  # noqa: BLE001 - after any spend nothing may escape unrecorded
+        return fail("unexpected", f"{type(exc).__name__}: {exc}")
 
     usable = [r for r in a_renders if r["status"] == "ok"]
     fit = fit_blend(usable, skin_a)
@@ -503,6 +553,7 @@ def run_k1(
                 "target_alpha": pl["target_alpha"],
                 "predicted_alpha": pl["predicted_alpha"],
                 "reachable": pl["reachable"],
+                "cov100_lost": pl["cov100_lost"],
             }
             _render(client, renders_dir, rec, id_b, b_renders, save)
             if rec["status"] == "ok":
@@ -514,22 +565,41 @@ def run_k1(
             save()
     except YouCamError as exc:
         return fail(exc.code or "error", str(exc), exc.task_id)
+    except Exception as exc:  # noqa: BLE001 - after any spend nothing may escape unrecorded
+        return fail("unexpected", f"{type(exc).__name__}: {exc}")
 
     # Score.
     in_l = in_a["lab_mean"][0]
     gating = next((r for r in b_renders if abs(r["target_alpha"] - GATING_ALPHA) < 1e-9), None)
     mono = check_monotonic(a_renders)
-    tex = check_texture(usable, curves, in_a["hf_energy"])
+    tex = check_texture(usable, curves, tex_ctx)
     max_dl = max((r["lab_mean"][0] - in_l for r in usable), default=None)
+    reasons: dict[str, str] = {}
+    inverse_ok = False
+    if gating is None:
+        reasons["inverse"] = "no gating render was made"
+    elif gating["status"] != "ok":
+        reasons["inverse"] = f"gating render status {gating['status']}"
+    elif gating.get("cov100_lost"):
+        reasons["inverse"] = "coverage-100 cell needed for inversion was lost to no_face"
+    elif not gating["reachable"]:
+        reasons["inverse"] = "target alpha not reachable"
+    elif gating["de00_to_target"] > THRESHOLDS["inverse_de_max"]:
+        reasons["inverse"] = f"dE00 {gating['de00_to_target']:.2f} above limit"
+    else:
+        inverse_ok = True
+    for s_ in mono["series"]:
+        if not s_["pass"]:
+            reasons.setdefault("monotonic", "")
+            reasons["monotonic"] += (
+                f"{s_['color']} ci{s_['colorIntensity']}: "
+                f"{s_.get('reason') or 'L* reversal at coverage ' + str(s_['violation']['coverage'])}; "
+            )
     crit = {
         "monotonic": mono["pass"],
         "r2": fit["r2"] is not None and fit["r2"] >= THRESHOLDS["r2_min"],
         "max_dl": max_dl is not None and max_dl >= THRESHOLDS["max_dl_min"],
-        "inverse": bool(
-            gating is not None
-            and gating["status"] == "ok"
-            and gating["de00_to_target"] <= THRESHOLDS["inverse_de_max"]
-        ),
+        "inverse": inverse_ok,
         "texture": tex["pass"],
     }
     result["monotonic"] = mono
@@ -537,6 +607,7 @@ def run_k1(
     result["max_dl_star"] = max_dl
     result["inverse_gating_de00"] = gating.get("de00_to_target") if gating else None
     result["criteria_pass"] = crit
+    result["criteria_reasons"] = reasons
     result["k1_pass"] = all(crit.values())
     _record_balance_after(client, result, state["balance_before"])
     save()

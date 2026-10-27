@@ -1,5 +1,6 @@
 import itertools
 import json
+import sys
 
 import numpy as np
 import pytest
@@ -232,8 +233,14 @@ def test_full_run_passes_with_ideal_fake(selfies, tmp_path):
         "r2": True,
         "max_dl": True,
         "inverse": True,
-        "texture": r["criteria_pass"]["texture"],
+        "texture": True,
     }
+    assert r["k1_pass"] is True
+    assert r["texture"]["fraction_ok"] >= 0.8 and r["texture"]["n_eligible"] > 0
+    assert all("predicted" in x and "observed" in x for x in r["texture"]["rows"])
+    assert "result_url" not in json.dumps(r)
+    assert all(x["icc_profile"] is False for x in r["renders"])
+    assert "raw_alpha_by_color" in r["fit"]
     assert r["inverse_gating_de00"] <= 2.0
     assert r["balance_before"] == 1000 and r["balance_after"] == 958
     assert r["units_spent"] == 42
@@ -303,17 +310,117 @@ def test_inverse_mapping_integers_and_curve_choice():
     assert unreachable["colorIntensity"] == 100
 
 
-def test_texture_criterion_as_specified():
+def test_texture_uses_ideal_linear_film_prediction():
+    rng = np.random.default_rng(1)
+    img = np.clip(np.array(SKIN) + rng.normal(0, 8, (600, 600, 3)), 0, 255).astype(np.uint8)
+    mask = np.zeros((600, 600), dtype=bool)
+    mask[200:300, 100:200] = True
+    hf_in = k1.patch_stats(img, mask, 300.0)["hf_energy"]
+    ctx = {"img": img, "mask": mask, "scale_px": 300.0, "hf_energy": hf_in}
     curves = {50: {0: 0.0, 20: 0.1, 40: 0.5}}
+    a = 0.5
+    ideal = (1 - a) * _decode(img / 255.0) + a * k1._hex_linear("#FFFFFF")
+    ideal_u8 = np.rint(_encode(ideal) * 255.0).astype(np.uint8)
+    hf_ideal = k1.patch_stats(ideal_u8, mask, 300.0)["hf_energy"]
+    assert hf_ideal / hf_in != pytest.approx(1 - a, rel=0.2)  # gamma vs linear really differ
 
-    def r(i, cov, hf):
-        return {"id": i, "colorIntensity": 50, "coverageIntensity": cov, "hf_energy": hf}
+    def r(i, cov, hf, color="#FFFFFF"):
+        return {
+            "id": i,
+            "color": color,
+            "colorIntensity": 50,
+            "coverageIntensity": cov,
+            "hf_energy": hf,
+        }
 
-    usable = [r("zero", 0, 0.01), r("low", 20, 0.0095)]  # a<0.2 are skipped
-    assert k1.check_texture(usable, curves, 0.01)["n_eligible"] == 0
-    assert k1.check_texture(usable, curves, 0.01)["pass"] is False
-    usable = [r(f"ok{i}", 40, 0.0052) for i in range(4)] + [r("bad", 40, 0.009)]
-    t = k1.check_texture(usable, curves, 0.01)  # target ratio 0.5, band 0.4 to 0.6
+    zero = [r("zero", 0, hf_in), r("low", 20, hf_in)]  # a < 0.2 are skipped
+    t = k1.check_texture(zero, curves, ctx)
+    assert t["n_eligible"] == 0 and t["pass"] is False
+    good = [r(f"g{i}", 40, hf_ideal * 1.05) for i in range(4)] + [r("bad", 40, hf_in)]
+    t = k1.check_texture(good, curves, ctx)
     assert t["n_eligible"] == 5 and t["fraction_ok"] == pytest.approx(0.8) and t["pass"] is True
-    t = k1.check_texture(usable[1:] + [r("bad2", 40, 0.001)], curves, 0.01)
+    assert t["rows"][0]["predicted"] == pytest.approx(hf_ideal / hf_in)
+    assert t["rows"][0]["observed"] == pytest.approx(hf_ideal * 1.05 / hf_in)
+    t = k1.check_texture(good[1:] + [r("bad2", 40, hf_in)], curves, ctx)
     assert t["fraction_ok"] == pytest.approx(0.6) and t["pass"] is False
+
+
+def test_r2_pinned_to_hand_computed_value():
+    skin = [0.5, 0.5, 0.5]
+
+    def rr(cov, lin):
+        return {
+            "color": "#FFFFFF",
+            "colorIntensity": 50,
+            "coverageIntensity": cov,
+            "linear_rgb": lin,
+        }
+
+    fit = k1.fit_blend([rr(0, [0.6, 0.6, 0.6]), rr(20, [0.8, 0.7, 0.9])], skin)
+    # a = 0.2 and 0.6; SSres = 0.02, SStot = 0.02 + 0.005 + 0.045 = 0.07
+    assert fit["r2"] == pytest.approx(1 - 0.02 / 0.07)
+    assert fit["raw_alpha_by_color"]["50"]["20"]["#FFFFFF"] == pytest.approx(0.6)
+
+
+def test_pav_with_unequal_weights():
+    assert k1.isotonic_nondecreasing([3, 1], [1, 3]) == pytest.approx([1.5, 1.5])
+    assert k1.isotonic_nondecreasing([1, 3, 2], [1, 1, 3]) == pytest.approx([1, 2.25, 2.25])
+    assert k1.isotonic_nondecreasing([1, 2, 3], [5, 1, 2]) == pytest.approx([1, 2, 3])
+
+
+def test_unreachable_gating_alpha_fails_inverse_only(selfies, tmp_path, monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "true_alpha", lambda cov, ci: 0.3 * cov / 100)
+    code, out = _run(FakeClient(), selfies, tmp_path)
+    assert code == 0
+    r = json.loads(out.read_text())
+    assert r["criteria_pass"]["inverse"] is False
+    assert r["criteria_reasons"]["inverse"] == "target alpha not reachable"
+    assert r["k1_pass"] is False
+
+
+def test_one_failed_criterion_fails_k1(selfies, tmp_path, monkeypatch):
+    monkeypatch.setitem(k1.THRESHOLDS, "max_dl_min", 99.0)
+    code, out = _run(FakeClient(), selfies, tmp_path)
+    assert code == 0
+    r = json.loads(out.read_text())
+    assert r["criteria_pass"] == {
+        "monotonic": True,
+        "r2": True,
+        "max_dl": False,
+        "inverse": True,
+        "texture": True,
+    }
+    assert r["k1_pass"] is False
+
+
+def test_monotonic_series_needs_four_points_and_coverage_100():
+    good = [60, 65, 70, 75, 80, 85]
+    rs = _series_renders(good)
+    victim = [x for x in rs if x["color"] == "#BDBDBD" and x["colorIntensity"] == 100]
+    for x in victim:
+        if x["coverageIntensity"] in (20, 40, 60):  # 3 left, still includes cov 100
+            x["status"] = "no_face"
+    res = k1.check_monotonic(rs)
+    s_ = next(x for x in res["series"] if x["color"] == "#BDBDBD" and x["colorIntensity"] == 100)
+    assert s_["n_usable"] == 3 and not s_["evaluable"] and "unevaluable" in s_["reason"]
+    assert res["pass"] is False
+    rs = _series_renders(good)
+    for x in rs:
+        if x["color"] == "#BDBDBD" and x["colorIntensity"] == 100 and x["coverageIntensity"] == 100:
+            x["status"] = "no_face"  # 5 usable but coverage 100 lost
+    assert k1.check_monotonic(rs)["pass"] is False
+
+
+def test_unexpected_exception_after_spend_is_recorded(selfies, tmp_path):
+    client = FakeClient()
+
+    def boom(url, dest):
+        raise OSError("disk full")
+
+    client.download = boom
+    code, out = _run(client, selfies, tmp_path)
+    assert code != 0
+    r = json.loads(out.read_text())
+    assert r["error"]["code"] == "unexpected" and "disk full" in r["error"]["message"]
+    assert r["balance_after"] == 958 and r["k1_pass"] is False
+    assert r["renders"][0]["task_id"] == "t1"
