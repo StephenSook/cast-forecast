@@ -33,6 +33,9 @@ from castforecast.youcam import YouCamClient, YouCamError
 ENDPOINT = "task/makeup-vto"  # client.run adds the /s2s/v2.0/ prefix
 MIN_BALANCE = 200
 MONO_MIN_POINTS = 4
+MAX_W, MAX_H = 1920, 1080  # Makeup VTO needs width < 1920 and height < 1080
+MIN_FACE_WIDTH_PX = 100
+FACE_WIDTH_PER_SCALE = 1.55  # face width ~ 1.55 x outer-eye-corner distance (scale_px), an estimate
 COLORS = ("#FFFFFF", "#D2D2D2", "#BDBDBD")
 COVERAGES = (0, 20, 40, 60, 80, 100)
 COLOR_INTENSITIES = (50, 100)
@@ -473,13 +476,24 @@ def run_k1(
 
     # Offline preparation first: nothing is uploaded or billed until every local step has worked.
     try:
-        copy_a = upload_copy(selfie_a, copies_dir)
-        copy_b = upload_copy(selfie_b, copies_dir)
+        copy_a = upload_copy(selfie_a, copies_dir, max_width=MAX_W, max_height=MAX_H)
+        copy_b = upload_copy(selfie_b, copies_dir, max_width=MAX_W, max_height=MAX_H)
+        with Image.open(copy_a) as im_a, Image.open(copy_b) as im_b:
+            result["upload_copy_size"] = {"A": list(im_a.size), "B": list(im_b.size)}
         in_a, in_b = measure(copy_a, with_context=True), measure(copy_b)
     except (ValueError, OSError) as exc:
         return fail("local_prep", str(exc))
     if in_a is None or in_b is None:
         return fail("local_prep", "no usable cheek patch on an input upload copy")
+    for name, m in (("A", in_a), ("B", in_b)):
+        face_w = m["scale_px"] * FACE_WIDTH_PER_SCALE
+        result.setdefault("face_width_est_px", {})[name] = face_w
+        if face_w < MIN_FACE_WIDTH_PX:
+            return fail(
+                "face_too_small",
+                f"{name}: estimated face width {face_w:.0f}px on the resized upload copy "
+                f"is under {MIN_FACE_WIDTH_PX}px",
+            )
     state["input_a"] = copy_a
     tex_ctx = {
         "img": in_a.pop("_img"),

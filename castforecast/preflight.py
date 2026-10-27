@@ -85,8 +85,13 @@ def _to_srgb(im: Image.Image, icc: bytes | None) -> Image.Image:
     )
 
 
-def upload_copy(path: Path, out_dir: Path) -> Path:
+def upload_copy(
+    path: Path, out_dir: Path, max_width: int | None = None, max_height: int | None = None
+) -> Path:
     """Write the metadata-free sRGB JPEG that is actually uploaded.
+
+    With max_width / max_height the copy is shrunk (never enlarged) with LANCZOS, aspect ratio
+    preserved, so that width < max_width AND height < max_height (strict).
 
     Raises ValueError for unsupported modes (CMYK etc.) or a profile that does not match.
     """
@@ -99,6 +104,14 @@ def upload_copy(path: Path, out_dir: Path) -> Path:
         # Fresh image from pixels: nothing from the source container can survive.
         clean = Image.new("RGB", converted.size)
         clean.paste(converted)
+    if max_width is not None or max_height is not None:
+        w, h = clean.size
+        mw = max_width - 1 if max_width is not None else w
+        mh = max_height - 1 if max_height is not None else h
+        scale = min(mw / w, mh / h, 1.0)
+        if scale < 1.0:
+            nw, nh = min(mw, max(1, int(w * scale))), min(mh, max(1, int(h * scale)))
+            clean = clean.resize((nw, nh), Image.Resampling.LANCZOS)
     out = out_dir / f"{path.stem}.upload.jpg"
     clean.save(out, "JPEG", quality=95)  # no exif=, no icc_profile= : no metadata written
     return out

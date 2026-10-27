@@ -424,3 +424,56 @@ def test_unexpected_exception_after_spend_is_recorded(selfies, tmp_path):
     assert r["error"]["code"] == "unexpected" and "disk full" in r["error"]["message"]
     assert r["balance_after"] == 958 and r["k1_pass"] is False
     assert r["renders"][0]["task_id"] == "t1"
+
+
+def _big(tmp_path, name, size):
+    d = tmp_path / "big"
+    d.mkdir(exist_ok=True)
+    rng = np.random.default_rng(2)
+    arr = np.clip(np.array(SKIN) + rng.normal(0, 6, (size[1], size[0], 3)), 0, 255)
+    p = d / f"{name}.jpg"
+    Image.fromarray(arr.astype(np.uint8)).save(p, "JPEG", quality=90)
+    return p
+
+
+@pytest.mark.parametrize("size", [(1698, 2625), (2400, 1300), (1919, 1079), (800, 600)])
+def test_upload_copy_fits_makeup_vto_limits(tmp_path, size):
+    from castforecast.preflight import upload_copy
+
+    src = _big(tmp_path, "s", size)
+    out = upload_copy(src, tmp_path / "o", max_width=1920, max_height=1080)
+    with Image.open(out) as im:
+        w, h = im.size
+        assert w < 1920 and h < 1080
+        assert abs(h - w * size[1] / size[0]) <= 1.0  # aspect kept within 1 px
+        assert not im.info.get("icc_profile") and not im.getexif()
+        assert im.format == "JPEG"
+    if size[0] < 1920 and size[1] < 1080:
+        with Image.open(out) as im:
+            assert im.size == size  # never enlarged or shrunk when it already fits
+
+
+def test_run_uploads_resized_copy_and_uses_it_as_baseline(tmp_path):
+    a = _big(tmp_path, "A", (1698, 2625))
+    b = _big(tmp_path, "B", (2400, 1300))
+    client = FakeClient()
+    code, out = _run(client, (a, b), tmp_path)
+    assert code == 0
+    r = json.loads(out.read_text())
+    for sz in r["upload_copy_size"].values():
+        assert sz[0] < 1920 and sz[1] < 1080
+    for p in client.uploaded:
+        with Image.open(p) as im:
+            assert im.width < 1920 and im.height < 1080
+    with Image.open(client.uploaded[0]) as im:
+        assert list(im.size) == r["upload_copy_size"]["A"]
+
+
+def test_small_face_fails_before_any_spend(selfies, tmp_path, monkeypatch):
+    monkeypatch.setattr(k1, "cheek_patches", lambda img: {**_fake_patches(img), "scale_px": 40.0})
+    client = FakeClient()
+    code, out = _run(client, selfies, tmp_path)
+    assert code != 0
+    r = json.loads(out.read_text())
+    assert r["error"]["code"] == "face_too_small"
+    assert client.calls == [] and client.payloads == []
