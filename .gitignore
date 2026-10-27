@@ -30,3 +30,4 @@ venv/
 .vercel/
 # Personal photos and raw captures (selfies, forearm shots) never reach GitHub
 private_inputs/
+models/
