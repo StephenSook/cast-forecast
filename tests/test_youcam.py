@@ -1,8 +1,12 @@
+import http.client
 import json
+import subprocess
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
+import castforecast.youcam as yc
 from castforecast.youcam import Request, Response, YouCamClient, YouCamError
 
 KEY = "SECRET-KEY-123"
@@ -126,3 +130,146 @@ def test_429_then_success_and_balance_parse():
     assert c.balance() == 987
     assert sleeps == [30]
     assert fake.calls[0].headers["Authorization"] == f"Bearer {KEY}"
+
+
+# ---- fix round 1 ----
+
+
+class FakeConn:
+    instances: ClassVar[list["FakeConn"]] = []
+    status = 200
+    body = b"{}"
+    read_exc: Exception | None = None
+
+    def __init__(self, host, timeout=None, **kw):
+        self.host = host
+        self.line = None
+        self.headers: list[tuple[str, str]] = []
+        self.sent_body = None
+        FakeConn.instances.append(self)
+
+    def putrequest(self, method, url, **kw):
+        self.line = (method, url, kw)
+
+    def putheader(self, name, value):
+        self.headers.append((name, value))
+
+    def endheaders(self, body=None):
+        self.sent_body = body
+
+    def getresponse(self):
+        conn = self
+
+        class R:
+            status = conn.status
+
+            def read(self):
+                if conn.read_exc:
+                    raise conn.read_exc
+                return conn.body
+
+        return R()
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def conn(monkeypatch):
+    FakeConn.instances = []
+    FakeConn.status, FakeConn.body, FakeConn.read_exc = 200, b"{}", None
+    monkeypatch.setattr(yc.http.client, "HTTPSConnection", FakeConn)
+    return FakeConn
+
+
+def test_real_transport_sends_exactly_returned_headers(conn):
+    hdrs = {"content-type": "image/jpeg", "x-amz-Foo": "Bar=="}
+    resp = yc._http_transport(
+        Request("PUT", "https://up.example/a/b?sig=AbC%2F&x=1", hdrs, b"DATA")
+    )
+    c = conn.instances[0]
+    assert resp.status == 200
+    assert c.host == "up.example"
+    method, target, kw = c.line
+    assert (method, target) == ("PUT", "/a/b?sig=AbC%2F&x=1")
+    assert kw.get("skip_accept_encoding") is True
+    assert c.headers == [*hdrs.items(), ("Content-Length", "4")]
+    assert c.sent_body == b"DATA"
+
+
+def test_real_transport_no_body_adds_no_content_headers(conn):
+    yc._http_transport(Request("GET", "https://r.example/x.jpg", {}, None))
+    assert conn.instances[0].headers == []
+
+
+@pytest.mark.parametrize(
+    "exc", [TimeoutError(), ConnectionResetError(), http.client.IncompleteRead(b"x")]
+)
+def test_real_transport_wraps_read_errors(conn, exc):
+    conn.read_exc = exc
+    with pytest.raises(YouCamError) as e:
+        yc._http_transport(Request("GET", "https://r.example/x"))
+    assert e.value.code == "network"
+
+
+def test_redirect_is_not_followed_and_is_loud(conn):
+    conn.status = 302
+    c = YouCamClient(key=KEY)
+    with pytest.raises(YouCamError) as e:
+        c.balance()
+    assert e.value.code == "http_302"
+    assert len(conn.instances) == 1
+    assert KEY not in str(e.value)
+
+
+def test_read_key_blank_stdout_with_exit_zero(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, b"\n", b"")
+    )
+    with pytest.raises(YouCamError, match="no key"):
+        yc.read_key()
+
+
+def test_read_key_nonzero_and_missing_binary(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 44, b"x", b"")
+    )
+    with pytest.raises(YouCamError, match="no key"):
+        yc.read_key()
+
+    def boom(*a, **k):
+        raise FileNotFoundError("security")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    with pytest.raises(YouCamError, match="no key"):
+        yc.read_key()
+
+
+def test_read_key_returns_value(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, b"abc\n", b"")
+    )
+    assert yc.read_key() == "abc"
+
+
+def test_request_repr_never_contains_key():
+    r = Request("GET", "https://x", {"Authorization": f"Bearer {KEY}"}, b"body")
+    assert KEY not in repr(r)
+
+
+def test_require_budget_both_paths():
+    c, _, _ = client([ok({"total_credits": 150})])
+    with pytest.raises(YouCamError) as e:
+        c.require_budget()
+    assert e.value.code == "budget"
+    c, _, _ = client([ok({"total_credits": 640})])
+    assert c.require_budget() == 640
+    c, _, _ = client([ok({"total_credits": 50})])
+    assert c.require_budget(min_units=10) == 50
+
+
+def test_poll_success_with_empty_results_is_bad_shape():
+    c, _, _ = client([ok({"task_status": "success", "results": {}})])
+    with pytest.raises(YouCamError) as e:
+        c.poll("task/makeup-vto", "t2")
+    assert e.value.code == "bad_shape" and e.value.task_id == "t2"

@@ -1,12 +1,12 @@
-"""Minimal YouCam S2S client. urllib only; the API key never leaves this module."""
+"""Minimal YouCam S2S client. stdlib only; the API key never leaves this module."""
 
 from __future__ import annotations
 
+import http.client
 import json
 import subprocess
 import time
-import urllib.error
-import urllib.request
+import urllib.parse
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -30,8 +30,8 @@ class YouCamError(Exception):
 class Request:
     method: str
     url: str
-    headers: dict[str, str] = field(default_factory=dict)
-    body: bytes | None = None
+    headers: dict[str, str] = field(default_factory=dict, repr=False)
+    body: bytes | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -55,15 +55,31 @@ def read_key() -> str:
     return key
 
 
-def _urllib_transport(req: Request) -> Response:
-    r = urllib.request.Request(req.url, data=req.body, headers=req.headers, method=req.method)
+def _http_transport(req: Request) -> Response:
+    """Send via http.client so the wire request is exactly the one described.
+
+    No redirects are followed (a 3xx comes back as a status), no default headers are
+    added beyond Host and Content-Length framing, and header case is preserved.
+    """
+    parts = urllib.parse.urlsplit(req.url)
+    target = parts.path or "/"
+    if parts.query:
+        target += "?" + parts.query
+    conn_cls = http.client.HTTPConnection if parts.scheme == "http" else http.client.HTTPSConnection
+    conn = conn_cls(parts.netloc, timeout=60)
     try:
-        with urllib.request.urlopen(r, timeout=60) as resp:
-            return Response(resp.status, resp.read())
-    except urllib.error.HTTPError as e:
-        return Response(e.code, e.read())
-    except urllib.error.URLError as e:
-        raise YouCamError(f"network error: {type(e.reason).__name__}", code="network") from None
+        conn.putrequest(req.method, target, skip_accept_encoding=True)
+        for name, value in req.headers.items():
+            conn.putheader(name, value)
+        if req.body is not None:
+            conn.putheader("Content-Length", str(len(req.body)))
+        conn.endheaders(req.body)
+        resp = conn.getresponse()
+        return Response(resp.status, resp.read())
+    except (OSError, http.client.HTTPException) as e:
+        raise YouCamError(f"network error: {type(e).__name__}", code="network") from None
+    finally:
+        conn.close()
 
 
 class YouCamClient:
@@ -75,7 +91,7 @@ class YouCamClient:
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ):
-        self._transport = transport or _urllib_transport
+        self._transport = transport or _http_transport
         self._key = read_key() if key is None else key
         self._sleep = sleep
         self._clock = clock
@@ -111,7 +127,7 @@ class YouCamClient:
             headers["Content-Type"] = "application/json"
             body = json.dumps(payload).encode()
         resp = self._send(Request(method, BASE + path, headers, body))
-        if resp.status >= 400:
+        if resp.status >= 300:
             code = f"http_{resp.status}"
             raise YouCamError(f"{method} {path} failed with HTTP {resp.status}", code=code)
         try:
@@ -125,6 +141,12 @@ class YouCamClient:
         if total is None:
             raise YouCamError("credit response had no recognisable balance", code="bad_shape")
         return total
+
+    def require_budget(self, min_units: int = 200) -> int:
+        bal = self.balance()
+        if bal < min_units:
+            raise YouCamError(f"budget: balance {bal} is under {min_units}", code="budget")
+        return bal
 
     def upload(self, path: Path) -> str:
         path = Path(path)
@@ -145,7 +167,7 @@ class YouCamClient:
                 "upload registration had unexpected shape", code="bad_shape"
             ) from None
         resp = self._send_raw(Request(method, url, headers, data))
-        if resp.status >= 400:
+        if resp.status >= 300:
             raise YouCamError(
                 f"upload PUT failed with HTTP {resp.status}", code=f"http_{resp.status}"
             )
@@ -169,7 +191,14 @@ class YouCamClient:
             data = self._api("GET", path).get("data") or {}
             status = data.get("task_status")
             if status == "success":
-                return data.get("results") or {}
+                results = data.get("results")
+                if not results:
+                    raise YouCamError(
+                        f"task {task_id} succeeded with empty results",
+                        code="bad_shape",
+                        task_id=task_id,
+                    )
+                return results
             if status == "error":
                 code = data.get("error") or data.get("error_code") or "error"
                 raise YouCamError(f"task {task_id} failed: {code}", code=code, task_id=task_id)
@@ -183,7 +212,7 @@ class YouCamClient:
 
     def download(self, url: str, dest: Path) -> Path:
         resp = self._send_raw(Request("GET", url))
-        if resp.status >= 400 or not resp.body:
+        if resp.status >= 300 or not resp.body:
             raise YouCamError(
                 f"download failed with HTTP {resp.status}", code=f"http_{resp.status}"
             )
