@@ -1,0 +1,32 @@
+# Private research and strategy material never reaches GitHub (dev-folder convention, 2026-08-15)
+*.pdf
+research_notes/
+reports/
+recon/
+CLAUDE.local.md
+# deps / build / env
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+.DS_Store
+._*
+.vscode/
+.idea/
+*.log
+.vercel/
+# Personal photos and raw captures (selfies, forearm shots) never reach GitHub
+private_inputs/
