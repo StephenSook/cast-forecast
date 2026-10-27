@@ -2,12 +2,14 @@ name: ci
 on: push
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y libegl1 libgles2
       - run: pip install numpy pillow opencv-python-headless colour-science mediapipe pytest ruff
       - run: python scripts/fetch_models.py
       - run: ruff check .
