@@ -43,3 +43,11 @@ def test_linear_gain_10pct_raises_Y_10pct():
 def test_linear_gain_clips():
     out = apply_linear_gain(np.full((2, 2, 3), 250, dtype=np.uint8), 3.0)
     assert out.max() == 255
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.int64, np.uint16, np.int8, bool])
+def test_non_uint8_integer_dtypes_rejected(dtype):
+    with pytest.raises(TypeError, match="uint8 or float"):
+        srgb_to_lab(np.array([128, 64, 1]).astype(dtype))
+    with pytest.raises(TypeError):
+        apply_linear_gain(np.full((2, 2, 3), 1).astype(dtype), 1.1)

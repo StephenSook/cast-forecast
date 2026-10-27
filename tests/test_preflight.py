@@ -6,6 +6,7 @@ import pytest
 from PIL import Image, ImageCms
 
 from castforecast.preflight import preflight, upload_copy
+from tests.icc_helpers import gray_profile, wide_gamut_rgb_profile
 
 
 def _jpeg(path: Path, size=(1200, 1600), **save_kw) -> Path:
@@ -41,10 +42,10 @@ def test_preflight_rejects_wrong_format_and_flags_sd(tmp_path):
 def test_preflight_applies_exif_orientation(tmp_path):
     p = tmp_path / "rot.jpg"
     exif = Image.Exif()
-    exif[0x0112] = 6  # rotate 90 CW on display: stored 1600x1200 shows as 1200x1600
-    arr = np.zeros((1200, 1600, 3), dtype=np.uint8)
-    Image.fromarray(arr).save(p, "JPEG", exif=exif)
-    assert preflight(p)["short_side"] == 1200
+    exif[0x0112] = 6  # stored 1600x1200 displays as 1200 wide, 1600 tall
+    Image.fromarray(np.zeros((1200, 1600, 3), dtype=np.uint8)).save(p, "JPEG", exif=exif)
+    r = preflight(p)
+    assert (r["width"], r["height"]) == (1200, 1600)
 
 
 def test_upload_copy_strips_gps_exif_and_icc(tmp_path):
@@ -72,21 +73,94 @@ def test_upload_copy_strips_gps_exif_and_icc(tmp_path):
     assert b"Exif" not in raw and b"ICC_PROFILE" not in raw
 
 
-P3_PROFILE = Path("/System/Library/ColorSync/Profiles/Display P3.icc")
+def _px(path):
+    with Image.open(path) as im:
+        assert "icc_profile" not in im.info
+        return np.asarray(im.convert("RGB"))[550, 550].astype(int)
 
 
-@pytest.mark.skipif(not P3_PROFILE.exists(), reason="no system Display P3 profile")
-def test_upload_copy_converts_display_p3_to_srgb(tmp_path):
-    src = tmp_path / "p3.jpg"
-    Image.fromarray(np.full((1100, 1100, 3), (200, 80, 60), dtype=np.uint8)).save(
-        src, "JPEG", quality=100, icc_profile=P3_PROFILE.read_bytes()
+def test_upload_copy_converts_embedded_wide_gamut_profile(tmp_path):
+    patch = np.full((1100, 1100, 3), (30, 200, 60), dtype=np.uint8)
+    tagged = tmp_path / "wide.png"
+    Image.fromarray(patch).save(tagged, "PNG", icc_profile=wide_gamut_rgb_profile())
+    untagged = tmp_path / "plain.png"
+    Image.fromarray(patch).save(untagged, "PNG")
+    converted = _px(upload_copy(tagged, tmp_path / "a"))
+    ignored = _px(upload_copy(untagged, tmp_path / "b"))
+    # A wide-gamut green is more saturated than the same numbers read as sRGB, so honouring
+    # the profile must change the result by a clear margin on at least one channel.
+    assert np.abs(converted - ignored).max() >= 15
+
+
+def test_upload_copy_applies_gray_profile(tmp_path):
+    tagged = tmp_path / "g.png"
+    Image.fromarray(np.full((1100, 1100), 128, dtype=np.uint8)).save(
+        tagged, "PNG", icc_profile=gray_profile(3.0)
     )
+    px = _px(upload_copy(tagged, tmp_path / "o"))
+    assert abs(int(px[0]) - 128) >= 10 and px[0] == px[1] == px[2]
+
+
+def test_upload_copy_rejects_profile_that_does_not_match_mode(tmp_path):
+    src = tmp_path / "bad.png"
+    Image.fromarray(np.full((1100, 1100, 3), 90, dtype=np.uint8)).save(
+        src, "PNG", icc_profile=gray_profile()
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        upload_copy(src, tmp_path / "o")
+
+
+def test_upload_copy_rejects_cmyk_clearly(tmp_path):
+    src = tmp_path / "cmyk.jpg"
+    Image.new("CMYK", (1100, 1100), (0, 0, 0, 0)).save(src, "JPEG")
+    with pytest.raises(ValueError, match="unsupported image mode CMYK"):
+        upload_copy(src, tmp_path / "o")
+
+
+def test_upload_copy_scales_16_bit_png_instead_of_clipping(tmp_path):
+    src = tmp_path / "deep.png"
+    Image.fromarray(np.full((1100, 1100), 40000, dtype=np.uint16)).save(src, "PNG")
+    with Image.open(src) as chk:
+        assert chk.mode.startswith("I")
+    px = _px(upload_copy(src, tmp_path / "o"))
+    assert abs(int(px[0]) - round(40000 / 257)) <= 2
+
+
+def _mpo(path):
+    a = Image.fromarray(np.full((1200, 900, 3), 100, dtype=np.uint8))
+    b = Image.fromarray(np.full((1200, 900, 3), 50, dtype=np.uint8))
+    a.save(path, "MPO", save_all=True, append_images=[b])
+    with Image.open(path) as chk:
+        assert chk.format == "MPO"
+    return path
+
+
+def test_preflight_and_upload_copy_accept_mpo(tmp_path):
+    src = _mpo(tmp_path / "iphone.jpg")
+    r = preflight(src)
+    assert r["ok"], r["reasons"]
     out = upload_copy(src, tmp_path / "o")
     with Image.open(out) as im:
-        px = np.asarray(im.convert("RGB"))[550, 550].astype(int)
-        assert "icc_profile" not in im.info
-    # P3 reds are more saturated than sRGB: converting must push R up and G, B down.
-    assert px[0] > 200 + 5 and px[1] < 80 - 5 and px[2] < 60
+        assert im.format == "JPEG" and im.size == (900, 1200)
+        assert not getattr(im, "n_frames", 1) > 1
+
+
+def test_preflight_returns_rejection_for_decompression_bomb(tmp_path, monkeypatch):
+    src = _jpeg(tmp_path / "big.jpg")
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    r = preflight(src)
+    assert not r["ok"] and r["reasons"]
+
+
+def test_upload_copy_strips_xmp_and_comment(tmp_path):
+    src = tmp_path / "meta.jpg"
+    xmp = b"<?xpacket begin?><x:xmpmeta xmlns:x='adobe:ns:meta/'>SECRETXMP</x:xmpmeta>"
+    Image.fromarray(np.full((1100, 1100, 3), 90, dtype=np.uint8)).save(
+        src, "JPEG", xmp=xmp, comment=b"SECRETCOMMENT"
+    )
+    assert b"SECRETXMP" in src.read_bytes() and b"SECRETCOMMENT" in src.read_bytes()
+    raw = upload_copy(src, tmp_path / "o").read_bytes()
+    assert b"SECRETXMP" not in raw and b"SECRETCOMMENT" not in raw and b"xmpmeta" not in raw
 
 
 def test_upload_copy_no_icc_passthrough(tmp_path):

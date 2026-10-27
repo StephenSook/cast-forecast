@@ -8,7 +8,7 @@ import numpy as np
 
 with warnings.catch_warnings():
     # colour-science warns that optional SciPy is absent; nothing here needs it.
-    warnings.simplefilter("ignore")
+    warnings.filterwarnings("ignore", message=r".*SciPy.*related API features")
     import colour
 
 
@@ -16,7 +16,9 @@ def _to_unit(rgb: np.ndarray) -> np.ndarray:
     arr = np.asarray(rgb)
     if arr.dtype == np.uint8:
         return arr.astype(np.float64) / 255.0
-    return arr.astype(np.float64)
+    if np.issubdtype(arr.dtype, np.floating):
+        return arr.astype(np.float64)
+    raise TypeError(f"expected uint8 or float RGB array, got dtype {arr.dtype}")
 
 
 def _decode(unit: np.ndarray) -> np.ndarray:
