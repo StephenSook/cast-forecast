@@ -25,7 +25,10 @@ def _fake_patches(img):
 
 
 class FakeClient:
-    def __init__(self, hexes, balances=(1000, 940), fail_on_call=None):
+    def __init__(self, hexes, balances=(1000, 940), fail_on_call=None, balance_fails=False):
+        self.balance_fails = balance_fails
+        self.endpoints = []
+        self.file_ids = []
         self.hexes = list(hexes)
         self.balances = list(balances)
         self.fail_on_call = fail_on_call
@@ -35,6 +38,8 @@ class FakeClient:
 
     def balance(self):
         self.calls.append("balance")
+        if self.balance_fails:
+            raise YouCamError("network error: OSError", code="network")
         return self.balances.pop(0)
 
     def require_budget(self, min_units=200):
@@ -50,6 +55,8 @@ class FakeClient:
         self.tone_calls += 1
         self.calls.append(f"run:{endpoint}")
         self.payload = payload
+        self.endpoints.append(("run", endpoint))
+        self.file_ids.append(payload["src_file_id"])
         if self.fail_on_call == self.tone_calls:
             raise YouCamError(
                 "task failed: error_lighting_dark", code="error_lighting_dark", task_id="tX"
@@ -58,6 +65,7 @@ class FakeClient:
 
     def poll(self, endpoint, task_id, timeout_s=120):
         self.calls.append(f"poll:{task_id}")
+        self.endpoints.append(("poll", endpoint))
         return {"color": {"skin_color": self.hexes.pop(0)}, "face_quality": {"ok": True}}
 
 
@@ -104,7 +112,7 @@ def test_k2_computes_metrics_from_fake_hexes(selfie, tmp_path):
     assert r["calls"][0]["face_quality"] == {"ok": True}
     # every uploaded file is an upload_copy output, never the raw selfie
     assert all(p.name.endswith(".upload.jpg") for p in client.uploaded)
-    assert selfie not in client.uploaded and len(client.uploaded) == 2
+    assert selfie not in client.uploaded and len(client.uploaded) == 3
 
 
 def test_k2_fails_when_api_ignores_gain(selfie, tmp_path):
@@ -150,3 +158,95 @@ def test_k2_no_face_makes_zero_calls(selfie, tmp_path, monkeypatch):
     client = FakeClient([])
     assert k2_tone.run_k2(client, selfie, tmp_path / "k2.json", tmp_path / "c") != 0
     assert client.calls == []
+
+
+GOOD = _hex(SKIN)
+GAIN_HEX = _hex(apply_linear_gain(np.full((1, 1, 3), SKIN, dtype=np.uint8), 1.1)[0, 0])
+
+
+def _run(tmp_path, selfie, client):
+    out = tmp_path / "k2.json"
+    code = k2_tone.run_k2(client, selfie, out, tmp_path / "c")
+    return code, json.loads(out.read_text())
+
+
+def test_k2_uses_exact_endpoint_for_run_and_poll(selfie, tmp_path):
+    client = FakeClient([GOOD, GOOD, GAIN_HEX])
+    _run(tmp_path, selfie, client)
+    assert set(client.endpoints) == {
+        ("run", "task/skin-tone-analysis"),
+        ("poll", "task/skin-tone-analysis"),
+    }
+
+
+def test_k2_repeat_uses_fresh_upload_and_records_file_ids(selfie, tmp_path):
+    client = FakeClient([GOOD, GOOD, GAIN_HEX])
+    code, r = _run(tmp_path, selfie, client)
+    assert code == 0
+    assert len(set(client.file_ids)) == 3
+    assert client.uploaded[0] == client.uploaded[1]  # same upload copy, uploaded twice
+    assert r["file_ids"] == {"original": "fid1", "repeat": "fid2", "gain": "fid3"}
+    assert [c["file_id"] for c in r["calls"]] == ["fid1", "fid2", "fid3"]
+
+
+def test_k2_repeat_criterion_fails_alone(selfie, tmp_path):
+    code, r = _run(tmp_path, selfie, FakeClient([GOOD, _hex((215, 150, 120)), GAIN_HEX]))
+    assert code == 0
+    assert r["criteria_pass"] == {"repeat": False, "gain_response": True, "api_vs_patch": True}
+    assert r["k2_pass"] is False
+
+
+def test_k2_api_vs_patch_criterion_fails_alone(selfie, tmp_path):
+    off = np.full((1, 1, 3), (215, 150, 120), dtype=np.uint8)
+    off_gain = _hex(apply_linear_gain(off, 1.1)[0, 0])
+    code, r = _run(tmp_path, selfie, FakeClient([_hex((215, 150, 120))] * 2 + [off_gain]))
+    assert code == 0
+    assert r["criteria_pass"] == {"repeat": True, "gain_response": True, "api_vs_patch": False}
+    assert r["k2_pass"] is False
+
+
+def test_k2_near_zero_own_shift_leaves_ratio_undefined(selfie, tmp_path, monkeypatch):
+    monkeypatch.setattr(k2_tone, "apply_linear_gain", lambda img, g: img)
+    code, r = _run(tmp_path, selfie, FakeClient([GOOD, GOOD, GAIN_HEX]))
+    assert code == 0
+    assert r["gain_ratio_undefined"] is True
+    assert "0.5" in r["gain_ratio_undefined_reason"]
+    assert r["gain_response_ratio"] is None
+    assert r["criteria_pass"]["gain_response"] is False
+    assert r["k2_pass"] is False
+
+
+def test_k2_balance_failure_after_calls_keeps_paid_results(selfie, tmp_path):
+    client = FakeClient([GOOD, GOOD, GAIN_HEX], balance_fails=True)
+    code, r = _run(tmp_path, selfie, client)
+    assert code != 0
+    assert [c["skin_color"] for c in r["calls"]] == [GOOD, GOOD, GAIN_HEX]
+    assert [c["task_id"] for c in r["calls"]] == ["t1", "t2", "t3"]
+    assert r["balance_before"] == 1000
+    assert r["error"]["code"] == "network"
+    assert r["k2_pass"] is False
+
+
+def test_k2_malformed_hex_keeps_prior_calls_and_names_task(selfie, tmp_path):
+    client = FakeClient([GOOD, "#12345", GAIN_HEX])
+    code, r = _run(tmp_path, selfie, client)
+    assert code != 0
+    assert client.tone_calls == 2
+    assert len(r["calls"]) == 1
+    assert r["error"]["code"] == "bad_shape" and r["error"]["task_id"] == "t2"
+    assert r["k2_pass"] is False
+
+
+def test_k2_non_string_hex_is_bad_shape(selfie, tmp_path):
+    code, r = _run(tmp_path, selfie, FakeClient([GOOD, 123456, GAIN_HEX]))
+    assert code != 0 and r["error"]["code"] == "bad_shape"
+
+
+def test_k2_error_path_records_balance_read_failure(selfie, tmp_path):
+    client = FakeClient([GOOD], fail_on_call=2, balance_fails=True)
+    code, r = _run(tmp_path, selfie, client)
+    assert code != 0
+    assert r["balance_after_error"] is True
+    assert r["balance_after_error_code"] == "network"
+    assert "balance_after" not in r
+    assert r["error"]["code"] == "error_lighting_dark"

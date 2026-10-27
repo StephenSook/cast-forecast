@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,8 @@ ENDPOINT = "task/skin-tone-analysis"  # client.run adds the /s2s/v2.0/ prefix
 GAIN = 1.10
 MIN_BALANCE = 200
 UNITS_PER_CALL = 20
+MIN_OWN_SHIFT_DE = 0.5  # below this the gain-response ratio is not meaningful
+HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 THRESHOLDS = {"repeat_de_max": 1.0, "gain_ratio_min": 0.7, "api_vs_patch_de_max": 3.0}
 
 
@@ -49,10 +52,19 @@ def _tone_call(client, file_id: str) -> dict:
     try:
         skin = res["color"]["skin_color"]
     except (KeyError, TypeError):
+        skin = None
+    if not isinstance(skin, str) or not HEX_RE.match(skin):
         raise YouCamError(
-            f"task {task_id} result had no color.skin_color", code="bad_shape", task_id=task_id
-        ) from None
-    return {"task_id": task_id, "skin_color": skin, "face_quality": res.get("face_quality")}
+            f"task {task_id} result had no valid color.skin_color (#RRGGBB)",
+            code="bad_shape",
+            task_id=task_id,
+        )
+    return {
+        "task_id": task_id,
+        "file_id": file_id,
+        "skin_color": skin,
+        "face_quality": res.get("face_quality"),
+    }
 
 
 def _write(out: Path, result: dict) -> None:
@@ -68,14 +80,25 @@ def _score(calls: list[dict], own_orig, own_gain) -> dict:
     repeat_de = de2000(orig, rep)
     own_shift = de2000(own_orig, own_gain)
     api_shift = de2000(orig, gain)
-    ratio = api_shift / own_shift if own_shift > 0 else None
+    undefined = own_shift < MIN_OWN_SHIFT_DE
+    ratio = None if undefined else api_shift / own_shift
     api_vs_patch = de2000(orig, own_orig)
     crit = {
         "repeat": repeat_de <= THRESHOLDS["repeat_de_max"],
         "gain_response": ratio is not None and ratio >= THRESHOLDS["gain_ratio_min"],
         "api_vs_patch": api_vs_patch <= THRESHOLDS["api_vs_patch_de_max"],
     }
+    extra = {}
+    if undefined:
+        extra = {
+            "gain_ratio_undefined": True,
+            "gain_ratio_undefined_reason": (
+                f"own patch moved {own_shift:.3f} dE00 under the gain, below the "
+                f"{MIN_OWN_SHIFT_DE} minimum, so the ratio is not defined"
+            ),
+        }
     return {
+        **extra,
         "repeat_de": repeat_de,
         "gain_response_ratio": ratio,
         "api_vs_patch_de": api_vs_patch,
@@ -84,6 +107,15 @@ def _score(calls: list[dict], own_orig, own_gain) -> dict:
         "criteria_pass": crit,
         "k2_pass": all(crit.values()),
     }
+
+
+def _record_balance_after(client, result: dict, balance_before: int) -> None:
+    try:
+        result["balance_after"] = client.balance()
+        result["units_spent"] = balance_before - result["balance_after"]
+    except YouCamError as exc:
+        result["balance_after_error"] = True
+        result["balance_after_error_code"] = exc.code
 
 
 def run_k2(client, selfie: Path, out: Path, copies_dir: Path) -> int:
@@ -112,8 +144,8 @@ def run_k2(client, selfie: Path, out: Path, copies_dir: Path) -> int:
         orig_copy = upload_copy(selfie, copies_dir)
         with Image.open(orig_copy) as im:
             orig_img = np.asarray(im.convert("RGB"))
-        gain_raw = copies_dir / f"{selfie.stem}.gain.jpg"
-        Image.fromarray(apply_linear_gain(orig_img, GAIN)).save(gain_raw, "JPEG", quality=95)
+        gain_raw = copies_dir / f"{selfie.stem}.gain.png"  # lossless: no extra JPEG pass
+        Image.fromarray(apply_linear_gain(orig_img, GAIN)).save(gain_raw, "PNG")
         gain_copy = upload_copy(gain_raw, copies_dir)
         own_orig = _own_lab(orig_copy)
         own_gain = _own_lab(gain_copy)
@@ -126,21 +158,24 @@ def run_k2(client, selfie: Path, out: Path, copies_dir: Path) -> int:
         balance_before = client.require_budget(MIN_BALANCE)
         result["balance_before"] = balance_before
         orig_id = client.upload(orig_copy)
+        repeat_id = client.upload(orig_copy)  # fresh file id: no per-file server cache can help
         gain_id = client.upload(gain_copy)
-        for file_id in (orig_id, orig_id, gain_id):  # original, repeat, gain copy
+        result["file_ids"] = {"original": orig_id, "repeat": repeat_id, "gain": gain_id}
+        for file_id in (orig_id, repeat_id, gain_id):
             result["calls"].append(_tone_call(client, file_id))
     except YouCamError as exc:
-        try:
-            if balance_before is not None:
-                result["balance_after"] = client.balance()
-                result["units_spent"] = balance_before - result["balance_after"]
-        except YouCamError:
-            pass
+        if balance_before is not None:
+            _record_balance_after(client, result, balance_before)
         return fail(exc.code or "error", str(exc), exc.task_id)
 
-    result["balance_after"] = client.balance()
-    result["units_spent"] = balance_before - result["balance_after"]
-    result.update(_score(result["calls"], own_orig, own_gain))
+    _write(out, result)  # paid results are on disk before anything else can fail
+    try:
+        result["balance_after"] = client.balance()
+        result["units_spent"] = balance_before - result["balance_after"]
+        result.update(_score(result["calls"], own_orig, own_gain))
+    except (YouCamError, ValueError) as exc:
+        result["k2_pass"] = False
+        return fail(getattr(exc, "code", None) or "scoring", str(exc))
     _write(out, result)
     verdict = "PASS" if result["k2_pass"] else "FAIL"
     print(
