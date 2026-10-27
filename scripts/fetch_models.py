@@ -3,13 +3,18 @@
 Source: Google's official MediaPipe model storage, as documented at
 https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker (float16, version 1).
 License: Apache-2.0 (MediaPipe models).
-The download is verified against a pinned SHA-256 and the script fails loudly on mismatch.
+The download goes to a temp file beside the target, is verified against a pinned SHA-256, and only
+then is moved into place with os.replace. A mismatch deletes the temp file and fails loudly. An
+existing model with the wrong hash is reported and replaced by a verified download; an unverified
+model is never left in place.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -26,20 +31,29 @@ def sha256_of(data: bytes) -> str:
 
 
 def main() -> int:
-    if DEST.exists() and sha256_of(DEST.read_bytes()) == SHA256:
-        print(f"ok: {DEST} already present with pinned hash")
-        return 0
-    with urllib.request.urlopen(URL, timeout=60) as resp:
-        data = resp.read()
-    got = sha256_of(data)
-    if got != SHA256:
-        print(
-            f"FAIL: sha256 mismatch for {URL}\n  expected {SHA256}\n  got      {got}",
-            file=sys.stderr,
-        )
-        return 1
+    if DEST.exists():
+        if sha256_of(DEST.read_bytes()) == SHA256:
+            print(f"ok: {DEST} already present with pinned hash")
+            return 0
+        print(f"warning: {DEST} has the wrong hash; replacing with a verified download")
     DEST.parent.mkdir(parents=True, exist_ok=True)
-    DEST.write_bytes(data)
+    fd, tmp = tempfile.mkstemp(dir=DEST.parent, suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as f, urllib.request.urlopen(URL, timeout=60) as resp:
+            data = resp.read()
+            f.write(data)
+        got = sha256_of(data)
+        if got != SHA256:
+            print(
+                f"FAIL: sha256 mismatch for {URL}\n  expected {SHA256}\n  got      {got}",
+                file=sys.stderr,
+            )
+            return 1
+        os.replace(tmp, DEST)
+        tmp = ""
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.unlink(tmp)
     print(f"ok: wrote {DEST} ({len(data)} bytes)")
     return 0
 
