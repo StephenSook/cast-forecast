@@ -1,0 +1,16 @@
+[project]
+name = "castforecast"
+version = "0.1.0"
+description = "Gate harness for YouCam skin tone and foundation VTO checks"
+requires-python = ">=3.12"
+dependencies = ["numpy", "pillow", "opencv-python-headless", "colour-science", "mediapipe"]
+
+[tool.setuptools]
+packages = ["castforecast"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
