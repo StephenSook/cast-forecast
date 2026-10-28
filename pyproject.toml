@@ -1,0 +1,19 @@
+[project]
+name = "castforecast"
+version = "0.1.0"
+description = "Gate harness for YouCam skin tone and foundation VTO checks"
+requires-python = ">=3.12"
+dependencies = ["numpy", "pillow", "opencv-python-headless", "colour-science", "mediapipe"]
+
+[tool.setuptools]
+packages = ["castforecast"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+# The two Gate 1 analysis scripts are published byte-for-byte as they ran, so they are neither
+# reformatted nor linted. fetch_data.py next to them is linted like the rest of the repo.
+extend-exclude = ["analysis/gate1/heldout_test.py", "analysis/gate1/heldout_posthoc.py"]

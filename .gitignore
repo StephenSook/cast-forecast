@@ -30,3 +30,9 @@ venv/
 .vercel/
 # Personal photos and raw captures (selfies, forearm shots) never reach GitHub
 private_inputs/
+models/
+# Third-party study data is downloaded by analysis/gate1/fetch_data.py, never redistributed
+analysis/gate1/data/
+# Local tool and agent-workflow files
+.superpowers/
+*.wakatime
