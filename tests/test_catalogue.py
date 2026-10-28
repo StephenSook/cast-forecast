@@ -77,3 +77,23 @@ def test_whitening_band_spans_the_paper_sensitivity_runs():
 def test_whitening_band_is_none_if_any_run_has_no_usable_film():
     base = np.array([0.3, 0.2, 0.15])
     assert whitening_band({0.80: None, 0.88: film3(0.1, 0.8), 0.95: film3(0.1, 0.8)}, base) is None
+
+
+def test_the_web_fixture_is_what_render_entry_writes_today():
+    # web/tests/unit/routes.render.test.ts feeds this fixture through the loader and the render route.
+    import json
+    from pathlib import Path
+
+    from castforecast.catalogue import render_entry
+
+    fixture = (
+        Path(__file__).resolve().parent.parent / "web/tests/fixtures/catalogue-from-python.json"
+    )
+    entry = json.loads(fixture.read_text())["bottles"][0]
+    film = (LayerFilm(0.02, 0.98), LayerFilm(0.02, 0.98), LayerFilm(0.30, 0.70))
+    want = render_entry(film)
+    assert entry["render"]["paletteHex"] == want["paletteHex"]
+    assert entry["render"]["blend"] == pytest.approx(want["blend"], abs=1e-12)
+    assert entry["render"]["errorL"] == pytest.approx(want["errorL"], abs=1e-12)
+    assert set(entry["render"]) == {"paletteHex", "blend", "errorL"}
+    assert want["errorL"] > MAX_RENDER_ERROR

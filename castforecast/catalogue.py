@@ -77,6 +77,13 @@ def render_params(film: Film3) -> dict:
     }
 
 
+def render_entry(film: Film3) -> dict:
+    """The `render` object of a web catalogue entry (web/src/lib/catalogue.ts): palette, blend and
+    the worst L* error, which the render route checks against its own bound before any paid call."""
+    got = render_params(film)
+    return {"paletteHex": got["paletteHex"], "blend": got["blend"], "errorL": got["render_error"]}
+
+
 def whitening_band(films: dict[float, Film3 | None], base: np.ndarray) -> dict | None:
     """Predicted whitening (L*) on `base` at the card dose; None unless every paper scale has a film."""
     if any(films.get(s) is None for s in PAPER_SCALES):

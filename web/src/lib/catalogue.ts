@@ -3,6 +3,9 @@ import bottlesJson from "@/data/bottles.json";
 
 export const CATALOGUE_SCHEMA_VERSION = 1;
 
+/** Largest L* gap, on any reference skin, between a bottle's render and its measured film (castforecast/catalogue.py). */
+export const RENDER_MAX_ERROR_L = 1.0;
+
 export const BottleSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{2,64}$/),
   name: z.string().min(1).max(80),
@@ -13,6 +16,7 @@ export const BottleSchema = z.object({
   render: z.object({
     paletteHex: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
     blend: z.number().min(0).max(1),
+    errorL: z.number().min(0),
   }),
   whitening: z
     .object({

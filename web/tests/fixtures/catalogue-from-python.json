@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "bottles": [
+    {
+      "id": "test-blue-scatter",
+      "name": "Test entry blue scatter",
+      "brand": "Test brand",
+      "upc": null,
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#bca2ff",
+        "blend": 0.08775774894020885,
+        "errorL": 1.2555353102856657
+      },
+      "whitening": {
+        "value": 2.8,
+        "low": 2.5,
+        "high": 3.1,
+        "unit": "L*"
+      },
+      "evidence": {
+        "csvRowId": "test-row-blue",
+        "measuredAt": "2026-10-28",
+        "photos": 2
+      }
+    }
+  ]
+}
