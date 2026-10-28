@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { RULES, clientIp, createLimiter } from "@/server/limits";
+import type { Action, Limiter } from "@/server/limits";
 import { NOW } from "../helpers/constants";
 
 const IP = "203.0.113.1";
@@ -121,52 +122,88 @@ test("RULES is frozen, rule by rule", () => {
   expect(() => { (RULES.upload as { perIp: number }).perIp = 1000; }).toThrow(TypeError);
   expect(RULES.upload.perIp).toBe(20);
 });
-// The cap never evicts a live bucket: expired buckets go first, and a table still full of live ones refuses new keys.
-test("a table full of live buckets refuses a new key and never resets a bucket at its limit", () => {
+// Bucket cap (controller ruling): at the cap, expired buckets go first, then the bucket with the fewest live stamps
+// (least recently used on ties), never one at or above half its limit; if every bucket is that busy, new keys share
+// one overflow bucket per action. One IP mints at most 20 session buckets per window.
+const fill = (l: Limiter, a: Action, sid: string | null, ip: string, n: number, now: number) => {
+  for (let i = 0; i < n; i++) expect(l.take(a, sid, ip, now).ok).toBe(true);
+};
+/** Takes until the first refusal (at most `max`) and returns how many were allowed. Changes the limiter. */
+const remaining = (l: Limiter, a: Action, sid: string | null, ip: string, now: number, max = 100) => {
+  let n = 0;
+  while (n < max && l.take(a, sid, ip, now).ok) n++;
+  return n;
+};
+test("a flood of single-use keys at the cap evicts its own one-stamp buckets and still admits a new key", () => {
+  const l = createLimiter(RULES, 10);
+  fill(l, "credits", null, "legit", 3, NOW);                                                   // 3 of 30: below half
+  for (let i = 0; i < 500; i++) expect(l.take("credits", null, `flood-${i}`, NOW).ok).toBe(true);
+  expect(l.take("credits", null, "newcomer", NOW)).toEqual({ ok: true });
+  expect(remaining(l, "credits", null, "legit", NOW)).toBe(27);                                // kept its 3 stamps
+});
+test("a bucket at or above half its limit is never evicted, even as the least recent with the fewest stamps", () => {
   const l = createLimiter(RULES, 3);
-  for (let i = 0; i < 30; i++) expect(l.take("credits", null, "a", NOW).ok).toBe(true);
-  expect(l.take("credits", null, "a", NOW)).toEqual({ ok: false, retryAfterS: 3600 });
-  l.take("credits", null, "b", NOW);
-  l.take("credits", null, "c", NOW + 1000);                                                    // full: a, b, c, all live
-  expect(l.take("credits", null, "d", NOW + 1000)).toEqual({ ok: false, retryAfterS: 3599, full: true });
-  for (let i = 0; i < 100; i++) expect(l.take("credits", null, `flood-${i}`, NOW + 2000).ok).toBe(false);
-  expect(l.take("credits", null, "a", NOW + 2000)).toEqual({ ok: false, retryAfterS: 3598 });   // still at its limit
-  expect(l.take("credits", null, "b", NOW + 2000)).toEqual({ ok: true });                       // known keys still served
+  fill(l, "tone", "s1", "A", 1, NOW);                                   // sid:s1 is 1 of 2: busy, and the oldest
+  for (let i = 0; i < 300; i++) l.take("tone", null, `flood-${i}`, NOW);                       // one stamp each
+  expect(remaining(l, "tone", "s1", "G", NOW)).toBe(1);                 // s1 kept its stamp
 });
-test("expired buckets are evicted first and live ones stay", () => {
-  const l = createLimiter(RULES, 3);
-  for (let i = 0; i < 6; i++) l.take("tone", null, "a", NOW);
-  l.take("tone", null, "b", NOW);
-  for (let i = 0; i < 6; i++) l.take("tone", null, "c", NOW + 3_000_000);                       // c at its limit, newer
-  expect(l.take("tone", null, "d", NOW + 3_599_999)).toEqual({ ok: false, retryAfterS: 1, full: true });
-  expect(l.take("tone", null, "d", NOW + 3_600_000)).toEqual({ ok: true });                     // a and b expired
-  expect(l.take("tone", null, "c", NOW + 3_600_000)).toEqual({ ok: false, retryAfterS: 3000 }); // c kept, still limited
-  expect(l.take("tone", null, "e", NOW + 3_600_000)).toEqual({ ok: true });                     // the second freed slot
-  expect(l.take("tone", null, "f", NOW + 3_600_000)).toEqual({ ok: false, retryAfterS: 3000, full: true });
-});
-test("each action has its own table, so flooding one never touches another", () => {
-  const l = createLimiter(RULES, 2);
-  for (let i = 0; i < 6; i++) l.take("tone", null, "a", NOW);                                  // tone: a at its limit
-  for (let i = 0; i < 50; i++) l.take("credits", null, `flood-${i}`, NOW);
-  expect(l.take("credits", null, "flood-99", NOW)).toMatchObject({ ok: false, full: true });
-  expect(l.take("tone", null, "a", NOW)).toEqual({ ok: false, retryAfterS: 3600 });
-  expect(l.take("tone", null, "b", NOW)).toEqual({ ok: true });
-});
-test("a take that needs two new buckets is refused when one slot is free, and records nothing", () => {
-  const l = createLimiter(RULES, 3);
-  expect(l.take("tone", "s1", IP, NOW)).toEqual({ ok: true });                                  // ip + s1
-  expect(l.take("tone", "s2", "198.51.100.3", NOW)).toMatchObject({ ok: false, full: true });   // needs 2
-  expect(l.take("tone", "s2", IP, NOW)).toEqual({ ok: true });                                  // needs 1
-});
-test("the default cap is 10,000 buckets per action and the 10,001st key is refused", () => {
+test("one IP mints at most 20 session buckets per window; past that its IP bucket alone limits it", () => {
   const l = createLimiter();
-  for (let i = 0; i < 30; i++) l.take("credits", null, "first", NOW);
+  for (let i = 1; i <= 20; i++) fill(l, "render", `s${i}`, "X", 1, NOW);
+  expect(remaining(l, "render", "s21", "X", NOW, 21)).toBe(21);         // no s21 bucket, so perSession 20 never bites
+  expect(remaining(l, "render", "s99", "Y", NOW, 21)).toBe(20);         // another IP still gets a session bucket
+  expect(remaining(l, "render", "s22", "X", NOW + 3_600_000, 21)).toBe(20);   // the next window mints again
+});
+test("when every bucket is busy, new keys share one overflow bucket with the IP limit", () => {
+  const l = createLimiter(RULES, 2);
+  fill(l, "tone", null, "a", 3, NOW);
+  fill(l, "tone", null, "b", 3, NOW);                                                          // both busy
   let allowed = 0;
-  for (let i = 1; i < 10_000; i++) if (l.take("credits", null, `ip-${i}`, NOW).ok) allowed++;
-  expect(allowed).toBe(9_999);                                                                  // 10,000 buckets now
-  expect(l.take("credits", null, "ip-10000", NOW)).toEqual({ ok: false, retryAfterS: 3600, full: true });
+  for (let i = 0; i < 20; i++) if (l.take("tone", null, `new-${i}`, NOW + 1000).ok) allowed++;
+  expect(allowed).toBe(6);                                                                     // not none, not all
+  expect(l.take("tone", null, "new-99", NOW + 1000)).toEqual({ ok: false, retryAfterS: 3600 });
+  expect(remaining(l, "tone", null, "a", NOW + 1000)).toBe(3);                                 // busy buckets untouched
+});
+test("ties go to the least recently used bucket, and a denied take refreshes recency", () => {
+  const l = createLimiter(RULES, 5);
+  fill(l, "upload", "s1", "P1", 6, NOW);                                // ip:P1 6 of 20, sid:s1 6 of 6
+  fill(l, "upload", null, "P2", 1, NOW);
+  fill(l, "upload", null, "P3", 1, NOW);
+  expect(l.take("upload", "s1", "P2", NOW).ok).toBe(false);            // refused by s1, but P2 is touched
+  fill(l, "upload", null, "P4", 1, NOW);                                // five buckets: the cap
+  expect(l.take("upload", null, "P5", NOW)).toEqual({ ok: true });     // evicts P3, not P2 or P4
+  expect(remaining(l, "upload", null, "P2", NOW)).toBe(19);            // P2 kept its stamp
+  expect(remaining(l, "upload", null, "P3", NOW)).toBe(20);            // P3 starts over: it was the one evicted
+});
+test("a new visitor at the cap gets both buckets, and its own room-making never drops either", () => {
+  const l = createLimiter(RULES, 3);
+  for (const ip of ["A", "B", "C"]) fill(l, "upload", null, ip, 1, NOW);                       // full of one-stamp buckets
+  expect(l.take("upload", "s9", "N", NOW)).toEqual({ ok: true });                              // evicts A and B
+  expect(remaining(l, "upload", "s9", "N", NOW)).toBe(5);                                      // s9: 1 of 6
+  expect(remaining(l, "upload", null, "N", NOW)).toBe(14);                                     // N: 6 of 20
+});
+test("expired buckets go before any live one, even when the expired one was used more recently", () => {
+  const l = createLimiter(RULES, 3);
+  fill(l, "upload", "s1", "P", 6, NOW);                                 // ip:P and sid:s1, stamps at NOW
+  fill(l, "upload", null, "Q", 1, NOW + 3_000_000);
+  expect(l.take("upload", "s1", "P", NOW + 3_500_000).ok).toBe(false); // touches P and s1, so Q is least recent
+  expect(l.take("upload", null, "Z", NOW + 3_600_000)).toEqual({ ok: true });   // P and s1 have expired
+  expect(remaining(l, "upload", null, "Q", NOW + 3_600_000)).toBe(19);           // Q kept
+});
+test("each action has its own table, so flooding one never evicts another's bucket", () => {
+  const l = createLimiter(RULES, 2);
+  fill(l, "tone", null, "a", 1, NOW);                                                          // 1 of 6: evictable
+  for (let i = 0; i < 50; i++) expect(l.take("credits", null, `flood-${i}`, NOW).ok).toBe(true);
+  expect(remaining(l, "tone", null, "a", NOW)).toBe(5);
+});
+test("the default cap is 10,000 buckets per action", () => {
+  const l = createLimiter();
+  fill(l, "credits", null, "first", 30, NOW);                                                  // at its limit
+  let refused = 0;
+  for (let i = 1; i <= 10_050; i++) if (!l.take("credits", null, `ip-${i}`, NOW).ok) refused++;
+  expect(refused).toBe(0);
   expect(l.take("credits", null, "first", NOW)).toEqual({ ok: false, retryAfterS: 3600 });     // never reset
-  expect(l.take("upload", "s1", "ip-10000", NOW)).toEqual({ ok: true });                       // another action's table
+  expect(remaining(l, "credits", null, "ip-1", NOW, 31)).toBe(30);                             // ip-1 was evicted
 });
 test("fewer than two buckets per table is refused", () => {
   expect(() => createLimiter(RULES, 1)).toThrow(RangeError);
