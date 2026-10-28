@@ -42,6 +42,25 @@ test("every pill draws its focus ring inside itself, amber on the ink pill", () 
   expect(screen.getByTestId("phone-pill").className).toContain("focus-visible:outline-amber!");
 });
 
+// transition-colors and transition-transform both set transition-property, so the later one silently won.
+test("a desktop pill transitions colour and transform in one declaration", () => {
+  render(<PillNav />);
+  const nav = screen.getByRole("navigation", { name: "Main" });
+  for (const link of within(nav).getAllByRole("link")) {
+    expect(link.className).toContain("transition-[background-color,transform]");
+    expect(link.className).not.toMatch(/\btransition-(colors|transform)\b/);
+  }
+});
+
+test("phones get a Compare pill as well as Evidence", () => {
+  render(<PillNav />);
+  const compare = screen.getByTestId("phone-compare");
+  expect(compare).toHaveAttribute("href", "/compare");
+  expect(compare).toHaveAttribute("aria-current", "page");
+  expect(compare.className).toContain("md:hidden");
+  expect(compare.className).toContain("focus-visible:outline-offset-[-6px]!");
+});
+
 test("has no axe violations", async () => {
   const { container } = render(<PillNav />);
   await expectNoAxeViolations(container);

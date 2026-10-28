@@ -24,7 +24,7 @@ const onScroll = (notify: () => void) => {
 // `!` because the global a:focus-visible rule in globals.css is unlayered and would win over a plain utility.
 const RING_INSIDE = "focus-visible:outline-offset-[-6px]!";
 
-/** Pill nav (adapted from Lullabuy src/ui/Nav.tsx): brand pill, three links on desktop, one Evidence pill on phones. */
+/** Pill nav (adapted from Lullabuy src/ui/Nav.tsx): brand pill, three links on desktop, Compare and Evidence pills on phones. */
 export function PillNav() {
   const pathname = usePathname();
   const scrolled = useSyncExternalStore(onScroll, () => window.scrollY > 50, () => false);
@@ -47,20 +47,30 @@ export function PillNav() {
             key={l.href}
             href={l.href}
             aria-current={isCurrent(pathname, l.href) ? "page" : undefined}
-            className={`rounded-full bg-amber-soft aria-[current=page]:bg-amber border-2 border-ink px-4 py-2 font-bold text-sm hover:bg-amber transition-colors shadow-[0_2px_0_var(--ink)] hover:-translate-y-0.5 transition-transform ${RING_INSIDE}`}
+            className={`rounded-full bg-amber-soft aria-[current=page]:bg-amber border-2 border-ink px-4 py-2 font-bold text-sm hover:bg-amber transition-[background-color,transform] shadow-[0_2px_0_var(--ink)] hover:-translate-y-0.5 ${RING_INSIDE}`}
           >
             {l.label}
           </Link>
         ))}
       </nav>
-      <Link
-        href="/evidence"
-        data-testid="phone-pill"
-        aria-current={isCurrent(pathname, "/evidence") ? "page" : undefined}
-        className={`pointer-events-auto md:hidden rounded-full bg-ink text-paper px-4 py-2.5 font-bold text-sm focus-visible:outline-amber! ${RING_INSIDE}`}
-      >
-        Evidence
-      </Link>
+      <div className="pointer-events-auto md:hidden flex items-center gap-1.5">
+        <Link
+          href="/compare"
+          data-testid="phone-compare"
+          aria-current={isCurrent(pathname, "/compare") ? "page" : undefined}
+          className={`md:hidden rounded-full bg-amber-soft aria-[current=page]:bg-amber border-2 border-ink px-3 py-2 font-bold text-sm ${RING_INSIDE}`}
+        >
+          Compare
+        </Link>
+        <Link
+          href="/evidence"
+          data-testid="phone-pill"
+          aria-current={isCurrent(pathname, "/evidence") ? "page" : undefined}
+          className={`rounded-full bg-ink text-paper px-4 py-2.5 font-bold text-sm focus-visible:outline-amber! ${RING_INSIDE}`}
+        >
+          Evidence
+        </Link>
+      </div>
     </header>
   );
 }

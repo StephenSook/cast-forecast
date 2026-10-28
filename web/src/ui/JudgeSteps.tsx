@@ -12,7 +12,7 @@ const CTA = "inline-block mt-3 font-extrabold underline decoration-[3px] underli
  */
 export function JudgeSteps({ steps }: { steps: readonly JudgeStep[] }) {
   return (
-    <ol className="grid grid-cols-[minmax(0,1fr)] gap-5">
+    <ol role="list" className="grid grid-cols-[minmax(0,1fr)] gap-5">
       {steps.map((s, i) => (
         <li
           key={`${i}-${s.title}`}

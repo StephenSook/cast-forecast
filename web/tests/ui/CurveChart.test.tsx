@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { CurveChart } from "@/ui/CurveChart";
+import { CurveChart, curveProblem } from "@/ui/CurveChart";
 import { expectNoAxeViolations } from "../axe";
 
 // K1b isotonic fit from docs/gates/k1b-results.json (colorIntensity, blend strength).
@@ -22,25 +22,35 @@ test("bar heights come from the pinned y axis, not the data maximum", () => {
   expect(Number(mid.getAttribute("height"))).toBeCloseTo((0.1405 / 0.4) * 70, 2);
 });
 
-test("is one labelled image with a bar per point inside a 336 x 90 frame", () => {
+test("is one labelled image with a bar per point inside a 336 x 82 frame", () => {
   const { container } = chart();
   const svg = screen.getByRole("img", { name: LABEL });
   expect(svg).toBeInTheDocument();
-  expect(svg).toHaveAttribute("viewBox", "0 0 336 90");
+  expect(svg).toHaveAttribute("viewBox", "0 0 336 82");
   expect([...container.querySelectorAll("rect[data-x]")].map((r) => r.getAttribute("data-x"))).toEqual(["0", "20", "40", "60", "80", "100"]);
   const base = container.querySelector("line")!;
   expect(base.getAttribute("y1")).toBe("80.5");
   expect(base.getAttribute("y2")).toBe("80.5");
-  expect(svg).toHaveTextContent("colorIntensity 0");
-  expect(svg).toHaveTextContent("100");
+  expect(container).toHaveTextContent("colorIntensity 0");
+  expect(container).toHaveTextContent("100");
 });
 
-// Lullabuy drew its end labels on y 90, the frame's bottom edge, so descenders (the y in colorIntensity) were cut.
-test("end labels sit high enough that descenders stay inside the frame", () => {
+// The SVG scales to the phone width, so text inside it rendered about 7 px at 390. The end labels are HTML
+// under the chart instead, in text-sm (13 px at the 15 px phone root), and the SVG holds no text at all.
+test("end labels are HTML at least text-sm, and the SVG holds no text", () => {
   const { container } = chart();
-  const labels = [...container.querySelectorAll("text")];
-  expect(labels).toHaveLength(2);
-  for (const t of labels) expect(Number(t.getAttribute("y")) + 0.25 * Number(t.getAttribute("font-size"))).toBeLessThanOrEqual(90);
+  expect(container.querySelectorAll("svg text")).toHaveLength(0);
+  const labels = [...container.querySelectorAll("[data-chart-label]")];
+  expect(labels.map((l) => l.textContent)).toEqual(["colorIntensity 0", "100"]);
+  for (const l of labels) expect(l.className).toContain("text-sm");
+});
+
+test("curveProblem names what the pinned axis cannot draw, and null for good data", () => {
+  expect(curveProblem(POINTS, 0.4)).toBeNull();
+  expect(curveProblem([], 0.4)).toMatch(/at least one point/);
+  expect(curveProblem(POINTS, 0)).toMatch(/yMax/);
+  expect(curveProblem([{ x: 0, y: 0.5 }], 0.4)).toMatch(/outside the pinned axis/);
+  expect(curveProblem([{ x: 0, y: Number.NaN }], 0.4)).toMatch(/outside the pinned axis/);
 });
 
 test("refuses points it cannot draw on the pinned axis", () => {

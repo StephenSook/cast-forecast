@@ -68,3 +68,11 @@ test("has no axe violations", async () => {
   const { container } = render(<CopyLine text={CMD} />);
   await expectNoAxeViolations(container);
 });
+
+test("the focusable command is named for assistive tech", () => {
+  const { container } = render(<CopyLine text={CMD} />);
+  const code = container.querySelector("code")!;
+  expect(code).toHaveAttribute("tabindex", "0");
+  expect(code).toHaveAttribute("role", "group");
+  expect(code).toHaveAttribute("aria-label", "Command");
+});

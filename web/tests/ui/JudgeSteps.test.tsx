@@ -17,6 +17,13 @@ test("the list cannot grow past its container", () => {
   expect(container.innerHTML).not.toContain("text-amber-deep");
 });
 
+// Safari drops list semantics from an ol styled with list-style none, so the role is stated.
+test("the ordered list keeps its list role for Safari", () => {
+  const { container } = render(<JudgeSteps steps={steps} />);
+  expect(container.querySelector("ol")).toHaveAttribute("role", "list");
+  expect(screen.getByRole("list")).toBeInTheDocument();
+});
+
 test("numbers each step with an ink numeral", () => {
   render(<JudgeSteps steps={steps} />);
   expect(screen.getAllByRole("listitem").map((li) => li.querySelector(".display")?.textContent)).toEqual(["1", "2"]);

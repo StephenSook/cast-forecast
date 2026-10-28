@@ -31,6 +31,8 @@ export function CopyLine({ text }: { text: string }) {
       <div className="flex items-stretch rounded-xl border-2 border-ink overflow-hidden bg-ink text-paper">
         <code
           tabIndex={0}
+          role="group"
+          aria-label="Command"
           className="flex-1 min-w-0 px-4 py-3 text-sm overflow-x-auto whitespace-nowrap select-all focus-visible:outline-[3px] focus-visible:outline-solid focus-visible:outline-amber focus-visible:outline-offset-[-3px]"
         >
           {text}

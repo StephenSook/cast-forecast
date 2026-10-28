@@ -19,6 +19,16 @@ export function barGeometry(r: BarRow, domain: readonly [number, number]): { sta
   return { start: pct(r.low ?? lo), end: pct(r.high ?? r.value), mark: pct(r.value) };
 }
 
+/** Why these rows cannot be drawn on this domain, or null when every row can. */
+export function barsProblem(rows: readonly BarRow[], domain: readonly [number, number]): string | null {
+  try {
+    for (const r of rows) barGeometry(r, domain);
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
 /**
  * Horizontal bars on one shared domain (pattern from Lullabuy src/app/trust/page.tsx:27-46). The track is
  * decoration; each row's text carries the value and its interval. On phones the bar takes its own line.

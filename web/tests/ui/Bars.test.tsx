@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { Bars, barGeometry, type BarRow } from "@/ui/Bars";
+import { Bars, barGeometry, barsProblem, type BarRow } from "@/ui/Bars";
 import { expectNoAxeViolations } from "../axe";
 
 test("geometry uses the shared domain, not the row maximum", () => {
@@ -47,4 +47,12 @@ test("renders each row with its label and formatted value, widths from the share
 test("has no axe violations", async () => {
   const { container } = render(<Bars rows={rows} domain={[0, 10]} format={(v) => v.toFixed(1)} ariaLabel="Whitening by bottle" />);
   await expectNoAxeViolations(container);
+});
+
+test("barsProblem is null for drawable rows and a message for rows that would throw", () => {
+  expect(barsProblem([{ label: "a", value: 2, low: 1, high: 3 }], [0, 10])).toBeNull();
+  expect(barsProblem([], [0, 1])).toBeNull();
+  expect(barsProblem([{ label: "a", value: Number.NaN }], [0, 10])).toMatch(/not a finite number/);
+  expect(barsProblem([{ label: "a", value: 1, low: 5, high: 2 }], [0, 10])).toMatch(/low 5 is above high 2/);
+  expect(barsProblem([{ label: "a", value: 1 }], [5, 5])).toMatch(/bad domain/);
 });
