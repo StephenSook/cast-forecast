@@ -118,3 +118,23 @@ def test_forearm_bottles_follow_the_committed_rule():
     # one control (code order), then the highest m, ties to the code that sorts first
     assert forearm_bottles(bottles) == ["HOME9", "SAM1", "SAM2", "SAM3"]
     assert forearm_bottles([b for b in bottles if b.m > 0]) == ["SAM1", "SAM2", "SAM3", "OWN1"]
+
+
+def test_a_black_or_broken_paper_makes_every_window_unusable():
+    # Codex review r1: zero paper divided into infinite reflectances and a "valid" NaN arm.
+    d, paper, wins = _card_frame(bare=[0.05] * 3, coated=[0.2] * 3, paper=0.0)
+    got = frame_regions(d, paper, wins, card=True, paper_r=0.88)
+    assert got == {"win": {"error": "paper too dark to normalise"}}
+
+
+def test_a_non_finite_untreated_reading_never_makes_a_valid_arm():
+    base, t15 = _arm(base_u=50.0, t15_u=51.0, base_a=48.0, t15_a=56.0)
+    t15["U"] = {"treated": np.full(3, np.nan)}
+    assert arm_result(base, t15, treated=("A",))["valid"] is False
+
+
+@pytest.mark.parametrize("m", [float("nan"), float("inf"), -1.0, 60.0])
+def test_an_unreadable_label_percent_is_refused_not_dropped(m):
+    # Codex review r1: a NaN percent silently fell out of the forearm choice.
+    with pytest.raises(ValueError, match="label mineral percent"):
+        Bottle("A", m)

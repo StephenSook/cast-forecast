@@ -11,6 +11,7 @@ Follows docs/gates/gate2-preregistration.md with its amendments:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,12 +24,21 @@ from castforecast.raw import Decoded, region_mean
 PAPER_R = 0.88
 MAX_DRIFT = 1.5  # L*, untreated square between BASE and T15
 FOREARM_SQUARES = 4
+MAX_M = 50.0  # zinc oxide and titanium dioxide are each capped at 25 percent on a label
+MIN_PAPER = 0.01  # of LibRaw full scale: a darker paper region cannot normalise anything
 
 
 @dataclass(frozen=True)
 class Bottle:
     code: str
     m: float  # zinc oxide % + titanium dioxide % from the label; 0 for an organic-only control
+
+    def __post_init__(self):
+        ok = isinstance(self.m, (int, float)) and math.isfinite(self.m) and 0 <= self.m <= MAX_M
+        if not ok:
+            raise ValueError(
+                f"{self.code}: label mineral percent {self.m!r} is not a value from 0 to 50"
+            )
 
 
 def forearm_bottles(bottles: list[Bottle], n: int = FOREARM_SQUARES) -> list[str]:
@@ -62,6 +72,8 @@ def frame_regions(
         paper, why = None, f"paper: {e}"
     else:
         why = "paper unusable"
+        if paper is not None and not (np.isfinite(paper).all() and (paper >= MIN_PAPER).all()):
+            paper, why = None, "paper too dark to normalise"
     if paper is None:
         return {name: {"error": why} for name in windows}
     out = {}
@@ -72,11 +84,18 @@ def frame_regions(
         except ValueError as e:
             out[name] = {"error": str(e)}
             continue
-        entry = {"treated": None if treated is None else reflectance(treated, paper, paper_r)}
+        entry = {"treated": _finite(treated, paper, paper_r)}
         if card:
-            entry["bare"] = None if bare is None else reflectance(bare, paper, paper_r)
+            entry["bare"] = _finite(bare, paper, paper_r)
         out[name] = entry
     return out
+
+
+def _finite(region, paper, paper_r):
+    if region is None:
+        return None
+    r = reflectance(region, paper, paper_r)
+    return r if np.isfinite(r).all() else None
 
 
 def card_film(black: tuple, white: tuple) -> Film3 | None:
@@ -110,6 +129,8 @@ def arm_result(base: dict, t15: dict, treated=("A", "B"), control: str = "U") ->
     if reasons:
         return {"valid": False, "reasons": reasons}
     drift = lightness(t15[control]["treated"]) - lightness(base[control]["treated"])
+    if not math.isfinite(drift):
+        return {"valid": False, "reasons": ["untreated drift is not a number"]}
     if abs(drift) > MAX_DRIFT:
         return {
             "valid": False,
