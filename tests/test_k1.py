@@ -492,3 +492,36 @@ def test_bad_key_reaching_the_transport_never_lands_in_results(selfies, tmp_path
     text = out.read_text()
     assert "SECRET" not in text
     assert json.loads(text)["error"]["code"] == "bad_request"
+
+
+def test_k1_refuses_existing_results_file(selfies, tmp_path):
+    out = tmp_path / "k1.json"
+    out.write_text('{"earlier": true}')
+    client = FakeClient()
+    code, _ = _run(client, selfies, tmp_path)
+    assert code != 0
+    assert client.calls == [] and client.payloads == []
+    assert out.read_text() == '{"earlier": true}'
+
+
+def test_k1_refuses_existing_k1_renders(selfies, tmp_path):
+    rd = tmp_path / "renders"
+    rd.mkdir()
+    (rd / "A_FFFFFF_cov0_ci50.png").write_bytes(b"x")
+    client = FakeClient()
+    code, out = _run(client, selfies, tmp_path)
+    assert code != 0
+    assert client.calls == [] and not out.exists()
+
+
+def test_k1_main_refuses_before_the_client_is_built(tmp_path, monkeypatch):
+    out = tmp_path / "recon" / "gate" / "k1.json"
+    out.parent.mkdir(parents=True)
+    out.write_text("{}")
+
+    def no_client(*a, **k):
+        raise AssertionError("the client (and the Keychain read) must not happen")
+
+    monkeypatch.setattr(k1, "YouCamClient", no_client)
+    assert k1.main(["--selfie", "A", "--check", "B", "--root", str(tmp_path)]) != 0
+    assert out.read_text() == "{}"

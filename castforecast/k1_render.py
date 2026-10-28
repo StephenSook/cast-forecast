@@ -25,7 +25,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 
 from castforecast.color import _decode, _encode, de2000, srgb_to_lab
-from castforecast.k2_tone import _write
+from castforecast.k2_tone import _write, refuse_existing
 from castforecast.patch import cheek_patches, patch_stats
 from castforecast.preflight import preflight, upload_copy
 from castforecast.youcam import YouCamClient, YouCamError
@@ -438,6 +438,13 @@ def run_k1(
 ) -> int:
     selfie_a, selfie_b = Path(selfie_a), Path(selfie_b)
     copies_dir, renders_dir = Path(copies_dir), Path(renders_dir)
+    if refuse_existing(out, "K1"):
+        return 1
+    if renders_dir.is_dir() and (
+        any(renders_dir.glob("A_*_cov*_ci*")) or any(renders_dir.glob("B_D2D2D2_a*"))
+    ):
+        print(f"K1 refused: {renders_dir} already contains K1 renders", file=sys.stderr)
+        return 1
     renders_dir.mkdir(parents=True, exist_ok=True)
     result: dict = {
         "selfie_a": selfie_a.name,
@@ -648,6 +655,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     root = Path(args.root)
     sd = root / "private_inputs" / "selfies"
+    if refuse_existing(root / args.out, "K1"):  # before the client reads the key
+        return 1
     return run_k1(
         YouCamClient(),
         sd / f"{args.selfie}.jpg",

@@ -67,6 +67,18 @@ def _tone_call(client, file_id: str) -> dict:
     }
 
 
+def refuse_existing(out: Path, label: str) -> bool:
+    """True, with a message on stderr, when a results file already exists at out.
+
+    No run may overwrite or quietly replace an earlier result; move the old file first.
+    """
+    out = Path(out)
+    if out.exists():
+        print(f"{label} refused: results file already exists at {out}", file=sys.stderr)
+        return True
+    return False
+
+
 def _write(out: Path, result: dict) -> None:
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -120,6 +132,8 @@ def _record_balance_after(client, result: dict, balance_before: int) -> None:
 
 def run_k2(client, selfie: Path, out: Path, copies_dir: Path) -> int:
     selfie, copies_dir = Path(selfie), Path(copies_dir)
+    if refuse_existing(out, "K2"):
+        return 1
     result: dict = {
         "selfie": selfie.name,
         "gain": GAIN,
@@ -196,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     root = Path(args.root)
     selfie = root / "private_inputs" / "selfies" / f"{args.selfie}.jpg"
+    if refuse_existing(root / args.out, "K2"):  # before the client reads the key
+        return 1
     return run_k2(
         YouCamClient(), selfie, root / args.out, root / "private_inputs" / "upload_copies"
     )

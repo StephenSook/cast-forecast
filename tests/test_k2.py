@@ -250,3 +250,26 @@ def test_k2_error_path_records_balance_read_failure(selfie, tmp_path):
     assert r["balance_after_error_code"] == "network"
     assert "balance_after" not in r
     assert r["error"]["code"] == "error_lighting_dark"
+
+
+def test_k2_refuses_existing_results_file(selfie, tmp_path):
+    out = tmp_path / "k2.json"
+    out.write_text('{"earlier": true}')
+    client = FakeClient([])
+    assert k2_tone.run_k2(client, selfie, out, tmp_path / "c") != 0
+    assert client.calls == []
+    assert out.read_text() == '{"earlier": true}'
+    assert not (tmp_path / "c").exists()  # nothing prepared either
+
+
+def test_k2_main_refuses_before_the_client_is_built(tmp_path, monkeypatch):
+    out = tmp_path / "recon" / "gate" / "k2.json"
+    out.parent.mkdir(parents=True)
+    out.write_text("{}")
+
+    def no_client(*a, **k):
+        raise AssertionError("the client (and the Keychain read) must not happen")
+
+    monkeypatch.setattr(k2_tone, "YouCamClient", no_client)
+    assert k2_tone.main(["--selfie", "A", "--root", str(tmp_path)]) != 0
+    assert out.read_text() == "{}"
