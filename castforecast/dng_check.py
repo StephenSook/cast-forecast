@@ -14,6 +14,7 @@ import argparse
 import json
 import math
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -27,12 +28,24 @@ _READ_ERRORS = (OSError, ValueError, SyntaxError)
 
 
 def gps_state(path):
-    """True or False for a GPS block in the file's EXIF, or "unknown: ..." if it cannot be read."""
+    """True or False for a GPS block in the file's EXIF, or "unknown: ..." if it cannot be read.
+
+    A read error, any metadata warning, or a GPS pointer whose block comes back empty is unknown:
+    Pillow can warn and return an empty block instead of raising.
+    """
     try:
-        with Image.open(path) as im:
-            gps = im.getexif().get_ifd(ExifTags.Base.GPSInfo)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with Image.open(path) as im:
+                exif = im.getexif()
+                pointer = ExifTags.Base.GPSInfo in exif
+                gps = exif.get_ifd(ExifTags.Base.GPSInfo)
     except _READ_ERRORS as e:  # the failure is reported, never treated as "no GPS"
         return f"unknown: {type(e).__name__}: {e}"
+    if caught:
+        return f"unknown: metadata warning: {caught[0].message}"
+    if pointer and not gps:
+        return "unknown: GPS block present but unreadable"
     return bool(gps)
 
 

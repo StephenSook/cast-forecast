@@ -67,3 +67,18 @@ def test_preview_marks_clipped_pixels_magenta(tmp_path):
     assert px.shape == (4, 4, 3)
     assert px[1, 1].tolist() == [255, 0, 255]
     assert px[0, 0, 0] == px[0, 0, 1] == px[0, 0, 2] > 0
+
+
+def test_a_gps_pointer_past_the_end_is_unknown_not_absent(tmp_path):
+    # Codex review r1: Pillow warned "Corrupt EXIF data" and returned an empty block, read as False.
+    exif = Image.Exif()
+    exif[ExifTags.Base.GPSInfo] = {ExifTags.GPS.GPSLatitudeRef: "N"}
+    raw = exif.tobytes()
+    entry = b"\x88\x25\x00\x04\x00\x00\x00\x01"  # big-endian GPS pointer, LONG, count 1
+    assert raw.count(entry) == 1
+    i = raw.find(entry) + len(entry)
+    bad = raw[:i] + b"\x7f\xff\xff\xff" + raw[i + 4 :]
+    path = tmp_path / "bad_gps.jpg"
+    Image.new("RGB", (8, 8)).save(path, exif=bad)
+    got = dng_check.gps_state(path)
+    assert isinstance(got, str) and got.startswith("unknown")
