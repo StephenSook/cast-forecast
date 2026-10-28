@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# Synthetic ids with the character set and length of real YouCam ids; never real ones.
 TASK = "tgqyy0mDdd-11fk3D-AGXwz_P0qHVOlbpBINyIkMtXPUmXXPT3KseFWRMzhhCd8qqFMyIC7kPRXZZ"
 FILE = "w+wtWqusYvxlX5NmcpOwnIlmP1zuzPLm585u63loqkl/C8eww3w0SPDfASxcJfYq"
 
