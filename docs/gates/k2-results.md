@@ -25,8 +25,24 @@ Decision: the project plan, written before the run, said a K2 failure on its own
 
 Reading, not pre-registered and not part of the verdict: the value is repeatable but does not follow the pixels, which fits a tone that is normalized for lighting rather than measured from the photo.
 
+## Post-hoc check: daylight selfie (2026-10-28)
+After the FAIL, the project plan named one more check, to see whether the tone could still serve as a shopper's baseline without a card: send a second selfie taken in a different light, and PASS if the API skin colour stays within 1.0 dE00 of #a17758 (the colour photo A returned twice). The rule was written in the private project plan on 2026-10-27, before this photo existed. That plan is not public, so this is labelled post hoc and is not part of the K2 verdict above.
+
+Run on 2026-10-28 with one call (20 API units, balance 879 to 859). The photo was taken by a window in daylight, with the window behind the subject, so the face is underexposed. The frame was picked by a size rule before any paid call.
+
+| | Photo A (indoor) | Daylight photo |
+|---|---|---|
+| API skin colour | #a17758 | #91694f |
+| Our cheek measurement, Lab | 70.4, 17.5, 22.2 | 36.2, 15.2, 19.3 |
+
+Result: the API colour moved 5.81 dE00 against a bar of 1.0. **FAIL.** The YouCam tone stays a displayed cross-check only; the cheek measured in the shopper's own photo remains the skin input.
+
+Reading, not part of the rule: our cheek measurement moved 33.3 dE00 between the two photos while the API moved 5.81, so the API again moved far less than the pixels did, which fits a lighting-normalized tone. It still moved too much to stand in for a measurement.
+
 ## Limits
-One person, one photo, one lighting condition, one gain step, one run.
+One person, one photo, one lighting condition, one gain step, one run. The daylight check adds one more photo of the same person and one more call.
 
 ## Published data
 [k2-results.json](k2-results.json) was written by `scripts/publish_results.py` from the private run file. Removed: the input file name (`selfie`), the upload file ids (`file_ids`, and `file_id` in each of the 3 calls), the task id in each of the 3 calls, and the size of the original photo (`preflight` bytes, width, height and short side). Every other field and every number is unchanged.
+
+[k2-daylight-results.json](k2-daylight-results.json) was written the same way from the daylight run file. Removed: the input file name (`selfie`), the upload file id and task id of the call, and the size of the original photo (`preflight` bytes, width, height and short side).
