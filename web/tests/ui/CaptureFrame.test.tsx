@@ -78,12 +78,75 @@ test("both buttons are off while busy or while a photo is being prepared", async
   expect(screen.getByRole("button", { name: "Upload" })).toBeEnabled();
 });
 
-test("the result replaces the selfie in the frame and sends no referrer", () => {
-  setup({ image: prepared, resultUrl: "https://out.example/r.png" });
+test("until the render has loaded, the selfie and the scan line stay; then the render replaces them", () => {
+  const onResultLoad = vi.fn();
+  setup({ image: prepared, resultUrl: "https://out.example/r.png", onResultLoad });
   const img = screen.getByTestId("result-image");
   expect(img).toHaveAttribute("src", "https://out.example/r.png");
   expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
+  expect(img).toHaveClass("opacity-0"); expect(img).toHaveAttribute("aria-hidden", "true");
+  expect(screen.getByTestId("selfie-preview")).toBeInTheDocument();
+  expect(screen.getByTestId("scan-line")).toBeInTheDocument();
+  fireEvent.load(img);
+  expect(onResultLoad).toHaveBeenCalledTimes(1);
+  expect(img).not.toHaveClass("opacity-0"); expect(img).not.toHaveAttribute("aria-hidden");
   expect(screen.queryByTestId("selfie-preview")).toBeNull();
+  expect(screen.queryByTestId("scan-line")).toBeNull();
+});
+
+test("a render that fails before it loads reports the failure and never hides the selfie", () => {
+  const onResultError = vi.fn();
+  const onResultLoad = vi.fn();
+  setup({ image: prepared, resultUrl: "https://out.example/r.png", onResultError, onResultLoad });
+  fireEvent.error(screen.getByTestId("result-image"));
+  expect(onResultError).toHaveBeenCalledTimes(1); expect(onResultLoad).not.toHaveBeenCalled();
+  expect(screen.getByTestId("selfie-preview")).toBeInTheDocument();
+});
+
+test("a new render URL waits for its own load", () => {
+  const { rerender, props } = setup({ image: prepared, resultUrl: "https://out.example/1.png" });
+  fireEvent.load(screen.getByTestId("result-image"));
+  expect(screen.queryByTestId("scan-line")).toBeNull();
+  rerender(<CaptureFrame {...props} resultUrl="https://out.example/2.png" />);
+  expect(screen.getByTestId("result-image")).toHaveClass("opacity-0");
+  expect(screen.getByTestId("scan-line")).toBeInTheDocument();
+  expect(screen.getByTestId("selfie-preview")).toBeInTheDocument();
+});
+
+test("reports preparation upward: on when a photo starts, off when the newest one is done or refused", async () => {
+  const onPreparing = vi.fn();
+  const first = deferred<typeof prepared>();
+  const prepare = vi.fn().mockReturnValueOnce(first.promise).mockRejectedValueOnce(new ImageError("too_small"));
+  setup({ prepare, onPreparing });
+  fireEvent.change(screen.getByTestId("upload-input"), { target: { files: [jpeg()] } });
+  expect(onPreparing.mock.calls).toEqual([[true]]);
+  await act(async () => first.resolve(prepared));
+  expect(onPreparing.mock.calls).toEqual([[true], [false]]);
+  await act(async () => { fireEvent.change(screen.getByTestId("upload-input"), { target: { files: [jpeg()] } }); });
+  expect(onPreparing.mock.calls).toEqual([[true], [false], [true], [false]]);
+});
+
+test("a photo that loses the race does not switch preparation off while the newer one is still going", async () => {
+  const onPreparing = vi.fn();
+  const older = deferred<typeof prepared>();
+  const newer = deferred<typeof prepared>();
+  const prepare = vi.fn().mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+  setup({ prepare, onPreparing });
+  fireEvent.change(screen.getByTestId("upload-input"), { target: { files: [jpeg()] } });
+  fireEvent.change(screen.getByTestId("camera-input"), { target: { files: [jpeg()] } });
+  await act(async () => older.resolve({ ...prepared, url: "blob:older" }));
+  expect(onPreparing.mock.calls).toEqual([[true], [true]]);
+  await act(async () => newer.resolve(prepared));
+  expect(onPreparing.mock.calls).toEqual([[true], [true], [false]]);
+});
+
+test("the file inputs are visually hidden, not display:none, and kept out of the tab order and the a11y tree", () => {
+  setup();
+  for (const id of ["camera-input", "upload-input"]) {
+    const input = screen.getByTestId(id);
+    expect(input).toHaveClass("sr-only"); expect(input).not.toHaveClass("hidden");
+    expect(input).toHaveAttribute("tabindex", "-1"); expect(input).toHaveAttribute("aria-hidden", "true");
+  }
 });
 
 test("only the newest photo is delivered; an older one that finishes late is released", async () => {
@@ -114,5 +177,7 @@ test("has no axe violations with a selfie, while busy, and with a result", async
   const { container, rerender, props } = setup({ image: prepared, busy: true });
   await expectNoAxeViolations(container);
   rerender(<CaptureFrame {...props} busy={false} resultUrl="https://out.example/r.png" />);
+  await expectNoAxeViolations(container);
+  fireEvent.load(screen.getByTestId("result-image"));
   await expectNoAxeViolations(container);
 });

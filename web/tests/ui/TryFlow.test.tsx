@@ -149,10 +149,80 @@ test("chips stay off until there is a photo", async () => {
   expect(chip("Test entry A")).toBeEnabled();
 });
 
+test("until the render's image loads, the selfie, the scan line and the rendering line stay; no result yet", async () => {
+  const { user, addPhoto, chip } = setup();
+  await addPhoto(); await user.click(chip("Test entry A"));
+  const img = await screen.findByTestId("result-image");
+  expect(screen.getByTestId("selfie-preview")).toHaveAttribute("src", "blob:a");
+  expect(screen.getByTestId("scan-line")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Rendering the cast.");
+  expect(screen.queryByTestId("result")).toBeNull();
+  expect(screen.queryByRole("link", { name: "See the evidence" })).toBeNull();
+  fireEvent.load(img);
+  expect(screen.getByTestId("result")).toBeInTheDocument();
+  expect(screen.queryByTestId("scan-line")).toBeNull();
+  expect(screen.queryByTestId("elapsed")).toBeNull();
+  expect(screen.getByRole("status")).toHaveTextContent(/^$/);
+});
+
+test("a render whose image fails before it shows: the selfie stays, the line asks to pick again, a tap retries", async () => {
+  const upload = vi.fn().mockResolvedValueOnce({ fileId: "file-1" }).mockResolvedValueOnce({ fileId: "file-2" });
+  const { api, user, addPhoto, chip } = setup({ upload });
+  await addPhoto(); await user.click(chip("Test entry A"));
+  fireEvent.error(await screen.findByTestId("result-image"));
+  expect(await screen.findByRole("alert")).toHaveTextContent(EXPIRED_LINE);
+  expect(screen.getByTestId("selfie-preview")).toHaveAttribute("src", "blob:a");
+  expect(screen.queryByTestId("scan-line")).toBeNull(); expect(screen.queryByTestId("result")).toBeNull();
+  expect(chip("Test entry A")).toBeEnabled();
+  await user.click(chip("Test entry A"));
+  fireEvent.load(await screen.findByTestId("result-image"));
+  expect(screen.getByTestId("result")).toBeInTheDocument(); expect(screen.queryByRole("alert")).toBeNull();
+  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-a"]);
+});
+
+test("a chip tap while a new photo is still being prepared starts nothing; the flow resumes once it is ready", async () => {
+  const gate = deferred<PreparedImage>();
+  const prepare = vi.fn().mockResolvedValueOnce(image).mockReturnValueOnce(gate.promise);
+  const upload = vi.fn().mockResolvedValueOnce({ fileId: "file-1" }).mockResolvedValueOnce({ fileId: "file-2" });
+  const { api, user, addPhoto, chip } = setup({ prepare, upload });
+  await addPhoto(); await user.click(chip("Test entry A"));
+  fireEvent.load(await screen.findByTestId("result-image"));
+  fireEvent.change(screen.getByTestId("upload-input"), { target: { files: [new File(["y"], "b.jpg", { type: "image/jpeg" })] } });
+  expect(chip("Test entry A")).toBeDisabled(); expect(chip("Test entry B")).toBeDisabled();
+  await user.click(chip("Test entry B"));
+  expect(api.upload).toHaveBeenCalledTimes(1); expect(api.render).toHaveBeenCalledTimes(1);
+  await act(async () => gate.resolve({ ...image, url: "blob:b" }));
+  expect(chip("Test entry B")).toBeEnabled();
+  await user.click(chip("Test entry B"));
+  await waitFor(() => expect(api.render).toHaveBeenCalledTimes(2));
+  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-b"]);
+});
+
+test("the chips are off the moment the change event returns, so a tap right after it starts nothing", async () => {
+  const gate = deferred<PreparedImage>();
+  const prepare = vi.fn().mockResolvedValueOnce(image).mockReturnValueOnce(gate.promise);
+  const { api, user, addPhoto, chip } = setup({ prepare });
+  await addPhoto(); await user.click(chip("Test entry A"));
+  fireEvent.load(await screen.findByTestId("result-image"));
+  const b = chip("Test entry B");
+  const input = screen.getByTestId("upload-input");
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["y"], "b.jpg", { type: "image/jpeg" })] });
+  // Native events inside one act, so nothing the test does flushes a render between them: React itself re-renders
+  // synchronously at the end of a change event (as in a browser), and the chip is already off when the tap lands.
+  act(() => {
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(b).toBeDisabled();
+    b.click();
+  });
+  expect(api.upload).toHaveBeenCalledTimes(1); expect(api.render).toHaveBeenCalledTimes(1);
+  await act(async () => gate.resolve({ ...image, url: "blob:b" }));
+});
+
 test("the result shows the measured cast for the bottle and a link to the evidence", async () => {
   const { user, addPhoto, chip } = setup();
   await addPhoto(); await user.click(chip("Test entry A"));
   expect(await screen.findByTestId("result-image")).toHaveAttribute("src", "https://out.example/r.png");
+  fireEvent.load(screen.getByTestId("result-image"));
   const block = screen.getByTestId("result");
   expect(within(block).getByText("+2.4 L*")).toBeInTheDocument();
   expect(within(block).getByText("Test entry A")).toBeInTheDocument();
@@ -178,7 +248,9 @@ test("progress is spoken while waiting and says it is still working after 10 s",
   await act(async () => upload.resolve({ fileId: "file-1" }));
   expect(screen.getByRole("status")).toHaveTextContent("Still rendering. Up to 2 minutes.");
   await act(async () => rendered.resolve(result));
-  expect(screen.getByRole("status")).toHaveTextContent("");
+  expect(screen.getByRole("status")).toHaveTextContent("Still rendering. Up to 2 minutes.");  // the image is still on its way
+  fireEvent.load(screen.getByTestId("result-image"));
+  expect(screen.getByRole("status")).toHaveTextContent(/^$/);
   expect(screen.queryByTestId("elapsed")).toBeNull();
 });
 
@@ -257,7 +329,10 @@ test("has no axe violations with a result and with an error, and with no bottles
   await addPhoto(); await user.click(chip("Test entry A"));
   await screen.findByRole("alert");
   await expectNoAxeViolations(container);
-  await user.click(chip("Test entry A")); await screen.findByTestId("result-image");
+  await user.click(chip("Test entry A"));
+  await expectNoAxeViolations(container);
+  fireEvent.load(await screen.findByTestId("result-image"));
+  await screen.findByTestId("result");
   await expectNoAxeViolations(container);
   unmount();
   const empty = setup({ bottles: [] });

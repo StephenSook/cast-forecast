@@ -51,7 +51,8 @@ function useWaitClock(busy: boolean): { elapsed: number | null; start(): void } 
  * The Try screen: a selfie, a bottle chip, then the render. The selfie leaves the browser only when a chip is tapped,
  * and only through `api.upload`; a second bottle reuses the uploaded file. Every transition goes through tryReducer
  * synchronously (a ref mirrors the state), so a double tap starts one render, and a newer photo or pick makes any
- * answer still in flight for an older one count for nothing.
+ * answer still in flight for an older one count for nothing. No pick starts while a new photo is being prepared, and
+ * the result shows only once the render's image has loaded.
  */
 export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, prepare }: {
   bottles: readonly Bottle[];
@@ -62,6 +63,11 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
   const [state, setState] = useState<TryState>(() => initialTryState(initialBottleId));
   const live = useRef(state);
   const run = useRef(0);
+  // A photo being prepared will replace the current one, so the chips are off meanwhile and no pick can start on the
+  // old one. CaptureFrame reports it from inside the change event, and React re-renders before that event returns.
+  const [preparing, setPreparing] = useState(false);
+  // The render URL whose image has loaded; until then the frame keeps the selfie and the scan line.
+  const [shownUrl, setShownUrl] = useState<string | null>(null);
 
   const send = (e: TryEvent): TryState => {
     const next = tryReducer(live.current, e);
@@ -82,7 +88,11 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
   useEffect(() => () => void ++run.current, []);
 
   const busy = state.phase === "uploading" || state.phase === "rendering";
-  const wait = useWaitClock(busy);
+  const resultUrl = state.phase === "result" && state.result ? state.result.imageUrl : null;
+  const revealed = resultUrl !== null && shownUrl === resultUrl;
+  // Still waiting while the render's image downloads: the clock and the rendering line keep going until it shows.
+  const waiting = busy || (resultUrl !== null && !revealed);
+  const wait = useWaitClock(waiting);
 
   const onImage = (image: PreparedImage) => {
     run.current++;
@@ -117,8 +127,7 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
   };
 
   const line = state.phase === "error" && state.code ? (state.message ?? MESSAGES[state.code]) : state.expired ? EXPIRED_LINE : "";
-  const showResult = state.phase === "result" && state.result !== null;
-  const bottle = showResult && state.result ? findBottle(state.result.bottleId, bottles) : undefined;
+  const bottle = revealed && state.result ? findBottle(state.result.bottleId, bottles) : undefined;
   const [lo, hi] = whiteningDomain(bottles);
 
   return (
@@ -129,11 +138,13 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
         onImage={onImage}
         onError={onImageError}
         prepare={prepare}
-        resultUrl={showResult ? state.result?.imageUrl : null}
+        resultUrl={resultUrl}
         onResultError={() => send({ type: "IMAGE_EXPIRED" })}
+        onResultLoad={() => setShownUrl(resultUrl)}
+        onPreparing={setPreparing}
       />
       <div className="grid gap-4 min-w-0">
-        <BottleChips bottles={bottles} selectedId={state.bottleId} disabled={!canPick(state)} onPick={(id) => void onPick(id)} />
+        <BottleChips bottles={bottles} selectedId={state.bottleId} disabled={!canPick(state) || preparing} onPick={(id) => void onPick(id)} />
         {line && (
           <p role="alert" className="max-w-[34rem] rounded-2xl border-2 border-ink bg-paper p-4 font-bold">
             {line}
@@ -141,7 +152,7 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
         )}
         {/* Always present (a live region announces changes only once it exists); one line reserved, so nothing jumps. */}
         <p role="status" className="font-bold min-h-[1.5em]">
-          {progressLine(state.phase, wait.elapsed !== null && wait.elapsed * 1000 >= SLOW_MS)}
+          {progressLine(waiting && !busy ? "rendering" : state.phase, wait.elapsed !== null && wait.elapsed * 1000 >= SLOW_MS)}
           {wait.elapsed !== null && (
             <span data-testid="elapsed" aria-hidden="true" className="ml-2 tabular-nums">
               {wait.elapsed} s

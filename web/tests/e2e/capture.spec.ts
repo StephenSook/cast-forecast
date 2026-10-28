@@ -32,3 +32,21 @@ test("nothing is uploaded while the catalogue is empty", async ({ page }) => {
   await expect(page.getByText("No bottles measured yet.")).toBeVisible();
   expect(uploads).toEqual([]);
 });
+// The inputs are visually hidden rather than display:none, so a programmatic click opens the picker on phones too.
+test("each button opens its own file picker", async ({ page }) => {
+  await page.goto("/");
+  for (const [name, id] of [[/Take a selfie/, "camera-input"], ["Upload", "upload-input"]] as const) {
+    // Retried until hydration has attached the click handler.
+    await expect(async () => {
+      const chooser = page.waitForEvent("filechooser", { timeout: 1_000 });
+      await page.getByRole("button", { name }).click();
+      const fc = await chooser;
+      expect(await fc.element().getAttribute("data-testid")).toBe(id);
+      expect(fc.isMultiple()).toBe(false);
+    }).toPass({ timeout: 10_000 });
+  }
+  const camera = page.getByTestId("camera-input");
+  await expect(camera).toHaveAttribute("capture", "user");
+  expect(await camera.evaluate((el) => getComputedStyle(el).display)).not.toBe("none");
+  expect(uploads).toEqual([]);
+});
