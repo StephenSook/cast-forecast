@@ -4,8 +4,9 @@
 # Exit codes: 0 ok. 1 refused before deploying, or the release check read a mismatched response
 # after it (rollback steps in the README). 2 bad arguments. 3 the production alias does not point
 # at the new deployment (never a rollback trigger). 4 deployed or maybe deployed but UNVERIFIED:
-# the deploy step failed oddly, the release check could not reach the site or hit a checker error,
-# or Vercel Authentication blocked it. Never roll back on 4.
+# the deploy step failed oddly or did not report a production target, the release check could not
+# reach the site, was redirected or hit a checker error, or Vercel Authentication blocked it (a 401
+# or a redirect to its login). Never roll back on 4.
 # Every gate is bare: no pipe on any exit path.
 set -euo pipefail
 
@@ -111,11 +112,14 @@ echo "$SERVING"
 echo "$(date -u +%FT%TZ) $SERVING before $SHA" >> "$LOG"
 
 # 6. deploy (from here on, failures are exit 4, never 1)
-if ! $V deploy --prod --yes --scope "$SCOPE" --build-env "NEXT_PUBLIC_RELEASE_SHA=$SHA" > "$tmp.url"; then
+# The JSON output names the deployment's target; only a production target counts. --non-interactive
+# gives the output the same shape from a terminal as from an agent.
+if ! $V deploy --prod --format json --non-interactive --yes --scope "$SCOPE" \
+  --build-env "NEXT_PUBLIC_RELEASE_SHA=$SHA" > "$tmp.url"; then
   unverified "vercel deploy exited non-zero."
 fi
-URL=$(tail -n 1 "$tmp.url") || unverified "Could not read the deploy output."
-case "$URL" in https://*) ;; *) unverified "Unexpected deploy output: $URL" ;; esac
+URL=$(python3 -I scripts/deploy_checks.py deployed "$tmp.url" production) ||
+  unverified "Unexpected deploy output: $URL"
 MODE=live
 if [ "$PAUSED" = "1" ]; then MODE=paused; fi
 echo "deployment: $URL"
@@ -157,11 +161,11 @@ if [ "$rc" = "0" ]; then exit 0; fi
 # Only exit 1 from the checker is a verified bad release. 4 (or anything unexpected) verified nothing.
 if [ "$rc" != "1" ]; then
   auth=0
-  grep -F -q "Vercel Authentication (401)" "$tmp.release" || auth=$?
+  grep -F -q "behind Vercel Authentication" "$tmp.release" || auth=$?
   if [ "$auth" = "0" ]; then
-    echo "Vercel Authentication answers 401 at $PROD. This is a protection setting, not a release failure: do not roll back. Disable protection for production in the Vercel dashboard, then run the release check by hand (README, deploy section)."
+    echo "Vercel Authentication blocks $PROD (a 401 or a redirect to the Vercel login). This is a protection setting, not a release failure: do not roll back. Set Deployment Protection to previews only in the Vercel dashboard, then run the release check by hand (README, deploy section)."
   else
-    echo "The release check could not verify $PROD (unreachable from this Mac, or a checker error). This is not a release failure: do not roll back. Fix the network, then run the release check by hand (README, deploy section)."
+    echo "The release check could not verify $PROD (unreachable from this Mac, redirected, or a checker error). This is not a release failure: do not roll back. Fix that, then run the release check by hand (README, deploy section)."
   fi
   exit 4
 fi

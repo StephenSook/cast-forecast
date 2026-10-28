@@ -15,13 +15,20 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from html.parser import HTMLParser
 
 PROJECT_NAME = "cast-forecast-web"
 SCOPE = "ssookra-7703s-projects"
-AUTH_401 = "deployment is behind Vercel Authentication (401)"
+AUTH_BLOCKED = (
+    "deployment is behind Vercel Authentication (a 401 or a redirect to the Vercel login)"
+)
+# Where Vercel Authentication sends a signed-out client (seen 2026-10-28: 302 to /sso-api, which
+# then lands on /login with a 200).
+VERCEL_LOGIN_HOST = "vercel.com"
+VERCEL_LOGIN_PATHS = ("/sso-api", "/login")
 PROJECT_ID = "prj_13eXRfxiEveDWgUuyKar6XOzl4Lm"
 REQUIRED_JOBS = ("test", "web")
 SCAN_FLAG = "SCAN_ENABLED"
@@ -213,14 +220,74 @@ def key_absent_ok(env_listing: str) -> tuple[bool, str]:
     return True, f"ok: {KEY_NAME} is not set"
 
 
+def deployed_url(raw: str, target: str) -> tuple[bool, str]:
+    """(ok, url or reason) from the stdout of `vercel deploy --format json`.
+
+    vercel@62.1.0 prints one of two success shapes: {"status": "ok", "deployment": {...}} in
+    non-interactive mode (--non-interactive, or an agent without a TTY), the bare deployment object
+    otherwise. The scripts pass --non-interactive; both shapes are accepted, nothing else is.
+    Vercel reports target "production" for a production deployment and null for a preview; the key
+    must be present. A preview that Vercel made a production deployment is a loud failure:
+    production has changed.
+    """
+    data = _json(raw)
+    if not isinstance(data, dict):
+        return False, "the deploy output is not Vercel's JSON"
+    deployment = data.get("deployment") if "status" in data else data
+    if "status" in data and data.get("status") != "ok":
+        return False, "the deploy output does not say status ok"
+    if not isinstance(deployment, dict) or "target" not in deployment:
+        return False, "the deploy output has no deployment with a target"
+    url = deployment.get("url")
+    # http://127.0.0.1 is accepted only so the test suite can point a script at a local fixture.
+    if not isinstance(url, str) or not url.startswith(("https://", "http://127.0.0.1:")):
+        return False, "the deploy output has no https deployment url"
+    got = deployment.get("target")
+    if target == "production" and got != "production":
+        return False, f"Vercel reports target {got!r}, not production"
+    if target == "preview" and got not in (None, "preview"):
+        return False, (
+            f"Vercel made a PRODUCTION deployment ({url}), not a preview: production has changed. "
+            "Run the release check on production now (README, deploy section)."
+        )
+    return True, url
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is reported, never followed: followed, Vercel's login page answers 200 and reads
+    as a served page that is simply the wrong release."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _get(url: str) -> tuple[int, str]:
+    """(status, body). For a redirect the body is its Location; 0 means nothing was fetched."""
     try:
-        with urllib.request.urlopen(url, timeout=20) as resp:
+        with urllib.request.build_opener(_NoRedirect).open(url, timeout=20) as resp:
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
+        if 300 <= e.code < 400:
+            return e.code, e.headers.get("Location", "") or ""
         return e.code, ""
     except (urllib.error.URLError, OSError, ValueError) as e:
         return 0, f"{UNREACHABLE} ({e})"
+
+
+def _blocked(page: str, status: int, body: str) -> str | None:
+    """Why a page says nothing about the release (an UNVERIFIED failure), or None.
+
+    "401" stands for Vercel Authentication, whether it answered 401 or redirected to its login."""
+    if status == 401:
+        return "401"
+    if status == 0:
+        return f"{page}: {body}"
+    if 300 <= status < 400:
+        loc = urllib.parse.urlsplit(body)
+        if loc.hostname == VERCEL_LOGIN_HOST and loc.path.startswith(VERCEL_LOGIN_PATHS):
+            return "401"
+        return f"{page}: redirected to {loc.hostname or 'a relative path'}"
+    return None
 
 
 def _json(body: str):
@@ -234,23 +301,20 @@ def _attempt(base: str, sha: str, want_youcam: bool) -> tuple[bool, str, str, bo
     """One pass over the four pages. Returns (ok, message, health-detail, verified).
 
     `verified` is False when the pass failed because a page could not be fetched at all (status 0:
-    DNS, proxy, network) or answered 401: then nothing is known about the release itself.
+    DNS, proxy, network), Vercel Authentication blocked it, or it redirected: then nothing is known
+    about the release itself.
     """
     status, body = _get(f"{base}/")
-    if status == 401:
-        return False, "401", "", False
-    if status == 0:
-        return False, f"html: {body}", "", False
+    if why := _blocked("html", status, body):
+        return False, why, "", False
     if status != 200:
         return False, f"html: status {status}", "", True
     if not release_in_html(body, sha):
         return False, f"html: cf-release is not {sha}", "", True
 
     status, body = _get(f"{base}/api/health")
-    if status == 401:
-        return False, "401", "", False
-    if status == 0:
-        return False, f"health: {body}", "", False
+    if why := _blocked("health", status, body):
+        return False, why, "", False
     if status != 200:
         return False, f"health: status {status}", "", True
     health = _json(body)
@@ -263,20 +327,16 @@ def _attempt(base: str, sha: str, want_youcam: bool) -> tuple[bool, str, str, bo
     )
 
     status, body = _get(f"{base}/evidence")
-    if status == 401:
-        return False, "401", "", False
-    if status == 0:
-        return False, f"evidence: {body}", "", False
+    if why := _blocked("evidence", status, body):
+        return False, why, "", False
     if status != 200:
         return False, f"evidence: status {status}", "", True
     if not evidence_ok(body):
         return False, "evidence: no K1b PASS row", "", True
 
     status, body = _get(f"{base}/api/gates")
-    if status == 401:
-        return False, "401", "", False
-    if status == 0:
-        return False, f"gates: {body}", "", False
+    if why := _blocked("gates", status, body):
+        return False, why, "", False
     if status != 200:
         return False, f"gates: status {status}", "", True
     ok, why = gates_ok(_json(body))
@@ -304,7 +364,8 @@ def release_check(
 ) -> tuple[bool, str, bool]:
     """Returns (ok, message, verified). A failure is verified only when the last attempt read a
     response that mismatched. It is unverified (nothing is known about the release) when the last
-    attempt could not fetch a page, Vercel Authentication answered 401, or the checker raised."""
+    attempt could not fetch a page, was redirected, Vercel Authentication blocked it, or the checker
+    raised."""
     pause = sleep or time.sleep
     base = base.rstrip("/")
     last, verified = "no attempt ran", False
@@ -316,7 +377,7 @@ def release_check(
         if ok:
             return True, f"release {sha} ok: html, {detail}, evidence, gates", True
         if why == "401":
-            return False, AUTH_401, False
+            return False, AUTH_BLOCKED, False
         # The served release already matched, so this deployment holds a key: a retry cannot change it.
         if why == f"health: {KEY_LIVE}":
             return False, why, True
@@ -341,7 +402,7 @@ def _done(ok: bool, msg: str) -> int:
 
 def main(argv: list[str]) -> int:
     if not argv:
-        print("usage: deploy_checks.py link|ci|ignored|scan|nokey|serving|release ...")
+        print("usage: deploy_checks.py link|ci|ignored|scan|nokey|deployed|serving|release ...")
         return 2
     cmd, args = argv[0], argv[1:]
     if cmd == "link" and len(args) == 1:
@@ -376,6 +437,15 @@ def main(argv: list[str]) -> int:
         if raw is None:
             return _done(False, "environment listing file is missing")
         return _done(*key_absent_ok(raw))
+    if cmd == "deployed" and len(args) == 2:
+        # Prints the deployment url alone on success, so a script can capture it.
+        if args[1] not in ("preview", "production"):
+            print("target must be preview or production")
+            return 2
+        raw = _read(args[0])
+        if raw is None:
+            return _done(False, "deploy output file is missing")
+        return _done(*deployed_url(raw, args[1]))
     if cmd == "serving" and len(args) == 1:
         status, body = _get(args[0].rstrip("/") + "/")
         if status == 0:

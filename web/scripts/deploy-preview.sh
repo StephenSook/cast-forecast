@@ -4,10 +4,10 @@
 # Every gate is bare: no pipe on any exit path, and every failure exits non-zero before anything is
 # uploaded.
 # Exit codes: 0 ok, 1 refused or a verified release failure (the check read a mismatched response),
-# 4 UNVERIFIED: the release check could not reach the preview, hit a checker error, or was blocked
-# by Vercel Authentication. A preview is never rolled back. Previews sit behind Vercel
-# Authentication, so a 4 from its 401 is expected: open the preview in a logged-in browser. On any
-# other 4 (unreachable, a checker error), rerun the release check by hand.
+# 4 UNVERIFIED: the release check could not reach the preview, hit a checker error, was redirected,
+# or was blocked by Vercel Authentication. A preview is never rolled back. Previews sit behind
+# Vercel Authentication (a 401 or a redirect to its login), so that 4 is expected: open the preview
+# in a logged-in browser. On any other 4 (unreachable, a checker error), rerun the check by hand.
 set -euo pipefail
 
 # These two variables override .vercel/project.json, which would bypass the link gate.
@@ -70,13 +70,14 @@ case "${DRY_RUN:-}" in
   *) echo "DRY_RUN=${DRY_RUN}: gates passed, nothing deployed"; exit 0 ;;
 esac
 
-# 5. deploy
-if ! $V deploy --yes --scope "$SCOPE" --build-env "NEXT_PUBLIC_RELEASE_SHA=$SHA" > "$tmp.url"; then
+# 5. deploy. The target is explicit: on a project with no production deployment yet, vercel@62.1.0
+# made an untargeted deploy a PRODUCTION deploy (2026-10-28). The JSON output names the target, and
+# --non-interactive gives it the same shape from a terminal as from an agent.
+if ! $V deploy --target preview --format json --non-interactive --yes --scope "$SCOPE" \
+  --build-env "NEXT_PUBLIC_RELEASE_SHA=$SHA" > "$tmp.url"; then
   fail "vercel deploy failed."
 fi
-URL=$(tail -n 1 "$tmp.url")
-# http://127.0.0.1 is accepted only so the test suite can point this script at a local fixture.
-case "$URL" in https://*|http://127.0.0.1:*) ;; *) fail "Unexpected deploy output: $URL" ;; esac
+URL=$(python3 -I scripts/deploy_checks.py deployed "$tmp.url" preview) || fail "Unexpected deploy output: $URL"
 echo "deployment: $URL"
 
 # 6. build log, kept under .vercel/ (gitignored); display only, not a gate
@@ -87,16 +88,17 @@ grep -i -E "node|pnpm" "$BUILD_LOG" || true
 echo "full build log: $BUILD_LOG"
 
 # 7. the release check: exit 1 only for a verified mismatch, 4 when nothing was verified
-# (unreachable, a checker error, or a 401); health must say youcam=false, so a preview that holds an
-# active key fails. Its output is printed as is; on 4 one more line names the next step.
+# (unreachable, a checker error, a redirect, or Vercel Authentication); health must say youcam=false,
+# so a preview that holds an active key fails. Its output is printed as is; on 4 one more line names
+# the next step.
 rc=0
 python3 -I scripts/deploy_checks.py release "$URL" "$SHA" --require-no-youcam > "$tmp.release" || rc=$?
 cat "$tmp.release" || true
 if [ "$rc" = "4" ]; then
   auth=0
-  grep -F -q "Vercel Authentication (401)" "$tmp.release" || auth=$?
+  grep -F -q "behind Vercel Authentication" "$tmp.release" || auth=$?
   if [ "$auth" = "0" ]; then
-    echo "Previews sit behind Vercel Authentication, so this 401 is expected: open the preview in a logged-in browser to check it."
+    echo "Previews sit behind Vercel Authentication, so this is expected: open the preview in a logged-in browser to check it."
   else
     echo "The release check could not verify the preview (unreachable from this Mac, or a checker error). Fix that, then rerun the release check by hand (README, deploy section)."
   fi
