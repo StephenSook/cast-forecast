@@ -195,6 +195,14 @@ def test_scan_flag_must_be_unset_in_the_target_and_the_shell():
     assert dc.scan_flag_ok(SOME_VARS + " NOT_SCAN_ENABLED_X  Encrypted  Production\n", None)[0]
 
 
+def test_scan_listing_must_name_exactly_this_project():
+    staging = SOME_VARS.replace("cast-forecast-web", "cast-forecast-web-staging")
+    assert dc.scan_flag_ok(staging, None)[0] is False
+    other_scope = SOME_VARS.replace("ssookra-7703s-projects", "someone-else")
+    assert dc.scan_flag_ok(other_scope, None)[0] is False
+    assert dc.scan_flag_ok(SOME_VARS.rstrip("\n"), None)[0]
+
+
 def test_scan_listing_that_failed_is_not_a_pass():
     for bad in (
         "",
@@ -330,18 +338,37 @@ def test_main_release_and_serving(site, capsys):
     assert dc.main(["release"]) == 2
 
 
-# ---- the deploy scripts themselves, run against a throwaway repo with fake gh and vercel ----
+def test_main_release_exits_4_behind_vercel_authentication(site):
+    assert dc.main(["release", site({"/": [(401, "")]}), SHA]) == 4
 
-FAKE_VERCEL = """#!/usr/bin/env bash
+
+# ---- the deploy scripts themselves, run against a throwaway repo with fake pnpm and gh ----
+
+FAKE_PNPM = """#!/usr/bin/env bash
+# Stands in for: pnpm dlx --allow-build=esbuild vercel@62.1.0 <command> ...
+[ "$1" = "dlx" ] || { echo "fake pnpm: unexpected $*"; exit 98; }
+shift 3
 echo "$*" >> "$FAKE_LOG"
-if [ "$1" = "env" ] && [ "$2" = "ls" ]; then
-  if [ -n "${FAKE_ENV_FAIL:-}" ]; then echo "Error: not logged in"; exit 1; fi
-  cat "$FAKE_ENV_LS"; exit 0
-fi
+case "$1" in
+  env)
+    if [ -n "${FAKE_ENV_FAIL:-}" ]; then echo "Error: not logged in"; exit 1; fi
+    cat "$FAKE_ENV_LS"; exit 0 ;;
+  deploy)
+    if [ -n "${FAKE_DEPLOY_FAIL:-}" ]; then echo "Error: build failed" >&2; exit 1; fi
+    cat "$FAKE_DEPLOY_OUT"; exit 0 ;;
+  inspect)
+    if [ -n "${FAKE_INSPECT_FAIL:-}" ]; then echo "Error: inspect failed"; exit 1; fi
+    cat "$FAKE_INSPECT_OUT"; exit 0 ;;
+esac
 echo "unexpected vercel call: $*"; exit 99
 """
 FAKE_GH = """#!/usr/bin/env bash
 echo "gh $*" >> "$FAKE_LOG"
+case "$*" in
+  *commits/main*)
+    if [ -n "${FAKE_GH_MAIN_FAIL:-}" ]; then exit 1; fi
+    echo "$FAKE_MAIN_SHA"; exit 0 ;;
+esac
 if [ -n "${FAKE_GH_FAIL:-}" ]; then exit 1; fi
 cat "$FAKE_CI"
 """
@@ -350,62 +377,76 @@ GOOD_PROJECT = {
     "projectId": "prj_13eXRfxiEveDWgUuyKar6XOzl4Lm",
     "orgId": "team_x",
 }
+ALIAS_LINE = "    Aliases     https://cast-forecast-web.vercel.app\n"
+FAKE_URL = "https://cast-forecast-abc123.vercel.app"
 
 
 def _git(cwd, *args):
-    subprocess.run(
+    return subprocess.run(
         ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
         cwd=cwd,
         check=True,
         capture_output=True,
-    )
+        text=True,
+    ).stdout.strip()
 
 
 class Rig:
     def __init__(self, tmp_path):
         self.tmp = tmp_path
-        origin = tmp_path / "origin.git"
+        self.origin = tmp_path / "origin.git"
         self.work = tmp_path / "work"
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.origin)], check=True)
         self.work.mkdir()
         _git(self.work, "init", "-q", "-b", "main")
         (self.work / "web" / "scripts").mkdir(parents=True)
         for name in ("deploy_checks.py", "deploy-prod.sh", "deploy-preview.sh"):
             shutil.copy(SCRIPTS / name, self.work / "web" / "scripts" / name)
-        (self.work / ".gitignore").write_text(".vercel/\n.env.*\n__pycache__/\n")
+        (self.work / ".gitignore").write_text(".env.*\n__pycache__/\n")
+        (self.work / "web" / ".gitignore").write_text(".vercel\n.env*.local\n")
         (self.work / "web" / ".vercel").mkdir()
         (self.work / "web" / ".vercel" / "project.json").write_text(json.dumps(GOOD_PROJECT))
         _git(self.work, "add", ".")
         _git(self.work, "commit", "-q", "-m", "init")
-        _git(self.work, "remote", "add", "origin", str(origin))
+        _git(self.work, "remote", "add", "origin", str(self.origin))
         _git(self.work, "push", "-q", "-u", "origin", "main")
         self.bin = tmp_path / "bin"
         self.bin.mkdir()
-        for name, body in (("vercel", FAKE_VERCEL), ("gh", FAKE_GH)):
+        for name, body in (("pnpm", FAKE_PNPM), ("gh", FAKE_GH)):
             (self.bin / name).write_text(body)
             (self.bin / name).chmod(0o755)
         self.log = tmp_path / "calls.log"
         self.log.write_text("")
         self.env_ls = tmp_path / "env_ls.txt"
         self.env_ls.write_text(NO_VARS)
+        self.deploy_out = tmp_path / "deploy_out.txt"
+        self.deploy_out.write_text(FAKE_URL + "\n")
+        self.inspect_out = tmp_path / "inspect_out.txt"
+        self.inspect_out.write_text(ALIAS_LINE)
         self.ci = tmp_path / "ci.json"
         self.set_ci(("test", "success"), ("web", "success"))
+        self.main_sha = None
 
     def set_ci(self, *pairs):
         self.ci.write_text(json.dumps(runs(*pairs)))
+
+    def head(self):
+        return _git(self.work, "rev-parse", "HEAD")
 
     def run(self, script, *args, **extra):
         env = {
             **os.environ,
             "PATH": f"{self.bin}:{os.environ['PATH']}",
-            "VERCEL_CMD": str(self.bin / "vercel"),
             "FAKE_LOG": str(self.log),
             "FAKE_CI": str(self.ci),
             "FAKE_ENV_LS": str(self.env_ls),
+            "FAKE_DEPLOY_OUT": str(self.deploy_out),
+            "FAKE_INSPECT_OUT": str(self.inspect_out),
+            "FAKE_MAIN_SHA": self.main_sha or _git(self.origin, "rev-parse", "main"),
             "PYTHONDONTWRITEBYTECODE": "1",
         }
-        env.pop("SCAN_ENABLED", None)
-        env.pop("DRY_RUN", None)
+        for name in ("SCAN_ENABLED", "DRY_RUN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "PROD_URL"):
+            env.pop(name, None)
         env.update(extra)
         out = self.tmp / "out.txt"
         with out.open("w") as f:
@@ -422,14 +463,27 @@ class Rig:
     def calls(self):
         return self.log.read_text().splitlines()
 
+    def deployed(self):
+        return [c for c in self.calls() if c.startswith(("deploy", "promote", "rollback"))]
+
 
 @pytest.fixture
 def rig(tmp_path):
     return Rig(tmp_path)
 
 
-def _no_deploy(rig):
-    assert not [c for c in rig.calls() if c.startswith(("deploy", "promote", "rollback", "alias"))]
+def _alias(rig, base):
+    """Make the fake `vercel inspect` list the fixture site as the production alias."""
+    rig.inspect_out.write_text(f"    Aliases     {base.removeprefix('http://')}\n")
+    return base
+
+
+def _pages(sha, **overrides):
+    return {
+        "/": [(200, f'<head><meta name="cf-release" content="{sha}"/></head>')],
+        "/api/health": [(200, {**HEALTH, "release": sha})],
+        **overrides,
+    }
 
 
 def test_prod_dry_run_passes_every_gate_and_deploys_nothing(rig):
@@ -437,8 +491,21 @@ def test_prod_dry_run_passes_every_gate_and_deploys_nothing(rig):
     assert code == 0, out
     assert out.splitlines()[-1] == "DRY_RUN=1: gates passed, nothing deployed"
     assert "deployment:" not in out
-    _no_deploy(rig)
+    assert rig.deployed() == []
     assert any(c.startswith("env ls production") for c in rig.calls())
+
+
+def test_any_dry_run_value_but_empty_or_zero_is_a_dry_run(rig, site):
+    for value in ("true", "yes", "2"):
+        code, out = rig.run("deploy-prod.sh", DRY_RUN=value)
+        assert code == 0 and "nothing deployed" in out, value
+    assert rig.deployed() == []
+    sha = rig.head()
+    for value in ("", "0"):
+        base = _alias(rig, site(_pages(sha)))
+        code, out = rig.run("deploy-prod.sh", DRY_RUN=value, PROD_URL=base)
+        assert "deployment:" in out, (value, out)
+    assert len(rig.deployed()) == 2
 
 
 def test_prod_refuses_a_branch_head(rig):
@@ -450,14 +517,70 @@ def test_prod_refuses_a_branch_head(rig):
     assert code == 1
     assert out.splitlines()[-1] == "HEAD is not origin/main"
     assert "deployment:" not in out
-    _no_deploy(rig)
+    assert rig.deployed() == []
 
 
-def test_prod_refuses_a_dirty_tree(rig):
-    (rig.work / "web" / "stray.txt").write_text("x")
+def test_prod_refuses_when_github_main_is_not_this_sha(rig):
+    rig.main_sha = "0" * 40
     code, out = rig.run("deploy-prod.sh", DRY_RUN="1")
+    assert code == 1 and "DRY_RUN=1" not in out
+    rig.main_sha = None
+    code, out = rig.run("deploy-prod.sh", DRY_RUN="1", FAKE_GH_MAIN_FAIL="1")
+    assert code == 1 and "DRY_RUN=1" not in out
+    assert rig.deployed() == []
+
+
+@pytest.mark.parametrize("script", ["deploy-prod.sh", "deploy-preview.sh"])
+def test_scripts_refuse_a_dirty_tree(rig, script):
+    if script == "deploy-preview.sh":
+        _git(rig.work, "checkout", "-q", "-b", "feature")
+        _git(rig.work, "push", "-q", "-u", "origin", "feature")
+    (rig.work / "web" / "stray.txt").write_text("x")
+    code, out = rig.run(script, DRY_RUN="1")
     assert code == 1 and "deployment:" not in out
-    _no_deploy(rig)
+    assert rig.deployed() == []
+
+
+@pytest.mark.parametrize("script", ["deploy-prod.sh", "deploy-preview.sh"])
+def test_scripts_see_untracked_and_ignored_files_even_if_git_is_configured_not_to(rig, script):
+    if script == "deploy-preview.sh":
+        _git(rig.work, "checkout", "-q", "-b", "feature")
+        _git(rig.work, "push", "-q", "-u", "origin", "feature")
+    _git(rig.work, "config", "status.showUntrackedFiles", "no")
+    (rig.work / "web" / "new.ts").write_text("x")
+    code, out = rig.run(script, DRY_RUN="1")
+    assert code == 1 and "not clean" in out, out
+    (rig.work / "web" / "new.ts").unlink()
+    (rig.work / ".gitignore").write_text(".env.*\n__pycache__/\n*.jpg\n")
+    _git(rig.work, "add", ".gitignore")
+    _git(rig.work, "commit", "-q", "-m", "ignore jpg")
+    _git(rig.work, "push", "-q", "origin", "HEAD")
+    (rig.work / "web" / "selfie.jpg").write_text("x")
+    code, out = rig.run(script, DRY_RUN="1")
+    assert code == 1 and "ignored path would ship: web/selfie.jpg" in out, out
+    assert rig.deployed() == []
+
+
+@pytest.mark.parametrize("script", ["deploy-prod.sh", "deploy-preview.sh"])
+def test_scripts_refuse_an_ignored_listing_that_cannot_see_the_link(rig, script):
+    # A tracked project.json makes the ignored listing lack `!! web/.vercel/`: the listing is
+    # not trustworthy, so nothing deploys.
+    if script == "deploy-preview.sh":
+        _git(rig.work, "checkout", "-q", "-b", "feature")
+    _git(rig.work, "add", "-f", "web/.vercel/project.json")
+    _git(rig.work, "commit", "-q", "-m", "track link")
+    _git(rig.work, "push", "-q", "-u", "origin", "HEAD")
+    code, out = rig.run(script, DRY_RUN="1")
+    assert code == 1 and "ignored listing" in out, out
+    assert rig.deployed() == []
+
+
+@pytest.mark.parametrize("script", ["deploy-prod.sh", "deploy-preview.sh"])
+def test_scripts_refuse_project_overrides_from_the_environment(rig, script):
+    for name in ("VERCEL_ORG_ID", "VERCEL_PROJECT_ID"):
+        code, out = rig.run(script, DRY_RUN="1", **{name: "x"})
+        assert code == 1 and name in out, out
+    assert rig.calls() == []
 
 
 def test_prod_refuses_an_unlinked_or_wrong_project(rig):
@@ -466,18 +589,7 @@ def test_prod_refuses_an_unlinked_or_wrong_project(rig):
     assert rig.run("deploy-prod.sh", DRY_RUN="1")[0] == 1
     project.unlink()
     assert rig.run("deploy-prod.sh", DRY_RUN="1")[0] == 1
-    _no_deploy(rig)
-
-
-def test_prod_refuses_an_ignored_file_that_would_ship(rig):
-    (rig.work / ".gitignore").write_text(".vercel/\n.env.*\n__pycache__/\n*.jpg\n")
-    _git(rig.work, "add", ".gitignore")
-    _git(rig.work, "commit", "-q", "-m", "ignore jpg")
-    _git(rig.work, "push", "-q", "origin", "main")
-    (rig.work / "web" / "selfie.jpg").write_text("x")
-    code, out = rig.run("deploy-prod.sh", DRY_RUN="1")
-    assert code == 1 and "ignored path would ship: web/selfie.jpg" in out
-    _no_deploy(rig)
+    assert rig.deployed() == []
 
 
 def test_prod_refuses_red_missing_or_unreadable_ci(rig):
@@ -489,7 +601,7 @@ def test_prod_refuses_red_missing_or_unreadable_ci(rig):
     assert rig.run("deploy-prod.sh", DRY_RUN="1")[0] == 1
     code, out = rig.run("deploy-prod.sh", DRY_RUN="1", FAKE_GH_FAIL="1")
     assert code == 1 and "DRY_RUN=1" not in out
-    _no_deploy(rig)
+    assert rig.deployed() == []
 
 
 def test_prod_refuses_when_the_scan_flag_is_set_anywhere(rig):
@@ -501,18 +613,81 @@ def test_prod_refuses_when_the_scan_flag_is_set_anywhere(rig):
     assert code == 1 and "SCAN_ENABLED" in out and "DRY_RUN=1" not in out
     code, _ = rig.run("deploy-prod.sh", DRY_RUN="1", SCAN_ENABLED="0")
     assert code == 0
-    _no_deploy(rig)
+    assert rig.deployed() == []
 
 
 def test_prod_refuses_when_the_env_listing_fails(rig):
     code, out = rig.run("deploy-prod.sh", DRY_RUN="1", FAKE_ENV_FAIL="1")
     assert code == 1 and "DRY_RUN=1" not in out
-    _no_deploy(rig)
+    assert rig.deployed() == []
 
 
 def test_prod_rejects_unknown_arguments(rig):
     assert rig.run("deploy-prod.sh", "--nope", DRY_RUN="1")[0] == 2
-    _no_deploy(rig)
+    assert rig.deployed() == []
+
+
+def test_prod_deploys_and_verifies(rig, site):
+    sha = rig.head()
+    code, out = rig.run("deploy-prod.sh", PROD_URL=_alias(rig, site(_pages(sha))) + "/")
+    assert code == 0, out
+    assert f"deployment: {FAKE_URL}" in out and f"serving {sha}" in out
+    assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health")
+    assert any(
+        c.startswith("deploy --prod") and f"NEXT_PUBLIC_RELEASE_SHA={sha}" in c for c in rig.calls()
+    )
+    log = (rig.work / "web" / ".vercel" / "deploy-log.txt").read_text()
+    assert f"deployment {FAKE_URL} sha {sha} mode live" in log
+    assert f"before {sha}" in log
+
+
+def test_prod_paused_allows_no_youcam(rig, site):
+    sha = rig.head()
+    pages = _pages(sha, **{"/api/health": [(200, {**HEALTH, "release": sha, "youcam": False})]})
+    base = _alias(rig, site(pages))
+    code, out = rig.run("deploy-prod.sh", "--paused", PROD_URL=base)
+    assert code == 0, out
+    assert "youcam=false" in out.splitlines()[-1]
+    assert "mode paused" in (rig.work / "web" / ".vercel" / "deploy-log.txt").read_text()
+
+
+def test_prod_alias_mismatch_is_exit_3_not_a_rollback_trigger(rig, site):
+    rig.inspect_out.write_text("    Aliases     https://something-else.vercel.app\n")
+    code, out = rig.run("deploy-prod.sh", PROD_URL=site(_pages(rig.head())))
+    assert code == 3, out
+    assert "do not roll back" in out and "release" not in out.splitlines()[-1].split()[:1]
+
+
+def test_prod_release_failure_is_exit_1_and_names_the_rollback(rig, site):
+    base = _alias(rig, site(_pages(rig.head(), **{"/evidence": [(500, "")]})))
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base)
+    assert code == 1, out
+    assert out.splitlines()[-1].startswith("Deployed, but the release check failed")
+    assert "evidence: status 500" in out
+
+
+def test_prod_401_at_the_release_check_is_exit_4_and_not_a_rollback_trigger(rig, site):
+    base = _alias(rig, site(_pages(rig.head(), **{"/": [(401, "")]})))
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base)
+    assert code == 4, out
+    assert "Vercel Authentication" in out and "not a release failure" in out
+    assert "Deployed, but the release check failed" not in out
+
+
+def test_prod_post_deploy_failures_are_exit_4_with_a_serving_line(rig, site):
+    sha = rig.head()
+    base = _alias(rig, site(_pages(sha)))
+    cases = [
+        {"FAKE_DEPLOY_FAIL": "1"},
+        {"FAKE_INSPECT_FAIL": "1"},
+    ]
+    for extra in cases:
+        code, out = rig.run("deploy-prod.sh", PROD_URL=base, **extra)
+        assert code == 4, (extra, out)
+        assert "UNVERIFIED" in out and out.count(f"serving {sha}") >= 2, out
+    rig.deploy_out.write_text("Error: something odd\n")
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base)
+    assert code == 4 and "UNVERIFIED" in out, out
 
 
 def _track_branch(rig):
@@ -527,7 +702,7 @@ def test_preview_refuses_an_unpushed_head(rig):
     _git(rig.work, "commit", "-q", "-m", "unpushed")
     code, out = rig.run("deploy-preview.sh")
     assert code == 1 and "deployment:" not in out
-    _no_deploy(rig)
+    assert rig.deployed() == []
 
 
 def test_preview_refuses_red_ci_and_the_scan_flag(rig):
@@ -542,4 +717,30 @@ def test_preview_refuses_red_ci_and_the_scan_flag(rig):
     code, out = rig.run("deploy-preview.sh", SCAN_ENABLED="1")
     assert code == 1 and "SCAN_ENABLED" in out
     assert any(c.startswith("env ls preview") for c in rig.calls())
-    _no_deploy(rig)
+    assert rig.deployed() == []
+
+
+def test_preview_deploys_verifies_and_keeps_its_build_log(rig, site):
+    _track_branch(rig)
+    sha = rig.head()
+    rig.deploy_out.write_text(site(_pages(sha)) + "\n")
+    rig.inspect_out.write_text("Node.js Version 22.x\npnpm 12.3.4\n")
+    code, out = rig.run("deploy-preview.sh")
+    assert code == 0, out
+    assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health")
+    assert "Node.js Version 22.x" in out
+    assert any(c.startswith("deploy ") and "--prod" not in c for c in rig.calls())
+    log = rig.work / "web" / ".vercel" / "preview-build.log"
+    assert "pnpm 12.3.4" in log.read_text()
+    assert str(log.relative_to(rig.work / "web")) in out
+
+
+def test_preview_release_failure_and_401_are_not_green(rig, site):
+    _track_branch(rig)
+    sha = rig.head()
+    rig.deploy_out.write_text(site(_pages(sha, **{"/": [(401, "")]})) + "\n")
+    code, out = rig.run("deploy-preview.sh")
+    assert code == 4 and "Vercel Authentication" in out, out
+    rig.deploy_out.write_text("Error: nothing\n")
+    code, out = rig.run("deploy-preview.sh")
+    assert code != 0 and "release" not in out.splitlines()[-1][:8]

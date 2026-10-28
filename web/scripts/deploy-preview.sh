@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Preview deploy from this Mac. Previews never get a YouCam key. Every gate is bare: no pipe on
 # any exit path, and every failure exits non-zero before anything is uploaded.
+# Exit codes: 0 ok, 1 refused or release failure, 4 release check blocked by Vercel Authentication.
 set -euo pipefail
 
-V="${VERCEL_CMD:-pnpm dlx --allow-build=esbuild vercel@62.1.0}"
+# These two variables override .vercel/project.json, which would bypass the link gate.
+if [ -n "${VERCEL_ORG_ID:-}" ] || [ -n "${VERCEL_PROJECT_ID:-}" ]; then
+  echo "VERCEL_ORG_ID / VERCEL_PROJECT_ID are set; they override the link gate. Unset them."
+  exit 1
+fi
+
+V="pnpm dlx --allow-build=esbuild vercel@62.1.0"
 SCOPE="ssookra-7703s-projects"
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 tmp=$(mktemp)
@@ -11,19 +18,25 @@ trap 'rm -f "$tmp" "$tmp".*' EXIT
 
 fail() { echo "$1"; exit 1; }
 
-# 1. linked project, clean tree, nothing ignored that would ship
+# 1. linked project, clean tree, nothing ignored that would ship. Untracked files are requested
+# explicitly: a local status.showUntrackedFiles=no must not hide a file that would upload.
 if ! python3 -I scripts/deploy_checks.py link .vercel/project.json; then
   fail "Not linked to cast-forecast-web. Run the link step; never deploy from an unlinked directory."
 fi
-if ! git status --porcelain > "$tmp.st"; then fail "git status failed"; fi
+if ! git status --porcelain --untracked-files=normal > "$tmp.st"; then fail "git status failed"; fi
 if [ -s "$tmp.st" ]; then fail "Working tree is not clean. Commit or stash first."; fi
-if ! git status --porcelain --ignored -- . > "$tmp.ign"; then fail "git status --ignored failed"; fi
+if ! git status --porcelain --untracked-files=normal --ignored -- . > "$tmp.ign"; then
+  fail "git status --ignored failed"
+fi
+if ! grep -F -x -q '!! web/.vercel/' "$tmp.ign"; then
+  fail "The ignored listing does not show web/.vercel/, so it cannot be trusted."
+fi
 if ! python3 -I scripts/deploy_checks.py ignored "$tmp.ign"; then fail "Ignored files would ship."; fi
 
 # 2. HEAD must be pushed, so its check-runs exist
 if ! git fetch origin; then fail "git fetch failed"; fi
-SHA=$(git rev-parse HEAD)
-UPSTREAM=$(git rev-parse '@{u}')
+SHA=$(git rev-parse HEAD) || fail "git rev-parse HEAD failed"
+UPSTREAM=$(git rev-parse '@{u}') || fail "This branch has no upstream."
 if [ "$SHA" != "$UPSTREAM" ]; then fail "HEAD is not pushed to its upstream branch."; fi
 
 # 3. CI
@@ -38,18 +51,27 @@ if ! $V env ls preview --scope "$SCOPE" > "$tmp.env" 2>&1; then
 fi
 if ! python3 -I scripts/deploy_checks.py scan "$tmp.env"; then fail "SCAN_ENABLED must not be set."; fi
 
-# 4. deploy
+# 4. dry run: any value but empty or 0 stops here
+case "${DRY_RUN:-}" in
+  ""|0) ;;
+  *) echo "DRY_RUN=${DRY_RUN}: gates passed, nothing deployed"; exit 0 ;;
+esac
+
+# 5. deploy
 if ! $V deploy --yes --scope "$SCOPE" --build-env "NEXT_PUBLIC_RELEASE_SHA=$SHA" > "$tmp.url"; then
   fail "vercel deploy failed."
 fi
 URL=$(tail -n 1 "$tmp.url")
-case "$URL" in https://*) ;; *) fail "Unexpected deploy output: $URL" ;; esac
+# http://127.0.0.1 is accepted only so the test suite can point this script at a local fixture.
+case "$URL" in https://*|http://127.0.0.1:*) ;; *) fail "Unexpected deploy output: $URL" ;; esac
 echo "deployment: $URL"
 
-# 5. build log (display only, not a gate)
-if $V inspect "$URL" --logs --scope "$SCOPE" > "$tmp.log" 2>&1; then :; else echo "inspect --logs failed"; fi
-grep -i -E "node|pnpm" "$tmp.log" || true
-echo "full build log: $tmp.log (removed on exit)"
+# 6. build log, kept under .vercel/ (gitignored); display only, not a gate
+mkdir -p .vercel
+BUILD_LOG=.vercel/preview-build.log
+if $V inspect "$URL" --logs --scope "$SCOPE" > "$BUILD_LOG" 2>&1; then :; else echo "inspect --logs failed"; fi
+grep -i -E "node|pnpm" "$BUILD_LOG" || true
+echo "full build log: $BUILD_LOG"
 
-# 6. the release check, the last line printed
+# 7. the release check, the last line printed (exit 4 when Vercel Authentication answers 401)
 python3 -I scripts/deploy_checks.py release "$URL" "$SHA" --allow-no-youcam

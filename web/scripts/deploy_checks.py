@@ -18,6 +18,8 @@ import urllib.request
 from collections.abc import Callable
 
 PROJECT_NAME = "cast-forecast-web"
+SCOPE = "ssookra-7703s-projects"
+AUTH_401 = "deployment is behind Vercel Authentication (401)"
 PROJECT_ID = "prj_13eXRfxiEveDWgUuyKar6XOzl4Lm"
 REQUIRED_JOBS = ("test", "web")
 SCAN_FLAG = "SCAN_ENABLED"
@@ -134,7 +136,8 @@ def scan_flag_ok(env_listing: str, local_value: str | None) -> tuple[bool, str]:
     A listing that does not name this project (empty, an error, the wrong project) is a failure,
     not a pass.
     """
-    if f"/{PROJECT_NAME}" not in env_listing or "Environment Variable" not in env_listing:
+    named = re.search(rf"{SCOPE}/{PROJECT_NAME}(?=\s|$)", env_listing)
+    if not named or "Environment Variable" not in env_listing:
         return False, f"environment listing does not name {PROJECT_NAME} (the listing failed)"
     if re.search(rf"(?<![\w]){SCAN_FLAG}(?![\w])", env_listing):
         return False, f"{SCAN_FLAG} is set in the target environment"
@@ -225,7 +228,7 @@ def release_check(
         if ok:
             return True, f"release {sha} ok: html, {detail}, evidence, gates"
         if why == "401":
-            return False, "deployment is behind Vercel Authentication (401)"
+            return False, AUTH_401
         last = why
         if n < attempts - 1:
             sleep(10)
@@ -291,7 +294,12 @@ def main(argv: list[str]) -> int:
         if len(args) == 3 and args[2] != "--allow-no-youcam":
             print("unknown option: " + args[2])
             return 2
-        return _done(*release_check(args[0], args[1], require_youcam=len(args) == 2))
+        ok, msg = release_check(args[0], args[1], require_youcam=len(args) == 2)
+        print(msg)
+        if ok:
+            return 0
+        # 4: a protection setting, not a bad release, so callers must not treat it as one.
+        return 4 if msg == AUTH_401 else 1
     print(f"bad arguments for {cmd}")
     return 2
 
