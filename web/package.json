@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sync:gates": "node scripts/sync-gates.mjs"
   },
   "dependencies": {
     "@gsap/react": "2.1.2",
