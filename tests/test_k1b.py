@@ -366,3 +366,16 @@ def test_non_string_error_code_mid_run_is_classified(selfies, tmp_path):
     assert rc != 0
     r = json.loads(out.read_text())
     assert r["stop_class"] == "content" and r["k1b_pass"] is False
+
+
+def test_k1b_main_refuses_before_the_client_is_built(tmp_path, monkeypatch):
+    out = tmp_path / "recon" / "gate" / "k1b.json"
+    out.parent.mkdir(parents=True)
+    out.write_text("{}")
+
+    def no_client(*a, **k):
+        raise AssertionError("the client (and the Keychain read) must not happen")
+
+    monkeypatch.setattr(k1b, "YouCamClient", no_client)
+    assert k1b.main(["--selfie", "A", "--check", "B", "--root", str(tmp_path)]) != 0
+    assert out.read_text() == "{}"

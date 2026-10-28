@@ -32,7 +32,7 @@ from castforecast.k1_render import (
     isotonic_nondecreasing,
     measure,
 )
-from castforecast.k2_tone import _write
+from castforecast.k2_tone import _write, refuse_existing
 from castforecast.preflight import preflight, upload_copy
 from castforecast.youcam import YouCamClient, YouCamError
 
@@ -394,6 +394,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     root = Path(args.root)
     sd = root / "private_inputs" / "selfies"
+    if refuse_existing(root / args.out, "K1b"):  # before the client reads the key
+        return 1
     return run_k1b(
         YouCamClient(),
         sd / f"{args.selfie}.jpg",
