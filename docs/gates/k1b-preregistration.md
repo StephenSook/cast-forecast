@@ -28,3 +28,9 @@ Unchanged from K1: the 0.5 L* tolerance, R^2 0.95, dE00 2.0, and the 20 percent 
 
 ## Decision
 K1b pass: continue Cast Forecast with YouCam Makeup VTO as the renderer (colorIntensity for the cast strength, coverage for texture). K1b fail: switch to the fallback project. Results will be published next to this file whichever way they land.
+
+## Addendum (committed after code review, still before any K1b render was requested)
+- Criterion 2 is computed only when all 16 A renders are usable; if any A render is unusable (no face found, failed download, invalid image), criterion 2 fails with that reason.
+- If the run stops before all 19 renders complete because of an infrastructure error (network failure, timeout, HTTP 5xx, HTTP 429), K1b has no verdict yet and may be run again once, from scratch, with the stopped run's JSON kept beside the new one. Any other stop (an error about the input image or the render content, or a second infrastructure stop) counts as a K1b FAIL.
+- The run refuses to start if a results file already exists at its output path, so no run can overwrite or quietly replace an earlier one.
+- Results are copied next to this file after the run, whichever way they land.
