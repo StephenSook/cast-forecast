@@ -31,3 +31,6 @@ venv/
 # Personal photos and raw captures (selfies, forearm shots) never reach GitHub
 private_inputs/
 models/
+# Local tool and agent-workflow files
+.superpowers/
+*.wakatime
