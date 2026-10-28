@@ -47,6 +47,8 @@ pnpm e2e
 
 Try-on routes answer "paused" until the server holds a YouCam key; `/evidence` works without one. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm test:bundle`, which scans the built client JavaScript for key names and the YouCam host.
 
+Privacy (web app): the selfie leaves the browser only when a bottle is tapped. The server then removes EXIF (GPS included), XMP, IPTC, embedded thumbnails and comments, keeps the colour profile, and sends that copy to YouCam to render. The app stores no photo. Result links are YouCam's and last about 2 hours (the page treats one as expired 5 minutes early), as does the session cookie.
+
 ### Limits
 - The credit floor (`CREDIT_FLOOR`, default 100 units) and the per-session and per-IP request limits are per server instance and best effort. Each instance keeps its own cached balance, unit holds and request counts in memory; instances do not share them, and a cold start forgets the counts.
 - Near the floor, instances running at the same time can each admit a task on the balance they last read, so the account can end up below the floor by about one task per instance (1 unit for a render, 20 for a tone analysis).
@@ -99,7 +101,9 @@ These spend YouCam API units and need the key in the macOS Keychain under the se
 
 Inputs are read from `private_inputs/selfies/` and results are written to `recon/gate/`; both folders are gitignored, as are the upload copies and renders under `private_inputs/`. A run refuses to start if its results file already exists, so no run can overwrite an earlier one. `scripts/publish_results.py` writes the sanitized copy that goes into `docs/gates/`.
 
-## Privacy
+## Privacy (gate harness)
+The web app has its own privacy line, under Web app.
+
 - Only metadata-free sRGB copies are uploaded. The copy is rebuilt from pixels, so no EXIF, GPS or ICC data survives. For Makeup VTO (K1, K1b) the copies are also resized to fit width < 1920 and height < 1080.
 - Selfies, upload copies and renders never enter the repository.
 - Published JSON has no file ids, task ids, URLs, local paths or original photo sizes; `tests/test_published_results.py` checks this on every test run.
