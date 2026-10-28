@@ -51,12 +51,14 @@ def solve_film(black: float, black_coated: float, white: float, white_coated: fl
     """The accepted film (R, T) that turns bare reflectances into the coated ones, or None.
 
     None when the substrates carry no information or the raw solve is not accepted (`accept`).
+    T^2 comes from the white equation, so a black substrate measured at zero still solves (R is
+    then the coated black reading); with both equations exact, either one gives the same T^2.
     """
     den = white - black + black * white * (black_coated - white_coated)
-    if abs(den) < _EPS or black <= 0 or white <= 0:
+    if abs(den) < _EPS or black < 0 or white <= 0:
         return None
     r = (black_coated * white - white_coated * black) / den
-    t2 = (black_coated - r) * (1.0 - r * black) / black
+    t2 = (white_coated - r) * (1.0 - r * white) / white
     return accept(r, t2)
 
 

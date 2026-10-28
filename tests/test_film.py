@@ -133,3 +133,10 @@ def test_whitening_rises_with_film_strength():
     strong = over(0.15, 0.8, skin)
     assert skin < weak < strong
     assert not math.isnan(strong)
+
+
+def test_a_black_measured_at_zero_still_solves():
+    # Codex review r1: the black <= 0 guard rejected this exactly solvable film.
+    film = solve_film(0.0, 0.2, 0.85, over(0.2, 0.7, 0.85))
+    assert film is not None
+    assert (film.r, film.t) == pytest.approx((0.2, 0.7), abs=1e-9)
