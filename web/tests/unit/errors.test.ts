@@ -47,6 +47,10 @@ test("errorResponse is JSON with the mapped message and Retry-After", async () =
 // Beyond the brief.
 test.each(["constructor", "__proto__", "toString", "hasOwnProperty"])("inherited name %s falls back to upstream", (code) =>
   expect(mapYouCamError(new YouCamError("x", code))).toEqual({ status: 502, code: "upstream" }));
+test("HTTP 429 is busy even when the body carries an error_code", () => {
+  for (const code of ["CreditInsufficiency", "error_no_face", "SomeOtherCode"])
+    expect(mapYouCamError(new YouCamError("x", code, { status: 429 })), code).toEqual({ status: 503, code: "busy", retryAfterS: 30 });
+});
 test("an error object that only looks like a YouCamError falls back to upstream", () =>
   expect(mapYouCamError({ code: "CreditInsufficiency", message: "x" })).toEqual({ status: 502, code: "upstream" }));
 test("the message table is exactly the plan's copy", () => expect(MESSAGES).toEqual({

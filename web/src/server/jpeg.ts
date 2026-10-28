@@ -10,58 +10,67 @@ const MIN_SHORT_SIDE = 480;
 const SOI = 0xd8;
 const EOI = 0xd9;
 const SOS = 0xda;
-const APP1 = 0xe1; // Exif, XMP
-const APP13 = 0xed; // IPTC
+const APP2 = 0xe2; // ICC profile (kept) or an MPF index (dropped with the frames it points to)
+// Never needed to decode: Exif and XMP (APP1), C2PA and JUMBF (APP11), IPTC (APP13), comments (COM).
+const DROPPED = new Set([0xe1, 0xeb, 0xed, 0xfe]);
 
 // Frame headers SOF0-3, SOF5-7, SOF9-11, SOF13-15. Not C4 (DHT), C8 (reserved) or CC (DAC).
 const isSof = (m: number) => m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc;
 // Markers with no length field: RST0-7 and TEM.
 const isStandalone = (m: number) => (m >= 0xd0 && m <= 0xd7) || m === 0x01;
+const isRst = (m: number) => m >= 0xd0 && m <= 0xd7;
 
-/** `start` is the segment's first fill byte, `lenAt` its two length bytes (-1 when it has none), `end` one past it. */
+/** `start` is the first fill byte, `lenAt` the two length bytes (-1 when there are none), `end` one past the segment. */
 type Segment = { start: number; marker: number; lenAt: number; end: number };
 
+/** Reads the marker segment at `i`. Null when `i` does not hold a marker or the segment runs past the end. */
+function segmentAt(b: Uint8Array, i: number): Segment | null {
+  if (i >= b.length || b[i] !== 0xff) return null;
+  const start = i;
+  while (i < b.length && b[i] === 0xff) i++; // fill bytes
+  if (i >= b.length) return null;
+  const marker = b[i++];
+  if (marker === SOI || marker === EOI || isStandalone(marker)) return { start, marker, lenAt: -1, end: i };
+  if (i + 2 > b.length) return null;
+  const len = (b[i] << 8) | b[i + 1];
+  if (len < 2 || i + len > b.length) return null;
+  return { start, marker, lenAt: i, end: i + len };
+}
+
 /**
- * The marker segments after SOI, ending with the SOS or EOI marker (whose `end` is its `start`).
- * Null for anything malformed: no SOI, a stray byte, a length past the end, or no SOS or EOI at all.
+ * Index of the marker that ends the entropy-coded data starting at `i`: the first FF that is not
+ * byte stuffing (FF 00) and not a restart marker (RST0-RST7). Null when the data runs off the end.
  */
-function segments(b: Uint8Array): Segment[] | null {
-  if (b.length < 4 || b[0] !== 0xff || b[1] !== SOI) return null;
-  const out: Segment[] = [];
-  let i = 2;
+function scanEnd(b: Uint8Array, i: number): number | null {
   while (i < b.length) {
-    if (b[i] !== 0xff) return null;
-    const start = i;
-    while (i < b.length && b[i] === 0xff) i++; // fill bytes
-    if (i >= b.length) return null;
-    const marker = b[i++];
-    if (marker === SOS || marker === EOI) {
-      out.push({ start, marker, lenAt: -1, end: start });
-      return out;
-    }
-    if (marker === SOI) return null;
-    if (isStandalone(marker)) {
-      out.push({ start, marker, lenAt: -1, end: i });
+    if (b[i] !== 0xff) {
+      i++;
       continue;
     }
-    if (i + 2 > b.length) return null;
-    const len = (b[i] << 8) | b[i + 1];
-    if (len < 2 || i + len > b.length) return null;
-    out.push({ start, marker, lenAt: i, end: i + len });
-    i += len;
+    if (i + 1 >= b.length) return null;
+    const next = b[i + 1];
+    if (next === 0x00 || isRst(next)) i += 2;
+    else return i;
   }
   return null;
 }
 
-/** Stored pixel size from the first frame header before the scan, or null. EXIF orientation is not applied. */
+/** Stored pixel size from the first frame header, read without walking past it. EXIF orientation is not applied. */
 export function jpegSize(b: Uint8Array): { width: number; height: number } | null {
-  const segs = segments(b);
-  const sof = segs?.find((s) => isSof(s.marker));
-  if (!sof || sof.end - sof.lenAt < 7) return null;
-  // Big-endian, counted from the length field: precision at +2, height at +3, width at +5.
-  const height = (b[sof.lenAt + 3] << 8) | b[sof.lenAt + 4];
-  const width = (b[sof.lenAt + 5] << 8) | b[sof.lenAt + 6];
-  return width > 0 && height > 0 ? { width, height } : null;
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== SOI) return null;
+  let i = 2;
+  for (;;) {
+    const s = segmentAt(b, i);
+    if (!s || s.marker === SOS || s.marker === EOI || s.marker === SOI) return null;
+    if (isSof(s.marker)) {
+      if (s.end - s.lenAt < 7) return null;
+      // Big-endian, counted from the length field: precision at +2, height at +3, width at +5.
+      const height = (b[s.lenAt + 3] << 8) | b[s.lenAt + 4];
+      const width = (b[s.lenAt + 5] << 8) | b[s.lenAt + 6];
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    i = s.end;
+  }
 }
 
 export function checkUploadImage(
@@ -78,18 +87,41 @@ export function checkUploadImage(
   return { ok: true, width, height };
 }
 
+function isMpfIndex(b: Uint8Array, s: Segment): boolean {
+  const p = s.lenAt + 2;
+  return s.end - p >= 4 && b[p] === 0x4d && b[p + 1] === 0x50 && b[p + 2] === 0x46 && b[p + 3] === 0x00; // "MPF\0"
+}
+
 /**
- * A copy without every APP1 (Exif, XMP) and APP13 (IPTC) segment before the scan, fill bytes included.
- * Every other byte is kept in order, and everything from SOS (or EOI) on is copied verbatim.
- * Null when the stream is malformed, including a segment length that runs past the end.
+ * A copy of the primary image only, walked marker by marker through every scan (pixels are never decoded).
+ * Drops APP1 (Exif, XMP), APP11 (C2PA), APP13 (IPTC) and COM wherever they occur, with their fill bytes,
+ * and an APP2 MPF index. Keeps everything else in order: SOF, DHT, DQT, DRI, SOS and its scan data,
+ * APP0, an APP2 ICC profile. Stops at the primary image's EOI and drops every byte after it (MPF frames,
+ * Motion Photo video). Null on malformed or truncated input, or a scan before any frame header.
  */
 export function stripMetadata(b: Uint8Array): Uint8Array | null {
-  const segs = segments(b);
-  if (!segs) return null;
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== SOI) return null;
   const keep: Uint8Array[] = [b.subarray(0, 2)];
-  for (const s of segs) {
-    if (s.marker === SOS || s.marker === EOI) keep.push(b.subarray(s.start));
-    else if (s.marker !== APP1 && s.marker !== APP13) keep.push(b.subarray(s.start, s.end));
+  let sawFrame = false;
+  let i = 2;
+  for (;;) {
+    const s = segmentAt(b, i);
+    if (!s || s.marker === SOI) return null;
+    if (s.marker === EOI) {
+      keep.push(b.subarray(s.start, s.end));
+      break;
+    }
+    if (isSof(s.marker)) sawFrame = true;
+    if (s.marker === SOS && !sawFrame) return null;
+    const drop = DROPPED.has(s.marker) || (s.marker === APP2 && isMpfIndex(b, s));
+    if (!drop) keep.push(b.subarray(s.start, s.end));
+    i = s.end;
+    if (s.marker === SOS) {
+      const end = scanEnd(b, i);
+      if (end === null) return null;
+      keep.push(b.subarray(i, end));
+      i = end;
+    }
   }
   const out = new Uint8Array(keep.reduce((n, k) => n + k.length, 0));
   let at = 0;

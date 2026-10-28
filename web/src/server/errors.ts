@@ -33,7 +33,8 @@ const VENDOR = new Map<string, Omit<MappedError, "retryAfterS">>([
 /** Maps a YouCam client failure to the status and code the API answers with. Unknown failures are 502 upstream. */
 export function mapYouCamError(e: unknown): MappedError {
   if (!(e instanceof YouCamError)) return { status: 502, code: "upstream" };
-  if (e.code === "http_429") return { status: 503, code: "busy", retryAfterS: BUSY_RETRY_S };
+  // A 429 is rate limiting whatever error_code its body carries.
+  if (e.code === "http_429" || e.status === 429) return { status: 503, code: "busy", retryAfterS: BUSY_RETRY_S };
   const hit = VENDOR.get(e.code);
   return hit ? { status: hit.status, code: hit.code } : { status: 502, code: "upstream" };
 }

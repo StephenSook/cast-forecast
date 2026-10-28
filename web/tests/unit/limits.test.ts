@@ -1,8 +1,11 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { RULES, clientIp, createLimiter } from "@/server/limits";
 import { NOW } from "../helpers/constants";
 
 const IP = "203.0.113.1";
+// clientIp trusts forwarding headers only on Vercel (fix round 1); these tests pass the env explicitly.
+const ON_VERCEL = { VERCEL: "1" };
+const req = (headers: Record<string, string> = {}) => new Request("https://cf.test/", { headers });
 test("upload allows 6 per session then returns retryAfter", () => {
   const l = createLimiter();
   for (let i = 0; i < 6; i++) expect(l.take("upload", "s1", IP, NOW)).toEqual({ ok: true });
@@ -27,8 +30,8 @@ test("a null sid applies only the per-IP rule", () => {
   expect(l.take("credits", null, IP, NOW).ok).toBe(false);
 });
 test("clientIp takes the first x-forwarded-for entry, else unknown", () => {
-  expect(clientIp(new Request("https://cf.test/", { headers: { "x-forwarded-for": "203.0.113.5, 10.0.0.1" } }))).toBe("203.0.113.5");
-  expect(clientIp(new Request("https://cf.test/"))).toBe("unknown");
+  expect(clientIp(req({ "x-forwarded-for": "203.0.113.5, 10.0.0.1" }), ON_VERCEL)).toBe("203.0.113.5");
+  expect(clientIp(req(), ON_VERCEL)).toBe("unknown");
 });
 
 // Beyond the brief.
@@ -66,7 +69,79 @@ test("retryAfterS rounds up to whole seconds and takes the longer of two denials
   expect(l.take("upload", "s5", IP, NOW + 600_500)).toEqual({ ok: false, retryAfterS: 3000 });
 });
 test("clientIp trims and bounds the header", () => {
-  expect(clientIp(new Request("https://cf.test/", { headers: { "x-forwarded-for": "  203.0.113.7 ,x" } }))).toBe("203.0.113.7");
-  expect(clientIp(new Request("https://cf.test/", { headers: { "x-forwarded-for": " , 10.0.0.1" } }))).toBe("unknown");
-  expect(clientIp(new Request("https://cf.test/", { headers: { "x-forwarded-for": "a".repeat(500) } })).length).toBeLessThanOrEqual(64);
+  expect(clientIp(req({ "x-forwarded-for": "  203.0.113.7 ,x" }), ON_VERCEL)).toBe("203.0.113.7");
+  expect(clientIp(req({ "x-forwarded-for": " , 10.0.0.1" }), ON_VERCEL)).toBe("unknown");
+  expect(clientIp(req({ "x-forwarded-for": "a".repeat(500) }), ON_VERCEL).length).toBeLessThanOrEqual(64);
+});
+
+// Fix round 1: IP source, IPv6 /64 keys, bounded buckets, frozen rules.
+test("off Vercel every client shares the one local bucket, whatever the headers say", () => {
+  const spoof = { "x-real-ip": "203.0.113.6", "x-vercel-forwarded-for": "203.0.113.7", "x-forwarded-for": "203.0.113.8" };
+  expect(clientIp(req(spoof), {})).toBe("local");
+  expect(clientIp(req(), {})).toBe("local");
+  expect(clientIp(req(spoof), { VERCEL: "" })).toBe("local");
+});
+test("on Vercel x-real-ip wins, then x-vercel-forwarded-for, then x-forwarded-for", () => {
+  const all = { "x-real-ip": "203.0.113.1", "x-vercel-forwarded-for": "203.0.113.2", "x-forwarded-for": "203.0.113.3" };
+  expect(clientIp(req(all), ON_VERCEL)).toBe("203.0.113.1");
+  expect(clientIp(req({ "x-vercel-forwarded-for": " 203.0.113.2, 10.0.0.1", "x-forwarded-for": "203.0.113.3" }), ON_VERCEL)).toBe("203.0.113.2");
+  expect(clientIp(req({ "x-real-ip": " ", "x-vercel-forwarded-for": "", "x-forwarded-for": "203.0.113.3" }), ON_VERCEL)).toBe("203.0.113.3");
+});
+test("clientIp reads process.env by default", () => {
+  try {
+    vi.stubEnv("VERCEL", "1");
+    expect(clientIp(req({ "x-real-ip": "203.0.113.4" }))).toBe("203.0.113.4");
+    vi.stubEnv("VERCEL", undefined);
+    expect(clientIp(req({ "x-real-ip": "203.0.113.4" }))).toBe("local");
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+test("IPv6 clients are keyed by their /64 prefix; IPv4-mapped addresses read as IPv4", () => {
+  const ip = (v: string) => clientIp(req({ "x-real-ip": v }), ON_VERCEL);
+  expect(ip("2001:db8:abcd:12:1:2:3:4")).toBe("2001:db8:abcd:12::/64");
+  expect(ip("2001:DB8:ABCD:0012::99")).toBe("2001:db8:abcd:12::/64");
+  expect(ip("2001:db8:abcd:13::1")).toBe("2001:db8:abcd:13::/64");
+  expect(ip("::1")).toBe("0:0:0:0::/64");
+  expect(ip("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
+  expect(ip("[2001:db8::1]")).toBe("2001:db8:0:0::/64");
+  expect(ip("::ffff:203.0.113.9")).toBe("203.0.113.9");
+  expect(ip("203.0.113.9")).toBe("203.0.113.9");
+});
+test("two addresses in one /64 share a limiter bucket", () => {
+  const l = createLimiter();
+  const ip = (v: string) => clientIp(req({ "x-real-ip": v }), ON_VERCEL);
+  for (let i = 0; i < 6; i++) expect(l.take("tone", null, ip(`2001:db8:1:2::${i + 1}`), NOW).ok).toBe(true);
+  expect(l.take("tone", null, ip("2001:db8:1:2:ffff:ffff:ffff:ffff"), NOW).ok).toBe(false);
+  expect(l.take("tone", null, ip("2001:db8:1:3::1"), NOW).ok).toBe(true);
+});
+test("RULES is frozen, rule by rule", () => {
+  expect(Object.isFrozen(RULES)).toBe(true);
+  for (const r of Object.values(RULES)) expect(Object.isFrozen(r)).toBe(true);
+  expect(() => { (RULES.upload as { perIp: number }).perIp = 1000; }).toThrow(TypeError);
+  expect(RULES.upload.perIp).toBe(20);
+});
+test("buckets are capped and the least recently used bucket goes first", () => {
+  const l = createLimiter(RULES, 2);
+  for (let i = 0; i < 30; i++) l.take("credits", null, "a", NOW);
+  expect(l.take("credits", null, "a", NOW).ok).toBe(false);
+  l.take("credits", null, "b", NOW);                                                           // buckets: a, b
+  l.take("credits", null, "c", NOW);                                                           // a evicted
+  expect(l.take("credits", null, "a", NOW).ok).toBe(true);                                     // a starts over
+});
+test("a recorded take moves its bucket to the back of the eviction order", () => {
+  const l = createLimiter(RULES, 2);
+  for (let i = 0; i < 29; i++) l.take("credits", null, "a", NOW);
+  l.take("credits", null, "b", NOW);                                                           // order: a, b
+  l.take("credits", null, "a", NOW);                                                           // a at 30; order: b, a
+  l.take("credits", null, "c", NOW);                                                           // b evicted, a kept
+  expect(l.take("credits", null, "a", NOW).ok).toBe(false);
+});
+test("the default cap is 10,000 buckets", () => {
+  const l = createLimiter();
+  for (let i = 0; i < 30; i++) l.take("credits", null, "first", NOW);
+  for (let i = 1; i < 10_000; i++) l.take("credits", null, `ip-${i}`, NOW);                    // 10,000 buckets
+  expect(l.take("credits", null, "first", NOW).ok).toBe(false);                                // still held
+  l.take("credits", null, "ip-10000", NOW);                                                    // 10,001st evicts "first"
+  expect(l.take("credits", null, "first", NOW).ok).toBe(true);
 });
