@@ -1,15 +1,16 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import * as renderRoute from "@/app/api/render/route";
 import { MESSAGES } from "@/lib/messages";
 import { mapYouCamError } from "@/server/errors";
 import { makeupVtoPayload } from "@/server/payload";
+import { BODY_READ_DEADLINE_MS } from "@/server/routes/common";
 import { makeCreditsHandler } from "@/server/routes/credits";
 import { makeRenderHandler } from "@/server/routes/render";
-import { JSON_TIMEOUT_MS, YouCamError, createYouCam } from "@/server/youcam";
+import { JSON_TIMEOUT_MS, POLL_INTERVAL_MS, YouCamError, createYouCam } from "@/server/youcam";
 import { CREDIT, NOW, POLL_VTO, RUN_VTO } from "../helpers/constants";
 import { testEntry } from "../helpers/entries";
 import { jsonReply } from "../helpers/fakeFetch";
-import { cookieFor, get, jsonPost, taskRouteWorstCase, testDeps } from "../helpers/routes";
+import { cookieFor, get, jsonPost, stalledPost, taskRouteWorstCase, testDeps } from "../helpers/routes";
 
 const okRender = { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }),
   [POLL_VTO]: jsonReply(200, { data: { task_status: "success", results: { url: "https://out.example/r.png" } } }) };
@@ -61,11 +62,14 @@ test("render answers 504 timeout when the poll deadline passes", async () => {
   expect(res.status).toBe(504); expect((await res.json()).error.code).toBe("timeout"); expect(ff.taskStarts()).toBe(1);
 });
 test("render requires content-type application/json and a valid body", async () => {
-  const { deps } = testDeps({ catalogue: [testEntry()], balance: 879 });
-  const text = new Request("https://cf.test/api/render", { method: "POST", body: "{}", headers: { "Content-Type": "text/plain", cookie: cookieFor(["file-1"]) } });
-  expect((await makeRenderHandler(deps)(text)).status).toBe(400);
+  // Fix round 1: a VALID body over scripted ok routes, so only the content-type guard can refuse it.
+  const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
+  const text = new Request("https://cf.test/api/render", { method: "POST", body: JSON.stringify({ fileId: "file-1", bottleId: "test-a" }),
+    headers: { "Content-Type": "text/plain", cookie: cookieFor(["file-1"]) } });
+  const refused = await makeRenderHandler(deps)(text);
+  expect(refused.status).toBe(400); expect((await refused.json()).error.code).toBe("bad_request"); expect(ff.calls).toEqual([]);
   const bad = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: 1 }, cookieFor(["file-1"])));
-  expect(bad.status).toBe(400); expect((await bad.json()).error.code).toBe("bad_request");
+  expect(bad.status).toBe(400); expect((await bad.json()).error.code).toBe("bad_request"); expect(ff.calls).toEqual([]);
 });
 
 // Beyond the brief.
@@ -145,11 +149,12 @@ test("successful render responses are not cached", async () => {
   expect((await makeRenderHandler(deps)(renderReq())).headers.get("cache-control")).toBe("no-store");
 });
 
-// Carry 2: maxDuration covers the route's worst case (see taskRouteWorstCase).
-const { pollIntervalMs, worstMs: WORST_CASE_MS } = taskRouteWorstCase();
+// Carry 2: maxDuration covers the route's worst case (see taskRouteWorstCase), body read included (fix round 1).
+const { worstMs: WORST_CASE_MS } = taskRouteWorstCase();
 test("carry 2: render route config is nodejs and maxDuration 120, at least 10 s above the worst case", () => {
-  expect(pollIntervalMs).toBe(2000);
-  expect(WORST_CASE_MS).toBe(97_000);
+  expect(POLL_INTERVAL_MS).toBe(2000);
+  expect(BODY_READ_DEADLINE_MS).toBe(10_000);
+  expect(WORST_CASE_MS).toBe(107_000);
   expect(renderRoute.runtime).toBe("nodejs");
   expect(renderRoute.maxDuration).toBe(120);
   expect(renderRoute.maxDuration * 1000).toBeGreaterThanOrEqual(WORST_CASE_MS + 10_000);
@@ -163,6 +168,36 @@ test("carry 2: with every YouCam call taking its full timeout, the route still a
     createYouCam({ key, fetch: slow, sleep: async (ms) => { t.clock.now += ms; }, now: () => t.clock.now }) });
   const res = await makeRenderHandler(deps)(renderReq());
   expect(res.status).toBe(504);
-  expect(t.clock.now - NOW).toBeLessThanOrEqual(WORST_CASE_MS);
+  expect(t.clock.now - NOW).toBeLessThanOrEqual(WORST_CASE_MS - BODY_READ_DEADLINE_MS);
   expect(await balanceAfter(deps, t.clock)).toBe(879);
+});
+
+// Fix round 1 item 2: the body read has a 10 s deadline, so a trickled body cannot push a held task past maxDuration.
+test("a body still arriving after 10 s is 400 bad_request, before any hold or YouCam call", async () => {
+  vi.useFakeTimers();
+  try {
+    const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
+    let settled = false;
+    const pending = makeRenderHandler(deps)(stalledPost("/api/render", "application/json", new TextEncoder().encode('{"fileId"'), cookieFor(["file-1"])));
+    void pending.then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(BODY_READ_DEADLINE_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const res = await pending;
+    expect(res.status).toBe(400); expect((await res.json()).error.code).toBe("bad_request");
+    expect(ff.calls).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+test("a body read that finishes in time leaves no deadline timer behind", async () => {
+  vi.useFakeTimers();
+  try {
+    const { deps } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
+    expect((await makeRenderHandler(deps)(renderReq())).status).toBe(200);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

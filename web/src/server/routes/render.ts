@@ -51,10 +51,10 @@ export function makeRenderHandler(deps: () => RouteDeps): (req: Request) => Prom
 
     const limit = d.limiter.take("render", session.sid, clientIp(req), now);
     if (!limit.ok) return refusal(limit);
-    const yc = youcamFor(d, key);
+    const yc = youcamFor("render", d, key);
     if (!yc) return errorResponse("not_configured", 503);
 
-    const task = await paidTask(d, yc, now, UNIT_COST.render, "task/makeup-vto", payload);
+    const task = await paidTask("render", d, yc, now, UNIT_COST.render, "task/makeup-vto", payload);
     if ("response" in task) return task.response;
     const url = task.results.url;
     if (typeof url !== "string" || !isHttpsUrl(url)) return errorResponse("upstream", 502);

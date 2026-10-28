@@ -31,13 +31,13 @@ export function makeUploadHandler(deps: () => RouteDeps): (req: Request) => Prom
     const limit = d.limiter.take("upload", session.sid, clientIp(req), now);
     if (!limit.ok) return refusal(limit);
 
-    const yc = youcamFor(d, key);
+    const yc = youcamFor("upload", d, key);
     if (!yc) return errorResponse("not_configured", 503);
     let fileId: string;
     try {
       fileId = await yc.upload(stripped, "selfie.jpg");
     } catch (e) {
-      return failure(e);
+      return failure("upload", e);
     }
     const cookie = sessionCookie(withFile(session, fileId), secret, new URL(req.url).protocol === "https:");
     return ok({ fileId }, { "Set-Cookie": cookie });

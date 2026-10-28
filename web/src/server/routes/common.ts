@@ -4,15 +4,23 @@ import type { CfErrorCode } from "@/lib/messages";
 import type { Hold } from "@/server/credits";
 import type { RouteDeps } from "@/server/deps";
 import { errorResponse, mapYouCamError } from "@/server/errors";
-import type { TaskEndpoint, YouCam } from "@/server/youcam";
+import { type TaskEndpoint, type YouCam, YouCamError } from "@/server/youcam";
 
 /**
- * How long a paid route polls its task. The render and tone routes set maxDuration 120: their worst case is a balance
- * read, a task start and this poll (whose last GET can start 2 s past an interval), 15 + 15 + 50 + 2 + 15 = 97 s.
+ * How long a paid route polls its task. The render and tone routes set maxDuration 120: their worst case is the body
+ * read (BODY_READ_DEADLINE_MS), a balance read, a task start and this poll (whose last GET can start 2 s past an
+ * interval), 10 + 15 + 15 + 50 + 2 + 15 = 107 s. Upload's is 10 + 15 + 30 = 55 s under its 60.
  */
 export const POLL_TIMEOUT_MS = 50_000;
+/**
+ * Longest a route waits for the request body. Without it a trickled body plus a full-length task could pass
+ * maxDuration, and the platform would end the invocation with a unit still held.
+ */
+export const BODY_READ_DEADLINE_MS = 10_000;
 /** Largest JSON body the render and tone routes read. */
 const MAX_JSON_BYTES = 4096;
+/** An error name or code is logged only when it is a plain identifier, so nothing that came with it can ride along. */
+const IDENT = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
@@ -26,7 +34,10 @@ export function mediaType(req: Request): string {
   return (req.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
 }
 
-/** The body bytes; "too_large" as soon as it passes `max` (nothing more is read); null when it cannot be read. */
+/**
+ * The body bytes; "too_large" as soon as it passes `max` (nothing more is read); null when it cannot be read or is
+ * still arriving after BODY_READ_DEADLINE_MS. The deadline timer is always cleared.
+ */
 export async function readCapped(req: Request, max: number): Promise<Uint8Array | "too_large" | null> {
   const declared = Number(req.headers.get("content-length") ?? Number.NaN);
   if (Number.isFinite(declared) && declared > max) return "too_large";
@@ -34,19 +45,31 @@ export async function readCapped(req: Request, max: number): Promise<Uint8Array 
   const reader = req.body.getReader();
   const parts: Uint8Array[] = [];
   let size = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<"expired">((resolve) => {
+    timer = setTimeout(() => resolve("expired"), BODY_READ_DEADLINE_MS);
+  });
+  // Not awaited: cancelling a stalled stream must not hold the answer up.
+  const stop = () => void reader.cancel().catch(() => undefined);
   try {
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.length;
+      const step = await Promise.race([reader.read(), expired]);
+      if (step === "expired") {
+        stop();
+        return null;
+      }
+      if (step.done) break;
+      size += step.value.length;
       if (size > max) {
-        await reader.cancel().catch(() => undefined);
+        stop();
         return "too_large";
       }
-      parts.push(value);
+      parts.push(step.value);
     }
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
   const out = new Uint8Array(size);
   let at = 0;
@@ -91,17 +114,30 @@ export function refusal(r: { retryAfterS: number; busy?: true }): Response {
   );
 }
 
-/** A YouCam client failure as the API's error response. */
-export function failure(e: unknown): Response {
+/**
+ * One log line for a failure nobody planned for: the route, the error's name and, for a YouCamError, its code. Never
+ * the message, which can carry a file id, a task id or a poll path; never the request, a header or a cookie.
+ */
+function logUnexpected(route: string, e: unknown): void {
+  const raw = e instanceof Error ? e.name : typeof e;
+  const name = IDENT.test(raw) ? raw : "Error";
+  const code = e instanceof YouCamError && IDENT.test(e.code) ? ` code=${e.code}` : "";
+  console.error(`[api/${route}] unexpected failure: ${name}${code}`);
+}
+
+/** A YouCam client failure as the API's error response. Anything that is not a YouCamError is also logged by name. */
+export function failure(route: string, e: unknown): Response {
+  if (!(e instanceof YouCamError)) logUnexpected(route, e);
   const m = mapYouCamError(e);
   return errorResponse(m.code, m.status, m.retryAfterS);
 }
 
 /** The client for `key`, or null when the client refuses the key (a configuration error: answer not_configured). */
-export function youcamFor(d: RouteDeps, key: string): YouCam | null {
+export function youcamFor(route: string, d: RouteDeps, key: string): YouCam | null {
   try {
     return d.youcam(key);
-  } catch {
+  } catch (e) {
+    if (!(e instanceof YouCamError)) logUnexpected(route, e);
     return null;
   }
 }
@@ -112,6 +148,7 @@ export function youcamFor(d: RouteDeps, key: string): YouCam | null {
  * The refund sits in `finally`, so no path out of here leaves a hold behind.
  */
 export async function paidTask(
+  route: string,
   d: RouteDeps,
   yc: YouCam,
   now: number,
@@ -123,7 +160,7 @@ export async function paidTask(
   try {
     hold = await d.balance.reserve(yc, now, units, d.env.creditFloor);
   } catch (e) {
-    return { response: failure(e) };
+    return { response: failure(route, e) };
   }
   if (!hold) return { response: errorResponse("credits_low", 503) };
   try {
@@ -133,21 +170,22 @@ export async function paidTask(
     hold.keep();
     return { results };
   } catch (e) {
-    return { response: failure(e) };
+    return { response: failure(route, e) };
   } finally {
     hold.refund(); // a no-op once kept
   }
 }
 
-/** Wraps a handler so an unexpected throw still answers an ApiErrorBody (502 upstream) instead of an HTML 500. */
+/**
+ * Wraps a handler so an unexpected throw still answers an ApiErrorBody (502 upstream) instead of an HTML 500. It logs
+ * the name and any YouCamError code only (see logUnexpected).
+ */
 export function guarded(route: string, h: (req: Request) => Promise<Response>): (req: Request) => Promise<Response> {
   return async (req) => {
     try {
       return await h(req);
     } catch (e) {
-      // Name and message only: no request, header or cookie is logged.
-      const what = e instanceof Error ? `${e.name}: ${e.message}` : typeof e;
-      console.error(`[api/${route}] unexpected failure (${what})`);
+      logUnexpected(route, e);
       return errorResponse("upstream", 502);
     }
   };

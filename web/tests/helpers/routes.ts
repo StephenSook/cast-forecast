@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
 import type { Bottle } from "@/lib/catalogue";
 import { createBalanceCache } from "@/server/credits";
 import type { RouteDeps } from "@/server/deps";
 import type { ServerEnv } from "@/server/env";
 import { createLimiter } from "@/server/limits";
-import { POLL_TIMEOUT_MS } from "@/server/routes/common";
+import { BODY_READ_DEADLINE_MS, POLL_TIMEOUT_MS } from "@/server/routes/common";
 import { newSession, sessionCookie } from "@/server/session";
-import { JSON_TIMEOUT_MS, createYouCam } from "@/server/youcam";
+import { JSON_TIMEOUT_MS, POLL_INTERVAL_MS, createYouCam } from "@/server/youcam";
 import { CREDIT, NOW, SECRET, cookieHeaderFrom } from "./constants";
 import { type Reply, fakeFetch, jsonReply } from "./fakeFetch";
 import { testEnv } from "./env";
@@ -67,13 +66,22 @@ export function get(path: string, ip?: string): Request {
 }
 
 /**
- * The worst case of a paid task route (carry 2): a balance read, a task start, then a poll whose last GET starts just
- * before its deadline after one more interval. POLL_INTERVAL_MS is private to youcam.ts, so it is read from the source
- * (cwd is web/), and a change there shows up here.
+ * The worst case of a paid task route (carry 2): the body read up to its deadline, a balance read, a task start, then
+ * a poll whose last GET starts just before its deadline after one more interval.
  */
-export function taskRouteWorstCase(): { pollIntervalMs: number; worstMs: number } {
-  const m = /const POLL_INTERVAL_MS = ([\d_]+);/.exec(readFileSync("src/server/youcam.ts", "utf8"));
-  if (!m) throw new Error("POLL_INTERVAL_MS not found in src/server/youcam.ts");
-  const pollIntervalMs = Number(m[1].replaceAll("_", ""));
-  return { pollIntervalMs, worstMs: JSON_TIMEOUT_MS + JSON_TIMEOUT_MS + POLL_TIMEOUT_MS + pollIntervalMs + JSON_TIMEOUT_MS };
+export function taskRouteWorstCase(): { worstMs: number } {
+  return {
+    worstMs: BODY_READ_DEADLINE_MS + JSON_TIMEOUT_MS + JSON_TIMEOUT_MS + POLL_TIMEOUT_MS + POLL_INTERVAL_MS + JSON_TIMEOUT_MS,
+  };
+}
+
+/** A request whose body sends `first` and then never ends, as a client trickling its upload would. */
+export function stalledPost(path: string, contentType: string, first: Uint8Array, cookie?: string): Request {
+  const body = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(first); } });
+  return new Request(`${ORIGIN}${path}`, {
+    method: "POST",
+    body,
+    duplex: "half",
+    headers: headers(contentType, cookie),
+  } as RequestInit);
 }

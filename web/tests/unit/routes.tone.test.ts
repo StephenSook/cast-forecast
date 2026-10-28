@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import * as toneRoute from "@/app/api/tone/route";
 import { tonePayload } from "@/server/payload";
 import { makeCreditsHandler } from "@/server/routes/credits";
@@ -54,11 +54,33 @@ test("tone refuses a fileId outside the session with 401 and no call", async () 
   expect(res.status).toBe(401); expect((await res.json()).error.code).toBe("session_missing"); expect(ff.calls).toEqual([]);
 });
 test("tone requires application/json and a string fileId", async () => {
-  const { deps, ff } = testDeps({ balance: 879 });
-  const text = new Request("https://cf.test/api/tone", { method: "POST", body: "{}", headers: { "Content-Type": "text/plain", cookie: cookieFor(["file-1"]) } });
-  expect((await makeToneHandler(deps)(text)).status).toBe(400);
+  // Fix round 1: a VALID body over scripted ok routes, so only the content-type guard can refuse it.
+  const { deps, ff } = testDeps({ balance: 879, routes: okTone("#C08A6B") });
+  const text = new Request("https://cf.test/api/tone", { method: "POST", body: JSON.stringify({ fileId: "file-1" }),
+    headers: { "Content-Type": "text/plain", cookie: cookieFor(["file-1"]) } });
+  const refused = await makeToneHandler(deps)(text);
+  expect(refused.status).toBe(400); expect((await refused.json()).error.code).toBe("bad_request"); expect(ff.calls).toEqual([]);
   expect((await makeToneHandler(deps)(jsonPost("/api/tone", { fileId: ["file-1"] }, cookieFor(["file-1"])))).status).toBe(400);
   expect(ff.calls).toEqual([]);
+});
+// Fix round 1 item 5: on Vercel the limiter key is the client's address, so two addresses get separate buckets.
+test("on Vercel, tone limits each x-real-ip on its own: the same address is refused, another is not", async () => {
+  vi.stubEnv("VERCEL", "1");
+  try {
+    const { deps } = testDeps({ balance: 879, routes: okTone("#C08A6B") });
+    const h = makeToneHandler(deps);
+    const from = (ip: string) => {
+      const req = jsonPost("/api/tone", { fileId: "file-1" }, cookieFor(["file-1"]));                      // a new session each time
+      req.headers.set("x-real-ip", ip);
+      return h(req);
+    };
+    for (let i = 0; i < 6; i++) expect((await from("198.51.100.7")).status).toBe(200);                    // perIp 6
+    const refused = await from("198.51.100.7");
+    expect(refused.status).toBe(429); expect((await refused.json()).error.code).toBe("rate_limited");
+    expect((await from("198.51.100.8")).status).toBe(200);
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 test("tone answers 502 when results carry no color object", async () => {
   const { deps } = testDeps({ balance: 879, routes: { [RUN_TONE]: jsonReply(200, { data: { task_id: "t2" } }),

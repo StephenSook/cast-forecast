@@ -8,7 +8,7 @@ import "server-only";
 export const YOUCAM_BASE = "https://yce-api-01.makeupar.com";
 export const JSON_TIMEOUT_MS = 15_000;
 export const PUT_TIMEOUT_MS = 30_000;
-const POLL_INTERVAL_MS = 2000;
+export const POLL_INTERVAL_MS = 2000;
 const DEFAULT_POLL_TIMEOUT_MS = 50_000;
 
 export type TaskEndpoint = "task/makeup-vto" | "task/skin-tone-analysis";
@@ -17,7 +17,7 @@ const ENDPOINTS: ReadonlySet<string> = new Set<TaskEndpoint>(["task/makeup-vto",
 // A vendor code is a short identifier. Anything else (a sentence, control characters) is not trusted as a code.
 const CODE_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 // Task ids go into a URL path. Base64 characters only, so no dot segment, query or fragment can form.
-const TASK_ID_RE = /^[A-Za-z0-9_+=/-]{1,256}$/;
+export const TASK_ID_RE = /^[A-Za-z0-9_+=/-]{1,256}$/;
 
 export class YouCamError extends Error {
   code: string;

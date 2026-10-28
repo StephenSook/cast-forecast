@@ -14,13 +14,13 @@ export function makeCreditsHandler(deps: () => RouteDeps): (req: Request) => Pro
     if (!key) return errorResponse("not_configured", 503);
     const limit = d.limiter.take("credits", null, clientIp(req), now);
     if (!limit.ok) return refusal(limit);
-    const yc = youcamFor(d, key);
+    const yc = youcamFor("credits", d, key);
     if (!yc) return errorResponse("not_configured", 503);
     let balance: number;
     try {
       balance = await d.balance.get(yc, now);
     } catch (e) {
-      return failure(e);
+      return failure("credits", e);
     }
     const floor = d.env.creditFloor;
     return ok({ balance, floor, aboveFloor: aboveFloor(balance, UNIT_COST.render, floor) });

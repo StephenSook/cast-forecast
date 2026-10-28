@@ -1,7 +1,7 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import * as uploadRoute from "@/app/api/upload/route";
 import { MAX_UPLOAD_BYTES } from "@/server/jpeg";
-import { waitText } from "@/server/routes/common";
+import { BODY_READ_DEADLINE_MS, waitText } from "@/server/routes/common";
 import { makeCreditsHandler } from "@/server/routes/credits";
 import { makeRenderHandler } from "@/server/routes/render";
 import { makeToneHandler } from "@/server/routes/tone";
@@ -11,7 +11,7 @@ import { JSON_TIMEOUT_MS, PUT_TIMEOUT_MS } from "@/server/youcam";
 import { NOW, PUT, REGISTER, SECRET, cookieHeaderFrom, registerReply } from "../helpers/constants";
 import { jsonReply } from "../helpers/fakeFetch";
 import { fakeJpeg } from "../helpers/fakeJpeg";
-import { cookieFor, get, jpegPost, jsonPost, testDeps } from "../helpers/routes";
+import { cookieFor, get, jpegPost, jsonPost, stalledPost, testDeps } from "../helpers/routes";
 
 const firstCookie = (res: Response) => cookieHeaderFrom(res.headers.get("set-cookie")!);
 const okUpload = { [REGISTER]: registerReply("file-1"), [PUT]: new Response(null, { status: 200 }) };
@@ -164,9 +164,22 @@ test.each([[30, "Busy right now. Try again in 30 seconds."], [3600, "Busy right 
 test.each([[1, "1 second"], [30, "30 seconds"], [119, "119 seconds"], [120, "2 minutes"], [121, "3 minutes"], [3600, "60 minutes"]])(
   "waitText(%i) is %s (minutes round up, so the stated wait is never short)", (s, words) => expect(waitText(s)).toBe(words));
 
-test("upload route config: nodejs, maxDuration 60 above the register plus PUT timeouts", () => {
+test("upload route config: nodejs, maxDuration 60 above the body read plus register plus PUT (55 s)", () => {
   expect(uploadRoute.runtime).toBe("nodejs");
   expect(uploadRoute.maxDuration).toBe(60);
-  expect(uploadRoute.maxDuration * 1000).toBeGreaterThanOrEqual(JSON_TIMEOUT_MS + PUT_TIMEOUT_MS + 10_000);
+  expect(uploadRoute.maxDuration * 1000).toBeGreaterThanOrEqual(BODY_READ_DEADLINE_MS + JSON_TIMEOUT_MS + PUT_TIMEOUT_MS + 5_000);
   expect(typeof uploadRoute.POST).toBe("function");
+});
+test("an upload body still arriving after 10 s is 400 bad_request with no call and no cookie", async () => {
+  vi.useFakeTimers();
+  try {
+    const { deps, ff } = testDeps({ routes: okUpload });
+    const pending = makeUploadHandler(deps)(stalledPost("/api/upload", "image/jpeg", fakeJpeg(640, 480).slice(0, 10)));
+    await vi.advanceTimersByTimeAsync(BODY_READ_DEADLINE_MS);
+    const res = await pending;
+    expect(res.status).toBe(400); expect((await res.json()).error.code).toBe("bad_request");
+    expect(res.headers.get("set-cookie")).toBeNull(); expect(ff.calls).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
 });

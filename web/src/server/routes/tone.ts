@@ -28,10 +28,10 @@ export function makeToneHandler(deps: () => RouteDeps): (req: Request) => Promis
 
     const limit = d.limiter.take("tone", session.sid, clientIp(req), now);
     if (!limit.ok) return refusal(limit);
-    const yc = youcamFor(d, key);
+    const yc = youcamFor("tone", d, key);
     if (!yc) return errorResponse("not_configured", 503);
 
-    const task = await paidTask(d, yc, now, UNIT_COST.tone, "task/skin-tone-analysis", tonePayload(body.fileId));
+    const task = await paidTask("tone", d, yc, now, UNIT_COST.tone, "task/skin-tone-analysis", tonePayload(body.fileId));
     if ("response" in task) return task.response;
     const color = task.results.color;
     const skin = typeof color === "object" && color !== null ? (color as Record<string, unknown>).skin_color : undefined;
