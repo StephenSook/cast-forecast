@@ -36,3 +36,14 @@ analysis/gate1/data/
 # Local tool and agent-workflow files
 .superpowers/
 *.wakatime
+# web/ app (Next.js), its test reports and local vendor clones
+web/node_modules/
+web/.next/
+web/.vercel/
+web/.env*
+!web/.env.example
+undefined.wakatime
+web/next-env.d.ts
+playwright-report/
+test-results/
+vendor/
