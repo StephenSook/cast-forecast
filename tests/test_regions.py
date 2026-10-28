@@ -92,6 +92,8 @@ def test_paper_region_is_the_central_half_by_area():
         np.array([[0, 0], [100, 0], [200, 0], [300, 0]], float),  # collinear
         _dots(400, 400, 4, 5)[:3],  # a dot missing
         np.array([[400, 400], [800, 400], [800, np.nan], [400, 900]], float),
+        # Codex review r3: this trapezoid passed and its upper bare strip crossed the horizon
+        np.array([[300, 500], [700, 500], [520, 700], [480, 700]], float),
     ],
 )
 def test_dots_that_cannot_be_this_window_are_refused(dots):
@@ -102,3 +104,11 @@ def test_dots_that_cannot_be_this_window_are_refused(dots):
 def test_a_region_that_leaves_the_image_is_refused():
     with pytest.raises(ValueError, match="leaves the image"):
         polygon_mask(_rect(1300, 1300, 4, 5), SHAPE)
+
+
+def test_a_region_across_the_projective_horizon_is_refused():
+    from castforecast.regions import _box
+
+    hm = np.array([[1.0, 0, 0], [0, 1.0, 0], [0, 0.5, 1.0]])  # w = 0.5 v + 1 is zero at v = -2
+    with pytest.raises(ValueError, match="horizon"):
+        _box(hm, 0.0, 1.0, -3.0, -1.0)

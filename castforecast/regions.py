@@ -13,8 +13,9 @@ is drawn in that frame, so nothing is placed by eye.
 - paper: the central half of the sheet by area, from the sheet's four corners.
 
 Dots that cannot be this window (not four, not convex in the given order, the labelled 4 cm edges
-not the shorter pair, or edge lengths too far from 4:5) raise ValueError, and so does a region
-that leaves the image: the square is then unusable.
+not the shorter pair, edge lengths too far from 4:5, or opposite edges more unequal than a phone
+pointing straight down can show) raise ValueError, and so does a region that leaves the image,
+crosses the projective horizon, or comes out non-convex: the square is then unusable.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ BARE = (3.0, 1.5)  # cm: along the short edge, along the long edge
 BARE_GAP = 0.5  # cm beyond the window edge
 PAPER_SIDE = math.sqrt(0.5)  # central half by area
 RATIO_RANGE = (0.65, 0.95)  # short / long edge length a 4 x 5 window can show (0.8 nominal)
+MAX_SKEW = 1.25  # longer / shorter of two opposite edges, camera pointing straight down
 
 
 def _four(pts) -> np.ndarray:
@@ -39,21 +41,31 @@ def _four(pts) -> np.ndarray:
     return p
 
 
-def _convex(p: np.ndarray) -> np.ndarray:
+def _convex(p: np.ndarray, what: str = "dots") -> np.ndarray:
     """`p` unchanged if, in this order, it is a convex quadrilateral; ValueError otherwise."""
     e = np.roll(p, -1, axis=0) - p
     nxt = np.roll(e, -1, axis=0)
     cross = e[:, 0] * nxt[:, 1] - e[:, 1] * nxt[:, 0]
     if not (np.all(cross > 1e-9) or np.all(cross < -1e-9)):
-        raise ValueError("dots are not a convex quadrilateral in the order given")
+        raise ValueError(f"{what} are not a convex quadrilateral in the order given")
     return p
+
+
+def _skew(p: np.ndarray) -> None:
+    lens = np.linalg.norm(np.roll(p, -1, axis=0) - p, axis=1)
+    for i in (0, 1):
+        a, b = lens[i], lens[i + 2]
+        if max(a, b) > MAX_SKEW * min(a, b):
+            raise ValueError("opposite edges differ more than a straight-down photo allows")
 
 
 def _sorted_quad(pts) -> np.ndarray:
     """The four points in order around their centre (for the paper, whose sides are symmetric)."""
     p = _four(pts)
     c = p.mean(axis=0)
-    return _convex(p[np.argsort(np.arctan2(p[:, 1] - c[1], p[:, 0] - c[0]))])
+    p = _convex(p[np.argsort(np.arctan2(p[:, 1] - c[1], p[:, 0] - c[0]))])
+    _skew(p)
+    return p
 
 
 def _homography(src, dst) -> np.ndarray:
@@ -73,6 +85,7 @@ def window_frame(dots) -> np.ndarray:
     `dots` go around the window in order, the first edge (dot 1 to dot 2) a 4 cm edge.
     """
     p = _convex(_four(dots))
+    _skew(p)
     lens = np.linalg.norm(np.roll(p, -1, axis=0) - p, axis=1)
     short, long = lens[0] + lens[2], lens[1] + lens[3]
     if short >= long:
@@ -85,7 +98,10 @@ def window_frame(dots) -> np.ndarray:
 
 def _box(hm: np.ndarray, u0: float, u1: float, v0: float, v1: float) -> np.ndarray:
     q = np.array([[u0, v0, 1], [u1, v0, 1], [u1, v1, 1], [u0, v1, 1]], float) @ hm.T
-    return q[:, :2] / q[:, 2:]
+    w = q[:, 2]
+    if not (np.all(w > 1e-9) or np.all(w < -1e-9)):
+        raise ValueError("region crosses the projective horizon")
+    return _convex(q[:, :2] / w[:, None], what="region corners")
 
 
 def treated(dots) -> np.ndarray:

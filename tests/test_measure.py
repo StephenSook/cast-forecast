@@ -138,3 +138,13 @@ def test_an_unreadable_label_percent_is_refused_not_dropped(m):
     # Codex review r1: a NaN percent silently fell out of the forearm choice.
     with pytest.raises(ValueError, match="label mineral percent"):
         Bottle("A", m)
+
+
+def test_a_region_with_no_pixel_centres_is_an_error_not_a_smaller_union():
+    # Codex review r3: an empty bare strip vanished from the union and the other strip stood in.
+    from castforecast.measure import _mean
+
+    d, _, _ = _card_frame(bare=[0.05] * 3, coated=[0.2] * 3)
+    sliver = np.array([[10.2, 10.2], [10.4, 10.2], [10.4, 10.4], [10.2, 10.4]])
+    with pytest.raises(ValueError, match="no pixels"):
+        _mean(d, [sliver, np.array(_corners(200, 200, 4, 5), float)])

@@ -57,7 +57,10 @@ def reflectance(region: np.ndarray, paper: np.ndarray, paper_r: float = PAPER_R)
 def _mean(d: Decoded, polys) -> np.ndarray | None:
     mask = np.zeros(d.clipped.shape, bool)
     for p in polys:
-        mask |= regions.polygon_mask(p, d.clipped.shape)
+        part = regions.polygon_mask(p, d.clipped.shape)
+        if not part.any():
+            raise ValueError("a region has no pixels")
+        mask |= part
     return region_mean(d, mask)
 
 
