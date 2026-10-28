@@ -259,22 +259,14 @@
  "n_usable_a": 16,
  "preflight": {
   "A": {
-   "bytes": 1216474,
    "hd": true,
-   "height": 2625,
    "ok": true,
-   "reasons": [],
-   "short_side": 1698,
-   "width": 1698
+   "reasons": []
   },
   "B": {
-   "bytes": 1407228,
    "hd": true,
-   "height": 2856,
    "ok": true,
-   "reasons": [],
-   "short_side": 1775,
-   "width": 1775
+   "reasons": []
   }
  },
  "renders": [
