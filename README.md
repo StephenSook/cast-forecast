@@ -67,12 +67,12 @@ Exit codes of `deploy-prod.sh`:
 | Code | Meaning | Roll back? |
 |---|---|---|
 | 0 | Deployed and the release check passed | no |
-| 1 | Refused before deploying (any gate, including a failed `git rev-parse`, or `--paused` while production lists `YOUCAM_API_KEY`), or the release check failed after the deploy (including a `--paused` deploy whose health reports `youcam` true) | only for the release-check failure ("Deployed, but the release check failed") |
+| 1 | Refused before deploying (any gate, including a failed `git rev-parse`, or `--paused` while production lists `YOUCAM_API_KEY`), or the release check read a response that did not match after the deploy (including a `--paused` deploy whose health reports `youcam` true) | only for the release-check failure ("Deployed, but the release check failed") |
 | 2 | Bad arguments | no |
 | 3 | The production alias does not point at the new deployment: an alias mismatch or a rollback in effect | never |
-| 4 | Deployed or maybe deployed but unverified (deploy exited non-zero, odd output, inspect failed), or Vercel Authentication answered 401 at the release check | no: read the printed `serving` line, run the release check by hand, and fix the protection setting first |
+| 4 | Deployed or maybe deployed but unverified (deploy exited non-zero, odd output, inspect failed), or the release check verified nothing: the site was unreachable from this Mac on the last attempt (network, DNS, proxy), the checker raised, or Vercel Authentication answered 401 | no: read the printed `serving` line, fix the network or the protection setting, then run the release check by hand |
 
-Below, `$S` is `--scope ssookra-7703s-projects`, `vc` is `pnpm dlx --allow-build=esbuild vercel@62.1.0`, and `release` means `python3 -I web/scripts/deploy_checks.py release`. `release` exits 4 when the answer is a 401. `release <url> <SHA>` needs `youcam` true; `release <url> <SHA> --require-no-youcam` needs `youcam` false and fails at once on an active key (it replaces the old `--allow-no-youcam`, which only relaxed the check and is now refused as an unknown option).
+Below, `$S` is `--scope ssookra-7703s-projects`, `vc` is `pnpm dlx --allow-build=esbuild vercel@62.1.0`, and `release` means `python3 -I web/scripts/deploy_checks.py release`. `release` exits 1 only when it read a response that did not match, and 4 when it verified nothing (a 401, the site unreachable on the last attempt, or a checker error). `release <url> <SHA>` needs `youcam` true; `release <url> <SHA> --require-no-youcam` needs `youcam` false and fails at once on an active key (it replaces the old `--allow-no-youcam`, which only relaxed the check and is now refused as an unknown option).
 
 Rollback, only when `deploy-prod.sh` exits 1 at the release check:
 1. The previous SHA is the one in the `serving` line that run printed (also the newest `serving` line in the deploy log). If it says `serving none` and the log has no earlier `deployment` line, this was the first production deploy: nothing to roll back to, so pause instead.

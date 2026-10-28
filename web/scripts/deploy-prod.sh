@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Production deploy from this Mac. Usage: deploy-prod.sh [--paused]
 # DRY_RUN=<anything but empty or 0> stops after the gates.
-# Exit codes: 0 ok. 1 refused before deploying, or the release check failed after it (rollback
-# steps in the README). 2 bad arguments. 3 the production alias does not point at the new
-# deployment (never a rollback trigger). 4 deployed or maybe deployed but UNVERIFIED, or the
-# release check was blocked by Vercel Authentication: do not roll back blindly.
+# Exit codes: 0 ok. 1 refused before deploying, or the release check read a mismatched response
+# after it (rollback steps in the README). 2 bad arguments. 3 the production alias does not point
+# at the new deployment (never a rollback trigger). 4 deployed or maybe deployed but UNVERIFIED:
+# the deploy step failed oddly, the release check could not reach the site or hit a checker error,
+# or Vercel Authentication blocked it. Never roll back on 4.
 # Every gate is bare: no pipe on any exit path.
 set -euo pipefail
 
@@ -139,8 +140,15 @@ rc=0
 python3 -I scripts/deploy_checks.py release "$PROD" "$SHA" $FLAG > "$tmp.release" || rc=$?
 cat "$tmp.release"
 if [ "$rc" = "0" ]; then exit 0; fi
-if [ "$rc" = "4" ]; then
-  echo "Vercel Authentication answers 401 at $PROD. This is a protection setting, not a release failure: do not roll back. Disable protection for production in the Vercel dashboard, then run the release check by hand (README, deploy section)."
+# Only exit 1 from the checker is a verified bad release. 4 (or anything unexpected) verified nothing.
+if [ "$rc" != "1" ]; then
+  auth=0
+  grep -F -q "Vercel Authentication (401)" "$tmp.release" || auth=$?
+  if [ "$auth" = "0" ]; then
+    echo "Vercel Authentication answers 401 at $PROD. This is a protection setting, not a release failure: do not roll back. Disable protection for production in the Vercel dashboard, then run the release check by hand (README, deploy section)."
+  else
+    echo "The release check could not verify $PROD (unreachable from this Mac, or a checker error). This is not a release failure: do not roll back. Fix the network, then run the release check by hand (README, deploy section)."
+  fi
   exit 4
 fi
 echo "Deployed, but the release check failed. Follow the rollback steps in README (deploy section)."

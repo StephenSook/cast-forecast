@@ -3,7 +3,9 @@
 # environment lists YOUCAM_API_KEY, and the release check needs /api/health youcam=false exactly.
 # Every gate is bare: no pipe on any exit path, and every failure exits non-zero before anything is
 # uploaded.
-# Exit codes: 0 ok, 1 refused or release failure, 4 release check blocked by Vercel Authentication.
+# Exit codes: 0 ok, 1 refused or a verified release failure (the check read a mismatched response),
+# 4 UNVERIFIED: the release check could not reach the preview, hit a checker error, or was blocked
+# by Vercel Authentication. A preview is never rolled back; on 4, rerun the release check by hand.
 set -euo pipefail
 
 # These two variables override .vercel/project.json, which would bypass the link gate.
@@ -80,6 +82,7 @@ if $V inspect "$URL" --logs --scope "$SCOPE" > "$BUILD_LOG" 2>&1; then :; else e
 grep -i -E "node|pnpm" "$BUILD_LOG" || true
 echo "full build log: $BUILD_LOG"
 
-# 7. the release check, the last line printed (exit 4 when Vercel Authentication answers 401);
-# health must say youcam=false, so a preview that holds an active key fails
+# 7. the release check, the last line printed: exit 1 only for a verified mismatch, 4 when nothing
+# was verified (unreachable, a checker error, or a 401); health must say youcam=false, so a preview
+# that holds an active key fails
 python3 -I scripts/deploy_checks.py release "$URL" "$SHA" --require-no-youcam

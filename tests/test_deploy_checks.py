@@ -325,14 +325,14 @@ def site():
 
 def test_release_passes_when_all_four_pass_in_one_attempt(site):
     sleeps = []
-    assert dc.release_check(site(), SHA, sleep=sleeps.append) == (True, OK_LINE)
+    assert dc.release_check(site(), SHA, sleep=sleeps.append) == (True, OK_LINE, True)
     assert sleeps == []
 
 
 def test_release_retries_until_one_attempt_passes_all_four(site):
     sleeps = []
     base = site({"/api/health": [(200, {**HEALTH, "release": "old"}), (200, HEALTH)]})
-    assert dc.release_check(base, SHA, sleep=sleeps.append) == (True, OK_LINE)
+    assert dc.release_check(base, SHA, sleep=sleeps.append) == (True, OK_LINE, True)
     assert sleeps == [10]
 
 
@@ -340,29 +340,30 @@ def test_release_gives_up_after_the_last_attempt(site):
     sleeps = []
     base = site({"/evidence": [(500, "")]})
     got = dc.release_check(base, SHA, attempts=3, sleep=sleeps.append)
-    assert got == (False, "evidence: status 500")
+    assert got == (False, "evidence: status 500", True)
     assert sleeps == [10, 10]
 
 
 def test_release_stops_at_once_on_401(site):
     sleeps = []
     got = dc.release_check(site({"/": [(401, "")]}), SHA, sleep=sleeps.append)
-    assert got == (False, "deployment is behind Vercel Authentication (401)")
+    assert got == (False, "deployment is behind Vercel Authentication (401)", False)
     assert sleeps == []
 
 
 def test_release_requires_youcam_true_live_and_false_without_a_key(site):
     base = site({"/api/health": [(200, {**HEALTH, "youcam": False})]})
-    assert dc.release_check(base, SHA, attempts=1) == (False, "health: youcam not configured")
+    got = dc.release_check(base, SHA, attempts=1)
+    assert got == (False, "health: youcam not configured", True)
     got = dc.release_check(base, SHA, want_youcam=False, attempts=1)
-    assert got == (True, OK_LINE.replace("youcam=true", "youcam=false"))
+    assert got == (True, OK_LINE.replace("youcam=true", "youcam=false"), True)
 
 
 def test_release_without_a_key_fails_at_once_on_an_active_key(site):
     # Codex r1 finding C: the release SHA already matched, so a retry cannot change the answer.
     sleeps = []
     got = dc.release_check(site(), SHA, want_youcam=False, sleep=sleeps.append)
-    assert got == (False, "health: youcam is true on a deploy that must hold no key")
+    assert got == (False, "health: youcam is true on a deploy that must hold no key", True)
     assert sleeps == []
 
 
@@ -372,16 +373,89 @@ def test_release_names_the_failing_inverse_check(site):
     assert dc.release_check(base, SHA, attempts=1) == (
         False,
         "gates: inverse check 2 does not match",
+        True,
     )
 
 
 def test_release_unreachable_and_wrong_sha_and_no_evidence_row(site):
     got = dc.release_check("http://127.0.0.1:9", SHA, attempts=1)
-    assert got[0] is False and got[1].startswith("html: unreachable (")
+    assert got[0] is False and got[1].startswith("html: unreachable (") and got[2] is False
     other = site({"/": [(200, '<meta name="cf-release" content="zzz"/>')]})
-    assert dc.release_check(other, SHA, attempts=1) == (False, f"html: cf-release is not {SHA}")
+    got = dc.release_check(other, SHA, attempts=1)
+    assert got == (False, f"html: cf-release is not {SHA}", True)
     noev = site({"/evidence": [(200, "<p>Evidence</p>")]})
-    assert dc.release_check(noev, SHA, attempts=1) == (False, "evidence: no K1b PASS row")
+    assert dc.release_check(noev, SHA, attempts=1) == (False, "evidence: no K1b PASS row", True)
+
+
+# Codex r2 finding G: only a fetched response that mismatched is a verified failure. When the last
+# attempt could not fetch a page, or the checker raised, nothing about the release is known.
+def _scripted_get(plan):
+    """A stand-in for _get serving PAGES. `plan` names each attempt: "ok", "down" (every fetch
+    fails at the transport) or "bad" (/evidence answers 500); the last entry repeats."""
+    state = {"attempt": -1}
+
+    def fake(url):
+        path = url.split("127.0.0.1:1", 1)[1] or "/"
+        if path == "/":
+            state["attempt"] += 1
+        kind = plan[min(state["attempt"], len(plan) - 1)]
+        if kind == "down":
+            return 0, "unreachable (connection refused)"
+        if kind == "bad" and path == "/evidence":
+            return 500, ""
+        status, body = PAGES[path][0]
+        return status, json.dumps(body) if isinstance(body, dict) else body
+
+    return fake
+
+
+@pytest.mark.parametrize(
+    ("plan", "verified", "message"),
+    [
+        (["down"], False, "html: unreachable (connection refused)"),
+        (["bad", "down"], False, "html: unreachable (connection refused)"),
+        (["down", "bad"], True, "evidence: status 500"),
+    ],
+)
+def test_release_verdict_follows_the_last_attempt(monkeypatch, plan, verified, message):
+    monkeypatch.setattr(dc, "_get", _scripted_get(plan))
+    sleeps = []
+    got = dc.release_check("http://127.0.0.1:1", SHA, attempts=3, sleep=sleeps.append)
+    assert got == (False, message, verified)
+    assert sleeps == [10, 10]
+
+
+def test_release_checker_exception_is_unverified_at_once(monkeypatch):
+    def boom(*_args):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(dc, "_attempt", boom)
+    sleeps = []
+    got = dc.release_check("http://127.0.0.1:1", SHA, sleep=sleeps.append)
+    assert got == (False, "checker error: RuntimeError", False)
+    assert sleeps == []
+
+
+def test_main_release_exit_codes_verified_1_unverified_4(monkeypatch, site, capsys):
+    monkeypatch.setattr(dc.time, "sleep", lambda _s: None)
+    assert dc.main(["release", site({"/evidence": [(500, "")]}), SHA]) == 1
+    assert dc.main(["release", "http://127.0.0.1:9", SHA]) == 4
+    out = capsys.readouterr().out
+    assert "evidence: status 500" in out and "html: unreachable (" in out
+    assert "not verified" in out.splitlines()[-1]
+    monkeypatch.setattr(dc, "_get", _scripted_get(["bad", "down"]))
+    assert dc.main(["release", "http://127.0.0.1:1", SHA]) == 4
+
+
+def test_main_release_checker_exception_is_4(monkeypatch, capsys):
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(dc, "_attempt", boom)
+    assert dc.main(["release", "http://127.0.0.1:1", SHA]) == 4
+    monkeypatch.setattr(dc, "release_check", boom)
+    assert dc.main(["release", "http://127.0.0.1:1", SHA]) == 4
+    assert "checker error: RuntimeError" in capsys.readouterr().out
 
 
 def test_main_release_and_serving(site, capsys):
@@ -770,6 +844,17 @@ def test_prod_401_at_the_release_check_is_exit_4_and_not_a_rollback_trigger(rig,
     assert code == 4, out
     assert "Vercel Authentication" in out and "not a release failure" in out
     assert "Deployed, but the release check failed" not in out
+
+
+def test_prod_unreachable_release_check_is_exit_4_with_no_rollback_line(rig):
+    # Codex r2 finding G: the operator's network failing proves nothing about the release. The six
+    # attempts sleep 10 s between them for real here (about 50 s).
+    _alias(rig, "http://127.0.0.1:9")
+    code, out = rig.run("deploy-prod.sh", PROD_URL="http://127.0.0.1:9")
+    assert code == 4, out
+    assert "html: unreachable (" in out and "not a release failure" in out
+    assert "rollback" not in out.lower() and "Deployed, but the release check failed" not in out
+    assert "Vercel Authentication answers 401" not in out
 
 
 def test_prod_post_deploy_failures_are_exit_4_with_a_serving_line(rig, site):

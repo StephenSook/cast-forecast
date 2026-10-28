@@ -197,29 +197,33 @@ def _json(body: str):
         return None
 
 
-def _attempt(base: str, sha: str, want_youcam: bool) -> tuple[bool, str, str]:
-    """One pass over the four pages. Returns (ok, message, health-detail)."""
+def _attempt(base: str, sha: str, want_youcam: bool) -> tuple[bool, str, str, bool]:
+    """One pass over the four pages. Returns (ok, message, health-detail, verified).
+
+    `verified` is False when the pass failed because a page could not be fetched at all (status 0:
+    DNS, proxy, network) or answered 401: then nothing is known about the release itself.
+    """
     status, body = _get(f"{base}/")
     if status == 401:
-        return False, "401", ""
+        return False, "401", "", False
     if status == 0:
-        return False, f"html: {body}", ""
+        return False, f"html: {body}", "", False
     if status != 200:
-        return False, f"html: status {status}", ""
+        return False, f"html: status {status}", "", True
     if not release_in_html(body, sha):
-        return False, f"html: cf-release is not {sha}", ""
+        return False, f"html: cf-release is not {sha}", "", True
 
     status, body = _get(f"{base}/api/health")
     if status == 401:
-        return False, "401", ""
+        return False, "401", "", False
     if status == 0:
-        return False, f"health: {body}", ""
+        return False, f"health: {body}", "", False
     if status != 200:
-        return False, f"health: status {status}", ""
+        return False, f"health: status {status}", "", True
     health = _json(body)
     ok, why = health_ok(health, sha, want_youcam)
     if not ok:
-        return False, f"health: {why}", ""
+        return False, f"health: {why}", "", True
     detail = (
         f"health (youcam={str(health.get('youcam') is True).lower()}, session=true, "
         f"node={health['node']})"
@@ -227,25 +231,25 @@ def _attempt(base: str, sha: str, want_youcam: bool) -> tuple[bool, str, str]:
 
     status, body = _get(f"{base}/evidence")
     if status == 401:
-        return False, "401", ""
+        return False, "401", "", False
     if status == 0:
-        return False, f"evidence: {body}", ""
+        return False, f"evidence: {body}", "", False
     if status != 200:
-        return False, f"evidence: status {status}", ""
+        return False, f"evidence: status {status}", "", True
     if not evidence_ok(body):
-        return False, "evidence: no K1b PASS row", ""
+        return False, "evidence: no K1b PASS row", "", True
 
     status, body = _get(f"{base}/api/gates")
     if status == 401:
-        return False, "401", ""
+        return False, "401", "", False
     if status == 0:
-        return False, f"gates: {body}", ""
+        return False, f"gates: {body}", "", False
     if status != 200:
-        return False, f"gates: status {status}", ""
+        return False, f"gates: status {status}", "", True
     ok, why = gates_ok(_json(body))
     if not ok:
-        return False, f"gates: {why}", ""
-    return True, "", detail
+        return False, f"gates: {why}", "", True
+    return True, "", detail, True
 
 
 def release_check(
@@ -253,23 +257,30 @@ def release_check(
     sha: str,
     want_youcam: bool = True,
     attempts: int = 6,
-    sleep: Callable[[float], None] = time.sleep,
-) -> tuple[bool, str]:
+    sleep: Callable[[float], None] | None = None,
+) -> tuple[bool, str, bool]:
+    """Returns (ok, message, verified). A failure is verified only when the last attempt read a
+    response that mismatched. It is unverified (nothing is known about the release) when the last
+    attempt could not fetch a page, Vercel Authentication answered 401, or the checker raised."""
+    pause = sleep or time.sleep
     base = base.rstrip("/")
-    last = "no attempt ran"
+    last, verified = "no attempt ran", False
     for n in range(attempts):
-        ok, why, detail = _attempt(base, sha, want_youcam)
+        try:
+            ok, why, detail, verified = _attempt(base, sha, want_youcam)
+        except Exception as e:  # noqa: BLE001 - a checker bug says nothing about the release
+            return False, f"checker error: {type(e).__name__}", False
         if ok:
-            return True, f"release {sha} ok: html, {detail}, evidence, gates"
+            return True, f"release {sha} ok: html, {detail}, evidence, gates", True
         if why == "401":
-            return False, AUTH_401
+            return False, AUTH_401, False
         # The served release already matched, so this deployment holds a key: a retry cannot change it.
         if why == f"health: {KEY_LIVE}":
-            return False, why
+            return False, why, True
         last = why
         if n < attempts - 1:
-            sleep(10)
-    return False, last
+            pause(10)
+    return False, last, verified
 
 
 def _read(path: str) -> str | None:
@@ -338,12 +349,19 @@ def main(argv: list[str]) -> int:
         if len(args) == 3 and args[2] != "--require-no-youcam":
             print("unknown option: " + args[2])
             return 2
-        ok, msg = release_check(args[0], args[1], want_youcam=len(args) == 2)
+        try:
+            ok, msg, verified = release_check(args[0], args[1], want_youcam=len(args) == 2)
+        except Exception as e:  # noqa: BLE001 - a checker bug must exit 4, never the rollback 1
+            ok, msg, verified = False, f"checker error: {type(e).__name__}", False
         print(msg)
         if ok:
             return 0
-        # 4: a protection setting, not a bad release, so callers must not treat it as one.
-        return 4 if msg == AUTH_401 else 1
+        if verified:
+            return 1
+        # 4: nothing about the release was verified (unreachable from here, a checker error, or a
+        # 401 protection setting), so callers must not treat it as a bad release.
+        print("release not verified: this is not a release failure; do not roll back on it")
+        return 4
     print(f"bad arguments for {cmd}")
     return 2
 
