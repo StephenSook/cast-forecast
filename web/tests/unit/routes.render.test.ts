@@ -8,7 +8,7 @@ import { BODY_READ_DEADLINE_MS } from "@/server/routes/common";
 import { makeCreditsHandler } from "@/server/routes/credits";
 import { makeRenderHandler } from "@/server/routes/render";
 import { JSON_TIMEOUT_MS, POLL_INTERVAL_MS, YouCamError, createYouCam } from "@/server/youcam";
-import fromPython from "../fixtures/catalogue-from-python.json";
+import fromPython from "../contracts/catalogue-from-python.json";
 import { CREDIT, NOW, POLL_VTO, RUN_VTO } from "../helpers/constants";
 import { testEntry } from "../helpers/entries";
 import { jsonReply } from "../helpers/fakeFetch";
