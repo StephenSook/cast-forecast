@@ -17,6 +17,18 @@ _spec = importlib.util.spec_from_file_location("deploy_checks", SCRIPTS / "deplo
 dc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dc)
 
+# The gates table exactly as a real /evidence render serves it (tests/fixtures/README.md says how it
+# was made). The release check must read this shape, not a hand-built one.
+GATE_TABLE = (ROOT / "tests" / "fixtures" / "evidence-gate-table.html").read_text(encoding="utf-8")
+K1B_PASS = 'role="row" data-gate="K1b" data-verdict="PASS"'
+EVIDENCE = f"<html><body><main><h1>Evidence</h1>{GATE_TABLE}</main></body></html>"
+
+
+@pytest.fixture(autouse=True)
+def _no_attempts_override(monkeypatch):
+    """A RELEASE_ATTEMPTS left in the developer's shell must not change these tests."""
+    monkeypatch.delenv("RELEASE_ATTEMPTS", raising=False)
+
 
 def runs(*pairs):
     return {"check_runs": [{"name": n, "conclusion": c} for n, c in pairs]}
@@ -120,14 +132,30 @@ def test_health_without_a_key_requires_youcam_exactly_false():
         assert dc.health_ok({**good, "youcam": odd}, "abc", want_youcam=False)[0] is False, odd
 
 
-def test_evidence_needs_the_k1b_pass_row():
-    assert dc.evidence_ok(
-        "<table><tr><td>K1b</td><td>Same question</td><td>PASS 5 of 5</td></tr></table>"
-    )
-    assert not dc.evidence_ok(
-        "<table><tr><td>K1b</td><td>FAIL</td></tr><tr><td>K2</td><td>PASS</td></tr></table>"
-    )
-    assert not dc.evidence_ok("<p>Evidence</p>")
+def test_evidence_reads_the_k1b_pass_row_as_gate_table_renders_it():
+    # The fixture is not vacuous: it holds the K1b row, other gates' rows and the header row.
+    assert GATE_TABLE.count(K1B_PASS) == 1
+    assert GATE_TABLE.count('role="row"') == 5 and "<tr" not in GATE_TABLE
+    assert dc.evidence_ok(EVIDENCE)
+    assert dc.evidence_ok(GATE_TABLE)
+
+
+def test_evidence_refuses_k1b_fail_and_pass_text_outside_a_row():
+    k1b_fail = EVIDENCE.replace(K1B_PASS, 'role="row" data-gate="K1b" data-verdict="FAIL"')
+    assert k1b_fail != EVIDENCE and not dc.evidence_ok(k1b_fail)
+    # K1b PASS as text, but not on a role="row" element carrying both attributes.
+    for html in (
+        "<p>K1b PASS 5 of 5</p>",
+        "<table><tr><td>K1b</td><td>Same question</td><td>PASS 5 of 5</td></tr></table>",
+        '<div role="row"><div role="cell">K1b</div><div role="cell">PASS 5 of 5</div></div>',
+        EVIDENCE.replace(K1B_PASS, 'data-gate="K1b" data-verdict="PASS"'),
+        EVIDENCE.replace(K1B_PASS, 'role="cell" data-gate="K1b" data-verdict="PASS"'),
+        EVIDENCE.replace(K1B_PASS, 'role="row" data-gate="K1" data-verdict="PASS"'),
+        k1b_fail + "<p>K1b PASS</p>",
+        "<p>Evidence</p>",
+        "",
+    ):
+        assert not dc.evidence_ok(html), html[:80]
 
 
 def test_gates_need_every_inverse_check_to_match():
@@ -280,7 +308,7 @@ HEALTH = {"release": SHA, "youcam": True, "session": True, "node": "22.23.2"}
 PAGES = {
     "/": [(200, f'<head><meta name="cf-release" content="{SHA}"/></head>')],
     "/api/health": [(200, HEALTH)],
-    "/evidence": [(200, "<table><tr><td>K1b</td><td>PASS 5 of 5</td></tr></table>")],
+    "/evidence": [(200, EVIDENCE)],
     "/api/gates": [(200, {"k1b": {"inverseCheck": [{"match": True}] * 3}})],
 }
 OK_LINE = (
@@ -468,6 +496,34 @@ def test_main_release_and_serving(site, capsys):
     assert dc.main(["release"]) == 2
 
 
+def test_release_attempts_override_is_a_whole_number_from_1_to_6():
+    assert dc.release_attempts(None) == 6
+    assert dc.release_attempts("") == 6
+    assert dc.release_attempts("1") == 1
+    assert dc.release_attempts("6") == 6
+    for bad in ("0", "7", "-1", "two", " 1", "1.5", "1e1"):
+        assert dc.release_attempts(bad) is None, bad
+
+
+def test_main_release_reads_release_attempts(monkeypatch, site, capsys):
+    sleeps = []
+    monkeypatch.setattr(dc.time, "sleep", sleeps.append)
+    base = site({"/evidence": [(500, "")]})
+    monkeypatch.setenv("RELEASE_ATTEMPTS", "2")
+    assert dc.main(["release", base, SHA]) == 1
+    assert sleeps == [10]
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "RELEASE_ATTEMPTS=2: 2 attempts instead of 6 (for tests only)"
+    monkeypatch.setenv("RELEASE_ATTEMPTS", "0")
+    assert dc.main(["release", base, SHA]) == 2
+    assert "RELEASE_ATTEMPTS" in capsys.readouterr().out
+    monkeypatch.delenv("RELEASE_ATTEMPTS")
+    sleeps.clear()
+    assert dc.main(["release", base, SHA]) == 1
+    assert sleeps == [10] * 5
+    assert "RELEASE_ATTEMPTS" not in capsys.readouterr().out
+
+
 def test_main_release_exits_4_behind_vercel_authentication(site):
     assert dc.main(["release", site({"/": [(401, "")]}), SHA]) == 4
 
@@ -583,7 +639,14 @@ class Rig:
             "FAKE_MAIN_SHA": self.main_sha or _git(self.origin, "rev-parse", "main"),
             "PYTHONDONTWRITEBYTECODE": "1",
         }
-        for name in ("SCAN_ENABLED", "DRY_RUN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "PROD_URL"):
+        for name in (
+            "SCAN_ENABLED",
+            "DRY_RUN",
+            "VERCEL_ORG_ID",
+            "VERCEL_PROJECT_ID",
+            "PROD_URL",
+            "RELEASE_ATTEMPTS",
+        ):
             env.pop(name, None)
         env.update(extra)
         out = self.tmp / "out.txt"
@@ -832,7 +895,7 @@ def test_prod_alias_mismatch_is_exit_3_not_a_rollback_trigger(rig, site):
 
 def test_prod_release_failure_is_exit_1_and_names_the_rollback(rig, site):
     base = _alias(rig, site(_pages(rig.head(), **{"/evidence": [(500, "")]})))
-    code, out = rig.run("deploy-prod.sh", PROD_URL=base)
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base, RELEASE_ATTEMPTS="1")
     assert code == 1, out
     assert out.splitlines()[-1].startswith("Deployed, but the release check failed")
     assert "evidence: status 500" in out
@@ -847,10 +910,10 @@ def test_prod_401_at_the_release_check_is_exit_4_and_not_a_rollback_trigger(rig,
 
 
 def test_prod_unreachable_release_check_is_exit_4_with_no_rollback_line(rig):
-    # Codex r2 finding G: the operator's network failing proves nothing about the release. The six
-    # attempts sleep 10 s between them for real here (about 50 s).
+    # Codex r2 finding G: the operator's network failing proves nothing about the release. One
+    # attempt (RELEASE_ATTEMPTS) keeps the test from sleeping 50 s between six real ones.
     _alias(rig, "http://127.0.0.1:9")
-    code, out = rig.run("deploy-prod.sh", PROD_URL="http://127.0.0.1:9")
+    code, out = rig.run("deploy-prod.sh", PROD_URL="http://127.0.0.1:9", RELEASE_ATTEMPTS="1")
     assert code == 4, out
     assert "html: unreachable (" in out and "not a release failure" in out
     assert "rollback" not in out.lower() and "Deployed, but the release check failed" not in out

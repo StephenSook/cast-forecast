@@ -23,6 +23,15 @@ test("one row per gate, the verdict as a word chip, and result links resolved to
   expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Gate", "Question", "Result"]);
 });
 
+// The deploy release check (web/scripts/deploy_checks.py evidence_ok) reads these two attributes on a role="row" element.
+test("each body row carries data-gate and data-verdict from its gate; the header row carries neither", () => {
+  render(<GateTable gates={[row({ gate: "K1b" }), row({ gate: "K2", verdict: "FAIL" }), row({ gate: "Note", verdict: "OTHER", result: "Pending." })]} />);
+  const [header, ...body] = screen.getAllByRole("row");
+  expect(body.map((r) => [r.getAttribute("data-gate"), r.getAttribute("data-verdict")])).toEqual([["K1b", "PASS"], ["K2", "FAIL"], ["Note", "OTHER"]]);
+  expect(header.hasAttribute("data-gate")).toBe(false);
+  expect(header.hasAttribute("data-verdict")).toBe(false);
+});
+
 test("a result with no PASS or FAIL word keeps its whole text under a NOTE chip", () => {
   render(<GateTable gates={[row({ result: "Pending the run.", verdict: "OTHER" })]} />);
   const r = screen.getAllByRole("row")[1];

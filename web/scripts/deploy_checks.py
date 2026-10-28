@@ -17,6 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from html.parser import HTMLParser
 
 PROJECT_NAME = "cast-forecast-web"
 SCOPE = "ssookra-7703s-projects"
@@ -36,6 +37,8 @@ IGNORED_OK = (
     "web/test-results/",
 )
 UNREACHABLE = "unreachable"
+ATTEMPTS = 6
+ATTEMPTS_ENV = "RELEASE_ATTEMPTS"
 
 
 def linked_project_ok(project: dict) -> bool:
@@ -105,11 +108,26 @@ def health_ok(body: dict, sha: str, want_youcam: bool = True) -> tuple[bool, str
     return True, "ok"
 
 
+class _GateRows(HTMLParser):
+    """Collects (data-gate, data-verdict) from every element with role="row"."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[tuple[str | None, str | None]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
+        if a.get("role") == "row":
+            self.rows.append((a.get("data-gate"), a.get("data-verdict")))
+
+
 def evidence_ok(html: str) -> bool:
-    for row in re.findall(r"<tr\b.*?</tr>", html, flags=re.IGNORECASE | re.DOTALL):
-        if "K1b" in row and "PASS" in row:
-            return True
-    return False
+    """True only when /evidence holds a role="row" element with data-gate K1b and data-verdict PASS,
+    the attributes web/src/ui/GateTable.tsx puts on each body row. Text alone never counts."""
+    parser = _GateRows()
+    parser.feed(html)
+    parser.close()
+    return ("K1b", "PASS") in parser.rows
 
 
 def gates_ok(body: dict) -> tuple[bool, str]:
@@ -252,11 +270,21 @@ def _attempt(base: str, sha: str, want_youcam: bool) -> tuple[bool, str, str, bo
     return True, "", detail, True
 
 
+def release_attempts(raw: str | None) -> int | None:
+    """RELEASE_ATTEMPTS, a knob for tests only: unset or empty is the default 6; a whole number
+    from 1 to 6 is used as given (it can only shorten the check); anything else is None."""
+    if raw is None or raw == "":
+        return ATTEMPTS
+    if re.fullmatch(r"[1-9][0-9]*", raw) and int(raw) <= ATTEMPTS:
+        return int(raw)
+    return None
+
+
 def release_check(
     base: str,
     sha: str,
     want_youcam: bool = True,
-    attempts: int = 6,
+    attempts: int = ATTEMPTS,
     sleep: Callable[[float], None] | None = None,
 ) -> tuple[bool, str, bool]:
     """Returns (ok, message, verified). A failure is verified only when the last attempt read a
@@ -349,8 +377,21 @@ def main(argv: list[str]) -> int:
         if len(args) == 3 and args[2] != "--require-no-youcam":
             print("unknown option: " + args[2])
             return 2
+        raw = os.environ.get(ATTEMPTS_ENV)
+        attempts = release_attempts(raw)
+        if attempts is None:
+            print(f"{ATTEMPTS_ENV} must be a whole number from 1 to {ATTEMPTS}, or unset")
+            return 2
+        if raw:
+            # Said out loud: fewer attempts leave less time for a fresh deploy to start serving.
+            plural = "" if attempts == 1 else "s"
+            print(
+                f"{ATTEMPTS_ENV}={raw}: {attempts} attempt{plural} instead of {ATTEMPTS} (for tests only)"
+            )
         try:
-            ok, msg, verified = release_check(args[0], args[1], want_youcam=len(args) == 2)
+            ok, msg, verified = release_check(
+                args[0], args[1], want_youcam=len(args) == 2, attempts=attempts
+            )
         except Exception as e:  # noqa: BLE001 - a checker bug must exit 4, never the rollback 1
             ok, msg, verified = False, f"checker error: {type(e).__name__}", False
         print(msg)

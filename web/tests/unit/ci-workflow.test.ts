@@ -15,6 +15,11 @@ test("the web job runs lint, types, tests, build, the bundle scan and e2e on pus
 test("no web step can be skipped, softened or piped", () => {
   expect(web).not.toMatch(/continue-on-error|\|\| true|^\s+if:|\|\s*(tail|grep|head|tee)/m);
 });
+// tests/e2e/release-check.spec.ts passes the build's cf-release to the deploy checker, so the build and the e2e step
+// must see the same NEXT_PUBLIC_RELEASE_SHA: it is set once for the whole web job.
+test("the web job sets NEXT_PUBLIC_RELEASE_SHA for every step", () => {
+  expect(web).toMatch(/^ {4}env:\n(?: {6}\S.*\n)*? {6}NEXT_PUBLIC_RELEASE_SHA: \$\{\{ github\.sha \}\}$/m);
+});
 test("CI holds no secret", () => {
   expect(ci).not.toMatch(/secrets\.|YOUCAM_API_KEY|SESSION_SECRET/);
 });

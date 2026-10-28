@@ -30,6 +30,7 @@ const LEAD = /^(PASS|FAIL)\b[:.]?\s*/i;
 /**
  * The gates table: Gate, Question, Result. On phones each row stacks as a card; the roles are stated because a
  * display change can drop table semantics. The verdict chip is ink text on a light fill, always with the word.
+ * Each body row carries data-gate and data-verdict: the deploy release check (web/scripts/deploy_checks.py) reads them.
  */
 export function GateTable({ gates }: { gates: readonly GateRow[] }) {
   return (
@@ -46,6 +47,8 @@ export function GateTable({ gates }: { gates: readonly GateRow[] }) {
           <div
             key={g.gate}
             role="row"
+            data-gate={g.gate}
+            data-verdict={g.verdict}
             className="block sm:table-row mb-4 sm:mb-0 rounded-[1.5rem] sm:rounded-none border-[3px] sm:border-0 sm:border-t-[3px] border-ink bg-paper sm:bg-transparent p-4 sm:p-0 align-top"
           >
             <div role="cell" className="block sm:table-cell sm:p-3 font-extrabold align-top">{g.gate}</div>
