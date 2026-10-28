@@ -42,8 +42,11 @@ The Cast Forecast site lives in `web/` (Next.js). The UI uses a design system ad
 pnpm install --frozen-lockfile
 pnpm dev
 pnpm test
+pnpm build
 pnpm e2e
 ```
+
+`pnpm e2e` serves the last `pnpm build` with `next start`, so build first. It also runs the deploy release check (`web/scripts/deploy_checks.py`, needs `python3`) against that server; if you build with `NEXT_PUBLIC_RELEASE_SHA` set, run `pnpm e2e` with the same value.
 
 Try-on routes answer "paused" until the server holds a YouCam key; `/evidence` works without one. `/api/tone` (a 20-unit skin tone analysis that no page calls) answers 404 unless the server sets `TONE_ENABLED=1`, which is for local runs only: the deploy scripts refuse it, like `SCAN_ENABLED`. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm test:bundle`, which scans the built client JavaScript for key names and the YouCam host.
 
