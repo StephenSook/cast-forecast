@@ -16,6 +16,7 @@ export type RouteDeps = {
 };
 
 // One of each per server instance, shared by every route: counts and the cached balance live as long as the instance.
+// So the limiter and the credit floor are per instance and best effort (README, web Limits).
 const limiter = createLimiter();
 const balance = createBalanceCache();
 

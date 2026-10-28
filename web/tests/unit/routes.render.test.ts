@@ -109,7 +109,7 @@ test("a successful render keeps its unit (balance 878)", async () => {
   expect((await makeRenderHandler(deps)(renderReq())).status).toBe(200);
   expect(await balanceAfter(deps, clock)).toBe(878);
 });
-test("carry 1: the unit is held before the task starts, so a second render at the floor edge starts nothing", async () => {
+test("carry 1: the unit is held before the task starts, so a second render on the same instance at the floor edge starts nothing", async () => {
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 101, routes: okRender });
   const h = makeRenderHandler(deps);
   const [a, b] = await Promise.all([h(renderReq()), h(renderReq())]);

@@ -71,7 +71,7 @@ test("reserve returns null and holds nothing when the units would cross the floo
   expect(await c.get(yc, NOW)).toBe(119);
   expect(await c.reserve(yc, NOW, 19, 100)).not.toBeNull();
 });
-test("concurrent reserves at the floor edge: only one holds", async () => {
+test("concurrent reserves on one cache (one instance) at the floor edge: only one holds", async () => {
   let release: (n: number) => void = () => undefined;
   const balance = vi.fn(() => new Promise<number>((r) => { release = r; }));
   const c = createBalanceCache(); const yc = { balance } as unknown as YouCam;

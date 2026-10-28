@@ -29,6 +29,9 @@ export type BalanceCache = {
  * A read that was already in flight when a spend happened may predate it, so every unit spent after the read started
  * is subtracted from the value it returns. If YouCam had already counted that spend, it is subtracted twice until
  * the next read: the cache then under-reports, which only refuses a task early.
+ * There is one cache per server instance (deps.ts), so the floor it enforces is per instance and best effort, not a
+ * shared guarantee: instances never see each other's holds, and near the floor each can admit about one task on the
+ * balance it last read. The YouCam account balance is the hard stop.
  */
 export function createBalanceCache(ttlMs = 30_000): BalanceCache {
   let value: number | null = null;
@@ -73,7 +76,8 @@ export function createBalanceCache(ttlMs = 30_000): BalanceCache {
     async reserve(yc, now, units, floor) {
       if (!Number.isSafeInteger(units) || units <= 0) throw new RangeError("units must be a positive integer");
       await load(yc, now);
-      // No await between the check and the hold, so a concurrent request always sees this hold in its own check.
+      // No await between the check and the hold, so a concurrent request on this instance always sees this hold in
+      // its own check. Another instance never does (see above).
       if (value === null || !aboveFloor(value - held, units, floor)) return null;
       held += units;
       let open = true;

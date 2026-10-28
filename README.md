@@ -47,6 +47,11 @@ pnpm e2e
 
 Try-on routes answer "paused" until the server holds a YouCam key; `/evidence` works without one. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm test:bundle`, which scans the built client JavaScript for key names and the YouCam host.
 
+### Limits
+- The credit floor (`CREDIT_FLOOR`, default 100 units) and the per-session and per-IP request limits are per server instance and best effort. Each instance keeps its own cached balance, unit holds and request counts in memory; instances do not share them, and a cold start forgets the counts.
+- Near the floor, instances running at the same time can each admit a task on the balance they last read, so the account can end up below the floor by about one task per instance (1 unit for a render, 20 for a tone analysis).
+- The YouCam account balance is the hard stop: with too few units YouCam refuses the task (`CreditInsufficiency`, answered as `credits_low`).
+
 ## Deploy
 Deploys run from this Mac with the Vercel CLI (project `cast-forecast-web`, scope `ssookra-7703s-projects`). There is no deploy token, no deploy job in CI and no Git integration, so a push never deploys. Vercel Git integration: none (checked 2026-10-28, CLI).
 
