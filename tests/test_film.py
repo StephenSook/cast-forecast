@@ -7,6 +7,7 @@ import pytest
 
 from castforecast.film import (
     LayerFilm,
+    accept,
     lightness,
     over,
     scaled,
@@ -35,8 +36,46 @@ def test_solve_rejects_inadmissible_films():
     assert solve_film(0.04, 0.30, 0.86, 0.20) is None
     # Equal substrates carry no information.
     assert solve_film(0.5, 0.6, 0.5, 0.6) is None
-    # A film must not create light: R + T <= 1.
+    # A film must not create light: R + T <= 1 (beyond the 1.03 tolerance).
     assert solve_film(0.04, 0.9, 0.86, 1.2) is None
+
+
+def test_accept_follows_amendment_2_rule_6():
+    # Inside the tolerance: clamped, then projected onto R + T = 1.
+    f = accept(0.20, 0.81**2)  # R + T = 1.01
+    assert f == LayerFilm(0.20, pytest.approx(0.80))
+    f = accept(-0.01, 0.95)  # R slightly negative
+    assert f.r == 0.0 and f.t == pytest.approx(math.sqrt(0.95))
+    f = accept(0.1, -0.01)  # T^2 slightly negative
+    assert f == LayerFilm(0.1, 0.0)
+    assert accept(0.0, 1.0) == LayerFilm(0.0, 1.0)  # no film at all
+    # Outside: rejected.
+    assert accept(1.01, 0.0) is None  # R > 1 can never be fixed by lowering T
+    assert accept(-0.03, 0.5) is None
+    assert accept(0.2, -0.03) is None
+    assert accept(0.2, 0.84**2) is None  # R + T = 1.04
+    assert accept(0.2, 0.83**2) is not None  # R + T = 1.03 exactly is accepted
+
+
+def test_scaled_non_absorbing_film_uses_the_k_zero_formula():
+    # On R + T = 1 the general formula is singular; Kubelka with K = 0 gives R = q/(1+q).
+    f = LayerFilm(0.2, 0.8)
+    q = 0.2 / 0.8
+    for t in (0.5, 1.0, 2.0, 3.0):
+        s = scaled(f, t)
+        assert s.r == pytest.approx(q * t / (1 + q * t))
+        assert s.t == pytest.approx(1 / (1 + q * t))
+    d = scaled(f, 2.0)  # stacking two layers matches double thickness here too
+    assert d.r == pytest.approx(f.r + f.t**2 * f.r / (1 - f.r**2))
+
+
+def test_scaled_accepts_every_film_accept_can_return():
+    for r, t2 in [(0.2, 0.81**2), (0.0, 1.0), (1.0, 0.0), (0.5, 0.0), (0.0, 0.3), (0.3, 0.2)]:
+        film = accept(r, t2)
+        assert film is not None
+        for t in (0.1, 1.0, 3.0):
+            s = scaled(film, t)
+            assert 0.0 <= s.r <= 1.0 and 0.0 <= s.t <= 1.0 and s.r + s.t <= 1.0 + 1e-9
 
 
 def test_scaled_reproduces_the_film_at_unit_thickness():

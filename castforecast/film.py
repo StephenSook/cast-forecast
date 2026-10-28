@@ -30,42 +30,54 @@ def over(r: float, t: float, rho: float) -> float:
     return r + t * t * rho / (1.0 - r * rho)
 
 
-def solve_film(black: float, black_coated: float, white: float, white_coated: float):
-    """The film (R, T) that turns bare reflectances into the coated ones, or None.
+def accept(r: float, t2: float):
+    """Gate 2 Amendment 2 rule 6: the accepted film for a raw solve (R, T^2), or None.
 
-    None when the substrates carry no information or no admissible film exists
-    (R >= 0, T >= 0, R + T <= 1).
+    Accepted when -0.02 <= R <= 1, T^2 >= -0.02 and R + T <= 1.03 (T from the clamped T^2);
+    then negatives are set to zero and, if R + T > 1, T = 1 - R (a non-absorbing film).
+    """
+    if not (-0.02 <= r <= 1.0) or t2 < -0.02:
+        return None
+    r = max(r, 0.0)
+    t = math.sqrt(max(t2, 0.0))
+    if r + t > 1.03 + _EPS:
+        return None
+    if r + t > 1.0:
+        t = 1.0 - r
+    return LayerFilm(r, t)
+
+
+def solve_film(black: float, black_coated: float, white: float, white_coated: float):
+    """The accepted film (R, T) that turns bare reflectances into the coated ones, or None.
+
+    None when the substrates carry no information or the raw solve is not accepted (`accept`).
     """
     den = white - black + black * white * (black_coated - white_coated)
     if abs(den) < _EPS or black <= 0 or white <= 0:
         return None
     r = (black_coated * white - white_coated * black) / den
     t2 = (black_coated - r) * (1.0 - r * black) / black
-    if -_EPS < r < 0:
-        r = 0.0
-    if -_EPS < t2 < 0:
-        t2 = 0.0
-    if r < 0 or t2 < 0:
-        return None
-    t = math.sqrt(t2)
-    if r + t > 1.0 + 1e-9:
-        return None
-    return LayerFilm(r, t)
+    return accept(r, t2)
 
 
 def scaled(film: LayerFilm, thickness: float) -> LayerFilm:
     """The same film material at `thickness` times its measured thickness (Kubelka layer formulas).
 
-    A non-scattering film (r = 0) only absorbs: t becomes t ** thickness. An opaque film (t = 0)
-    keeps its reflectance. Raises ValueError for a non-positive thickness or an inadmissible film.
+    Cases in Gate 2 Amendment 2 rule 6 order: an opaque film (t = 0) is unchanged; a film that
+    only absorbs (r = 0) has t ** thickness; a film that only scatters (r + t = 1) uses the K = 0
+    formulas, where the general ones are singular. Raises ValueError for a non-positive thickness
+    or a film with r + t > 1.
     """
     if thickness <= 0:
         raise ValueError("thickness must be positive")
     r, t = film.r, film.t
-    if r < _EPS:
-        return LayerFilm(0.0, t**thickness)
     if t < _EPS:
         return LayerFilm(r, 0.0)
+    if r < _EPS:
+        return LayerFilm(0.0, t**thickness)
+    if abs(r + t - 1.0) <= 1e-9:
+        q = r / t * thickness
+        return LayerFilm(q / (1.0 + q), 1.0 / (1.0 + q))
     a = (1.0 + r * r - t * t) / (2.0 * r)
     if a <= 1.0:
         raise ValueError("film is not admissible for the Kubelka formulas")
