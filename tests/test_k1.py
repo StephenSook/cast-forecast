@@ -1,3 +1,4 @@
+import http.client
 import itertools
 import json
 import sys
@@ -8,7 +9,7 @@ from PIL import Image
 
 from castforecast import k1_render as k1
 from castforecast.color import _decode, _encode
-from castforecast.youcam import YouCamError
+from castforecast.youcam import YouCamClient, YouCamError
 
 SKIN = (200, 150, 120)
 
@@ -477,3 +478,17 @@ def test_small_face_fails_before_any_spend(selfies, tmp_path, monkeypatch):
     r = json.loads(out.read_text())
     assert r["error"]["code"] == "face_too_small"
     assert client.calls == [] and client.payloads == []
+
+
+def test_bad_key_reaching_the_transport_never_lands_in_results(selfies, tmp_path, monkeypatch):
+    def no_network(self):
+        raise OSError("network disabled in tests")
+
+    monkeypatch.setattr(http.client.HTTPSConnection, "connect", no_network)
+    client = YouCamClient(key="placeholder")  # the real http.client transport
+    client._key = "SECRET\rX"  # a key that got past validation by any route
+    code, out = _run(client, selfies, tmp_path)
+    assert code != 0
+    text = out.read_text()
+    assert "SECRET" not in text
+    assert json.loads(text)["error"]["code"] == "bad_request"

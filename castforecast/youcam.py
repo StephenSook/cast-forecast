@@ -40,6 +40,15 @@ class Response:
     body: bytes = b""
 
 
+def _printable_ascii(key: str) -> bool:
+    return all(" " <= ch <= "~" for ch in key)
+
+
+def _bad_key() -> YouCamError:
+    # Never echo the value: http.client and codec errors quote the whole header value.
+    return YouCamError("key contains characters outside printable ASCII", code="bad_key")
+
+
 def read_key() -> str:
     try:
         out = subprocess.run(
@@ -49,9 +58,11 @@ def read_key() -> str:
         )
     except OSError:
         raise YouCamError("no key") from None
-    key = out.stdout.decode().strip()
+    key = out.stdout.decode("utf-8", errors="replace").strip()
     if out.returncode != 0 or not key:
         raise YouCamError("no key")
+    if not _printable_ascii(key):
+        raise _bad_key()
     return key
 
 
@@ -69,8 +80,15 @@ def _http_transport(req: Request) -> Response:
     conn = conn_cls(parts.netloc, timeout=60)
     try:
         conn.putrequest(req.method, target, skip_accept_encoding=True)
-        for name, value in req.headers.items():
-            conn.putheader(name, value)
+        bad_header = False
+        try:
+            for name, value in req.headers.items():
+                conn.putheader(name, value)
+        except (ValueError, UnicodeError):
+            # http.client quotes the full header value in these messages (the Bearer key).
+            bad_header = True
+        if bad_header:  # raised outside the except block so no __context__ keeps the value
+            raise YouCamError("invalid request header", code="bad_request")
         if req.body is not None:
             conn.putheader("Content-Length", str(len(req.body)))
         conn.endheaders(req.body)
@@ -93,6 +111,8 @@ class YouCamClient:
     ):
         self._transport = transport or _http_transport
         self._key = read_key() if key is None else key
+        if self._key and not _printable_ascii(self._key):
+            raise _bad_key()
         self._sleep = sleep
         self._clock = clock
         self._sent: deque[float] = deque()

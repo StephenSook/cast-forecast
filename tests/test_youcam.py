@@ -1,6 +1,7 @@
 import http.client
 import json
 import subprocess
+import traceback
 from pathlib import Path
 from typing import ClassVar
 
@@ -273,3 +274,61 @@ def test_poll_success_with_empty_results_is_bad_shape():
     with pytest.raises(YouCamError) as e:
         c.poll("task/makeup-vto", "t2")
     assert e.value.code == "bad_shape" and e.value.task_id == "t2"
+
+
+# ---- keys that http.client would echo in its own error messages ----
+
+BAD_KEYS = ["SECRET\rX", "SECRET\nX", "SECRET\x00X", "SECRET☃X"]
+
+
+def _assert_no_secret(exc: BaseException) -> None:
+    assert "SECRET" not in str(exc) and "SECRET" not in repr(exc)
+    assert "SECRET" not in "".join(traceback.format_exception(exc))
+    assert exc.__context__ is None and exc.__cause__ is None
+
+
+def _no_network(self):
+    raise OSError("network disabled in tests")
+
+
+@pytest.mark.parametrize("bad", ["SECRET\rX", "SECRET\nX", "SECRET☃X"])
+def test_transport_header_error_never_echoes_value(bad, monkeypatch):
+    # A real HTTPSConnection: http.client validates and encodes header values in putheader,
+    # before any connection is opened, and its own messages quote the full value.
+    monkeypatch.setattr(http.client.HTTPSConnection, "connect", _no_network)
+    req = Request("GET", "https://yce-api-01.makeupar.com/x", {"Authorization": f"Bearer {bad}"})
+    with pytest.raises(YouCamError) as e:
+        yc._http_transport(req)
+    assert e.value.code == "bad_request"
+    _assert_no_secret(e.value)
+
+
+@pytest.mark.parametrize("bad", BAD_KEYS)
+def test_client_refuses_non_printable_key_without_echo(bad):
+    fake = Fake([])
+    with pytest.raises(YouCamError) as e:
+        YouCamClient(transport=fake, key=bad)
+    assert e.value.code == "bad_key"
+    _assert_no_secret(e.value)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    "raw", [b"SECRET\rX\n", b"SECRET\x00X", b"SECRET\xe2\x98\x83X", b"SECRET\xffX"]
+)
+def test_read_key_refuses_non_printable_without_echo(raw, monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, raw, b"")
+    )
+    with pytest.raises(YouCamError) as e:
+        yc.read_key()
+    assert e.value.code == "bad_key"
+    _assert_no_secret(e.value)
+
+
+def test_printable_key_with_symbols_is_accepted_and_sent():
+    key = "aB3+/=_-.~"
+    fake = Fake([ok({"total_credits": 5})])
+    c = YouCamClient(transport=fake, key=key, sleep=lambda s: None)
+    assert c.balance() == 5
+    assert fake.calls[0].headers["Authorization"] == f"Bearer {key}"
