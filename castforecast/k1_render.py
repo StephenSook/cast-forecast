@@ -1,18 +1,31 @@
-"""K1 render-sweep experiment: does YouCam's foundation effect behave like a sunscreen film?
+"""Historical: K1 FAIL, kept as the code of record; K1b reuses its measurement helpers.
 
-Pre-registered pass rule (all five must hold):
+K1 render-sweep experiment: does YouCam's foundation effect behave like a sunscreen film, with
+coverage as the dose? Result and measured values: docs/gates/k1-results.md.
+
+Pass rule as it ran (all five must hold). Criteria 1, 4 and 5 were amended before any K1 data
+existed, at 808cdea; the original wording is in this docstring at 14a283a.
   1 monotonic   per color and colorIntensity, cheek L* is non-decreasing with coverage, tolerance
-                0.5 L* against the running maximum
+                0.5 L* against the running maximum; a series needs >= 4 usable points including
+                coverage 100, otherwise it is unevaluable and fails
   2 r2          blend model R^2 >= 0.95 over all usable A renders (3 linear-RGB channels each)
   3 max_dl      best A render cheek dL* vs the input >= +15
   4 inverse     B rendered at the (coverage, colorIntensity) the fit picks for alpha 0.35 toward
-                #D2D2D2 lands within dE00 2.0 of the target (Lab of the pooled linear-RGB mean)
-  5 texture     hf_energy_out / hf_energy_in within 20 percent of (1 - a) for at least 80 percent of
-                usable A renders with a >= 0.2
+                #D2D2D2 lands within dE00 2.0 of the target (Lab of the pooled linear-RGB mean);
+                an unreachable target fails
+  5 texture     for usable A renders with fitted a >= 0.2, the observed ratio hf_render / hf_input
+                is within 20 percent of the ratio for an ideal film synthesized on the input in
+                linear light at the same a and palette color (encoded to sRGB and measured with the
+                input's own mask), for at least 80 percent of them
+
+The inverse gate in this module fails on dE00 > 2.0, so a NaN distance would pass it; K1b uses
+<= instead. The K1 run's gating distance was a finite 2.03.
 
 Blend model, in linear RGB on the pooled cheek patch: out = (1 - a) * skin + a * palette, with skin
 the cheek value of the input upload copy of A and a a non-decreasing function of coverage for each
 colorIntensity, shared by the three colors. Never retries a paid call; stops on the first error.
+Changed after the K1 run: the CLI refuses to overwrite an earlier results file or K1 renders.
+Nothing in the measurement or the criteria changed.
 """
 
 from __future__ import annotations
