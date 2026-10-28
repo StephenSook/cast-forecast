@@ -1,0 +1,41 @@
+{
+ "api_de_vs_baseline": 5.805857423661948,
+ "api_vs_own_patch_de": 10.94044737978122,
+ "balance_after": 859,
+ "balance_before": 879,
+ "baseline_hex": "#a17758",
+ "baseline_source": "recon/gate/k2.json, A.jpg original and repeat calls",
+ "call": {
+  "face_quality": {
+   "area": "good",
+   "faceangle": "good",
+   "frontal": "good",
+   "has_face": true,
+   "lighting": "good"
+  },
+  "skin_color": "#91694f"
+ },
+ "k2_daylight_pass": false,
+ "lighting": "daylight, window behind the subject (backlit; face underexposed)",
+ "own_patch_de_daylight_vs_A": 33.312445246570164,
+ "own_patch_lab": {
+  "A": [
+   70.3925148551982,
+   17.500073794554343,
+   22.243491095301795
+  ],
+  "daylight": [
+   36.158444885433425,
+   15.24257509950663,
+   19.327979375171775
+  ]
+ },
+ "preflight": {
+  "hd": true,
+  "ok": true,
+  "reasons": []
+ },
+ "rule": "PASS if dE00(api skin_color, #a17758) <= 1.0",
+ "source": "IMG_0877: frontal, eyes open; picked over IMG_0878 by the larger cheek scale_px (831 vs 790), decided before any paid call",
+ "units_spent": 20
+}
