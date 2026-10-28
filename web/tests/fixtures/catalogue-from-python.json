@@ -11,7 +11,7 @@
       "render": {
         "paletteHex": "#bca2ff",
         "blend": 0.08775774894020885,
-        "errorL": 1.2555353102856657
+        "errorL": 1.2581873383447686
       },
       "whitening": {
         "value": 2.8,
@@ -20,7 +20,31 @@
         "unit": "L*"
       },
       "evidence": {
-        "csvRowId": "test-row-blue",
+        "csvRowId": "test-row-1",
+        "measuredAt": "2026-10-28",
+        "photos": 2
+      }
+    },
+    {
+      "id": "test-quantized",
+      "name": "Test entry quantized",
+      "brand": "Test brand",
+      "upc": null,
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#dee181",
+        "blend": 0.2537988310820812,
+        "errorL": 1.0612210909486919
+      },
+      "whitening": {
+        "value": 2.8,
+        "low": 2.5,
+        "high": 3.1,
+        "unit": "L*"
+      },
+      "evidence": {
+        "csvRowId": "test-row-2",
         "measuredAt": "2026-10-28",
         "photos": 2
       }

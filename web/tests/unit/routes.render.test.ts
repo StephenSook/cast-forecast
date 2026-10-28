@@ -152,15 +152,18 @@ test("carry 4: a bottle whose blend the K1b curve cannot reach is 404 unknown_bo
   const res = await makeRenderHandler(deps)(renderReq());
   expect(res.status).toBe(404); expect((await res.json()).error.code).toBe("unknown_bottle"); expect(ff.calls).toEqual([]);
 });
-// Codex review r4: a render the Python catalogue rejected (it misses its film by 1.26 L*) used to reach a paid task,
-// because the web schema dropped the rejection. The fixture is written by castforecast.catalogue.render_entry and
+// Codex reviews r4 and r5: renders the Python catalogue rejected (1.26 L* from the film; 1.06 L* once rounded to
+// what YouCam is sent) used to reach a paid task. The fixture is written by castforecast.catalogue.render_entry and
 // tests/test_catalogue.py checks it still matches, so this runs the producer, the loader and the handler together.
-test("a render that misses its film by more than 1 L* is 404 unknown_bottle before any YouCam call", async () => {
+test("every render that misses its film by more than 1 L* is 404 unknown_bottle before any YouCam call", async () => {
   const catalogue = loadCatalogue(fromPython);
-  expect(catalogue[0].render.errorL).toBeGreaterThan(1);
-  const { deps, ff } = testDeps({ catalogue, balance: 879, routes: okRender });
-  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: catalogue[0].id }, cookieFor(["file-1"])));
-  expect(res.status).toBe(404); expect((await res.json()).error.code).toBe("unknown_bottle"); expect(ff.calls).toEqual([]);
+  expect(catalogue.map((b) => b.id)).toEqual(["test-blue-scatter", "test-quantized"]);
+  for (const bottle of catalogue) {
+    expect(bottle.render.errorL).toBeGreaterThan(1);
+    const { deps, ff } = testDeps({ catalogue, balance: 879, routes: okRender });
+    const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: bottle.id }, cookieFor(["file-1"])));
+    expect(res.status).toBe(404); expect((await res.json()).error.code).toBe("unknown_bottle"); expect(ff.calls).toEqual([]);
+  }
 });
 test("carry 4: an unknown bottle id makes zero fetch calls", async () => {
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });

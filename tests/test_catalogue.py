@@ -79,8 +79,28 @@ def test_whitening_band_is_none_if_any_run_has_no_usable_film():
     assert whitening_band({0.80: None, 0.88: film3(0.1, 0.8), 0.95: film3(0.1, 0.8)}, base) is None
 
 
+# The films behind web/tests/fixtures/catalogue-from-python.json, which
+# web/tests/unit/routes.render.test.ts feeds through the loader and the render route.
+FIXTURE_FILMS = {
+    # Codex review r2: one blend cannot copy a film that scatters only blue.
+    "test-blue-scatter": (LayerFilm(0.02, 0.98), LayerFilm(0.02, 0.98), LayerFilm(0.30, 0.70)),
+    # Codex review r5: 0.92 L* before rounding, 1.06 L* as sent (hex palette, colorIntensity 74).
+    "test-quantized": (
+        LayerFilm(0.19766062, 0.80198639),
+        LayerFilm(0.21446335, 0.77678427),
+        LayerFilm(0.05729318, 0.85358310),
+    ),
+}
+
+
+def test_the_error_is_measured_on_the_render_as_sent():
+    got = render_params(FIXTURE_FILMS["test-quantized"])
+    assert (got["paletteHex"], got["colorIntensity"]) == ("#dee181", 74)
+    assert got["render_error"] == pytest.approx(1.0612, abs=1e-3)
+    assert got["reachable"] is False
+
+
 def test_the_web_fixture_is_what_render_entry_writes_today():
-    # web/tests/unit/routes.render.test.ts feeds this fixture through the loader and the render route.
     import json
     from pathlib import Path
 
@@ -89,11 +109,12 @@ def test_the_web_fixture_is_what_render_entry_writes_today():
     fixture = (
         Path(__file__).resolve().parent.parent / "web/tests/fixtures/catalogue-from-python.json"
     )
-    entry = json.loads(fixture.read_text())["bottles"][0]
-    film = (LayerFilm(0.02, 0.98), LayerFilm(0.02, 0.98), LayerFilm(0.30, 0.70))
-    want = render_entry(film)
-    assert entry["render"]["paletteHex"] == want["paletteHex"]
-    assert entry["render"]["blend"] == pytest.approx(want["blend"], abs=1e-12)
-    assert entry["render"]["errorL"] == pytest.approx(want["errorL"], abs=1e-12)
-    assert set(entry["render"]) == {"paletteHex", "blend", "errorL"}
-    assert want["errorL"] > MAX_RENDER_ERROR
+    bottles = {b["id"]: b for b in json.loads(fixture.read_text())["bottles"]}
+    assert set(bottles) == set(FIXTURE_FILMS)
+    for bid, film in FIXTURE_FILMS.items():
+        render, want = bottles[bid]["render"], render_entry(film)
+        assert set(render) == {"paletteHex", "blend", "errorL"}
+        assert render["paletteHex"] == want["paletteHex"]
+        assert render["blend"] == pytest.approx(want["blend"], abs=1e-12)
+        assert render["errorL"] == pytest.approx(want["errorL"], abs=1e-12)
+        assert want["errorL"] > MAX_RENDER_ERROR
