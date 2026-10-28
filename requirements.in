@@ -8,3 +8,4 @@ colour-science==0.4.7
 mediapipe==1.1.1
 pytest==9.2.0
 ruff==0.17.3
+rawpy==0.27.1
