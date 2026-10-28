@@ -1,0 +1,83 @@
+{
+ "balance_after": 940,
+ "balance_before": 940,
+ "error": {
+  "code": "error_exceed_max_image_size",
+  "message": "task [id removed] failed: error_exceed_max_image_size"
+ },
+ "inputs": {
+  "A": {
+   "hf_energy": 0.01705717724725227,
+   "lab_mean": [
+    70.3925148551982,
+    17.500073794554343,
+    22.243491095301795
+   ],
+   "lab_of_mean": [
+    70.79994514482621,
+    17.429872295181394,
+    22.022387289098845
+   ],
+   "linear_rgb": [
+    0.6941723859758996,
+    0.3553210226460546,
+    0.23912412176783773
+   ],
+   "scale_px": 770.0626748460973
+  },
+  "B": {
+   "hf_energy": 0.018422661225291535,
+   "lab_mean": [
+    68.93903267714332,
+    17.871563769576753,
+    21.405686032134756
+   ],
+   "lab_of_mean": [
+    69.40352209979893,
+    17.803561101156827,
+    21.184208140506566
+   ],
+   "linear_rgb": [
+    0.666834501874131,
+    0.33642676362102136,
+    0.2311982188577961
+   ],
+   "scale_px": 888.1289444007849
+  }
+ },
+ "inverse_renders": [],
+ "k1_pass": false,
+ "preflight": {
+  "A": {
+   "hd": true,
+   "ok": true,
+   "reasons": []
+  },
+  "B": {
+   "hd": true,
+   "ok": true,
+   "reasons": []
+  }
+ },
+ "renders": [
+  {
+   "color": "#FFFFFF",
+   "colorIntensity": 50,
+   "coverageIntensity": 0,
+   "glowIntensity": 0,
+   "id": "A_FFFFFF_cov0_ci50",
+   "selfie": "A",
+   "status": "pending_download"
+  }
+ ],
+ "thresholds": {
+  "inverse_de_max": 2.0,
+  "max_dl_min": 15.0,
+  "mono_tol_l": 0.5,
+  "r2_min": 0.95,
+  "texture_min_a": 0.2,
+  "texture_min_fraction": 0.8,
+  "texture_rel_tol": 0.2
+ },
+ "units_spent": 0
+}
