@@ -3,8 +3,14 @@
 import numpy as np
 import pytest
 
-from castforecast.catalogue import MAX_BLEND, render_params, whitening_band
-from castforecast.film import LayerFilm
+from castforecast.catalogue import (
+    MAX_BLEND,
+    MAX_RENDER_ERROR,
+    REFERENCE_SKINS,
+    render_params,
+    whitening_band,
+)
+from castforecast.film import LayerFilm, lightness, over
 from castforecast.gate2 import predict_film
 
 
@@ -13,21 +19,49 @@ def film3(r, t2):
     return (f, f, f)
 
 
-def test_blend_is_one_minus_transmitted_light_and_palette_is_r_over_blend():
-    got = render_params(film3(0.1, 0.8))
-    assert got["blend"] == pytest.approx(0.2)
-    assert got["paletteHex"] == "#bcbcbc"  # linear 0.5 encoded to sRGB
+def _hex_to_linear(h):
+    srgb = np.array([int(h[i : i + 2], 16) for i in (1, 3, 5)]) / 255.0
+    return np.where(srgb <= 0.04045, srgb / 12.92, ((srgb + 0.055) / 1.055) ** 2.4)
+
+
+def _rendered_vs_film(film, params):
+    """Worst L* gap, over the reference skins, between the render the values describe and the film."""
+    a, p = params["blend"], _hex_to_linear(params["paletteHex"])
+    gaps = []
+    for s in REFERENCE_SKINS:
+        rendered = (1 - a) * s + a * p
+        filmed = np.array([over(f.r, f.t, float(s[c])) for c, f in enumerate(film)])
+        gaps.append(abs(lightness(rendered) - lightness(filmed)))
+    return max(gaps)
+
+
+def test_a_grey_film_renders_within_the_bound_on_every_reference_skin():
+    film = film3(0.1, 0.8)
+    got = render_params(film)
     assert got["reachable"] is True
+    assert got["render_error"] <= MAX_RENDER_ERROR
+    assert _rendered_vs_film(film, got) <= MAX_RENDER_ERROR + 0.05  # hex rounding
 
 
 def test_a_blend_beyond_the_k1b_curve_is_flagged_unreachable():
     assert MAX_BLEND == pytest.approx(0.3545024830997824)
-    assert render_params(film3(0.3, 0.5))["reachable"] is False
+    got = render_params(film3(0.3, 0.5))
+    assert got["blend"] > MAX_BLEND and got["reachable"] is False
 
 
-def test_a_non_absorbing_film_stays_below_white():
-    # r + t = 1 is the brightest accepted film: palette r / (1 - t^2) = 1 / (2 - r) < 1.
-    assert render_params(film3(0.5, 0.25))["paletteHex"] == "#d5d5d5"
+def test_a_film_one_blend_cannot_copy_is_refused():
+    # Codex review r2: averaging T^2 rendered this blue-scattering film as -1.39 L* where the film
+    # gives +2.81 L*, and called it reachable.
+    film = (LayerFilm(0.02, 0.98), LayerFilm(0.02, 0.98), LayerFilm(0.30, 0.70))
+    got = render_params(film)
+    assert got["render_error"] > MAX_RENDER_ERROR
+    assert got["reachable"] is False
+
+
+def test_reference_skins_are_real_colours():
+    assert REFERENCE_SKINS.shape == (5, 3)
+    assert ((REFERENCE_SKINS > 0) & (REFERENCE_SKINS < 1)).all()
+    assert [round(lightness(s)) for s in REFERENCE_SKINS] == [35, 45, 55, 65, 75]
 
 
 def test_whitening_band_spans_the_paper_sensitivity_runs():

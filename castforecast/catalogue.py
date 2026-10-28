@@ -1,11 +1,14 @@
 """Catalogue values for one bottle from its measured film (web/src/lib/catalogue.ts schema).
 
-Render: YouCam's makeup render mixes a palette colour into the skin, out = (1 - a) rho + a P.
-A film over skin gives rho' = R + T^2 rho / (1 - R rho), which is close to that mix with
-a = 1 - T^2 and P = R / a when R rho is small. One blend serves all three channels, so a uses
-the mean of T^2; the palette is clipped to [0, 1]. This is an approximation, and every render
-built from it is labelled as one. A blend above the K1b curve's top (colorIntensity 100) cannot
-be rendered at full strength and is flagged unreachable; the render route refuses those bottles.
+Render: YouCam's makeup render mixes a palette colour into the skin, out = (1 - a) rho + a P, one
+blend a for all channels. A film over skin gives rho' = R + T^2 rho / (1 - R rho) per channel,
+which a single blend cannot always copy (a film that scatters only blue, for instance). So a and
+P are fitted by least squares to the film's output on a fixed set of reference skins (CIELAB L*
+35 to 75, a* 14, b* 18), with 0 <= a <= 1 and 0 <= P <= 1. The render is usable only when, on
+every reference skin, its L* is within `MAX_RENDER_ERROR` of the film's; otherwise, or when the
+blend is above the top of the K1b curve (colorIntensity 100), the bottle is flagged unreachable
+and the render route refuses it. Every render built from these values is labelled an
+approximation.
 
 Whitening: the film's predicted whitening on a stated reference skin at the card dose, with low
 and high from the paper-reflectance sensitivity runs (0.80 and 0.95), value from 0.88.
@@ -14,16 +17,30 @@ and high from the paper-reflectance sensitivity runs (0.80 and 0.95), value from
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
 
 from castforecast.color import _encode
+from castforecast.film import lightness, over
 from castforecast.gate2 import Film3, predict_film
+
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", message=r".*SciPy.*related API features")
+    import colour
 
 _K1B = Path(__file__).resolve().parent.parent / "docs" / "gates" / "k1b-results.json"
 MAX_BLEND = float(json.loads(_K1B.read_text())["g100"])
 PAPER_SCALES = (0.80, 0.88, 0.95)
+MAX_RENDER_ERROR = 1.0  # L*, render against film on any reference skin
+REFERENCE_SKIN_LAB = tuple((float(lum), 14.0, 18.0) for lum in (35, 45, 55, 65, 75))
+REFERENCE_SKINS = np.array(
+    [
+        colour.XYZ_to_sRGB(colour.Lab_to_XYZ(np.array(lab)), apply_cctf_encoding=False)
+        for lab in REFERENCE_SKIN_LAB
+    ]
+)
 
 
 def _hex(linear: np.ndarray) -> str:
@@ -31,13 +48,33 @@ def _hex(linear: np.ndarray) -> str:
     return "#" + "".join(f"{v:02x}" for v in srgb)
 
 
+def _fit(target: np.ndarray, rho: np.ndarray) -> tuple[float, np.ndarray]:
+    """Least-squares (a, q = a P) for target = (1 - a) rho + q, then a and P clamped to [0, 1]."""
+    n = rho.shape[0]
+    rows = np.zeros((n * 3, 4))
+    rows[:, 0] = -rho.ravel()
+    for c in range(3):
+        rows[c::3, 1 + c] = 1.0
+    sol, *_ = np.linalg.lstsq(rows, (target - rho).ravel(), rcond=None)
+    a = float(np.clip(sol[0], 0.0, 1.0))
+    q = np.clip((target - (1 - a) * rho).mean(axis=0), 0.0, a)
+    return a, q
+
+
 def render_params(film: Film3) -> dict:
-    """paletteHex and blend for the VTO render, and whether the K1b curve can reach the blend."""
-    blend = 1.0 - float(np.mean([f.t * f.t for f in film]))
-    if blend <= 1e-6:
-        return {"paletteHex": "#ffffff", "blend": 0.0, "reachable": True}
-    palette = np.array([f.r for f in film]) / blend
-    return {"paletteHex": _hex(palette), "blend": blend, "reachable": blend <= MAX_BLEND}
+    """paletteHex and blend for the VTO render, its worst L* error, and whether it is usable."""
+    rho = REFERENCE_SKINS
+    target = np.array([[over(f.r, f.t, float(s[c])) for c, f in enumerate(film)] for s in rho])
+    a, q = _fit(target, rho)
+    rendered = (1 - a) * rho + q
+    error = max(abs(lightness(rendered[i]) - lightness(target[i])) for i in range(len(rho)))
+    palette = q / a if a > 1e-6 else np.ones(3)
+    return {
+        "paletteHex": _hex(palette),
+        "blend": a,
+        "render_error": float(error),
+        "reachable": bool(error <= MAX_RENDER_ERROR and a <= MAX_BLEND),
+    }
 
 
 def whitening_band(films: dict[float, Film3 | None], base: np.ndarray) -> dict | None:
