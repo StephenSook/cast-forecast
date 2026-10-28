@@ -255,14 +255,40 @@ def test_scan_listing_that_failed_is_not_a_pass():
         assert dc.scan_flag_ok(bad, None)[0] is False
 
 
+def test_flags_refuse_scan_or_tone_in_the_target_or_the_shell():
+    assert dc.flags_ok(NO_VARS, {}) == (True, "ok: SCAN_ENABLED and TONE_ENABLED are not set")
+    with_tone = SOME_VARS + " TONE_ENABLED                  Encrypted   Production     1m ago\n"
+    assert dc.flags_ok(with_tone, {}) == (False, "TONE_ENABLED is set in the target environment")
+    # Even a value of 0 is refused: values are not readable, so presence is the rule.
+    assert not dc.flags_ok(with_tone, {"TONE_ENABLED": "0"})[0]
+    assert dc.flags_ok(SOME_VARS, {"TONE_ENABLED": "1"}) == (
+        False,
+        "TONE_ENABLED is set in this shell",
+    )
+    assert dc.flags_ok(SOME_VARS, {"TONE_ENABLED": "true"})[0] is False
+    assert dc.flags_ok(SOME_VARS, {"TONE_ENABLED": "0", "SCAN_ENABLED": ""})[0]
+    # A name that merely contains the flag name is a different variable.
+    assert dc.flags_ok(SOME_VARS + " NOT_TONE_ENABLED_X  Encrypted  Production\n", {})[0]
+    with_scan = SOME_VARS + " SCAN_ENABLED  Encrypted  Production\n"
+    assert dc.flags_ok(with_scan, {}) == (False, "SCAN_ENABLED is set in the target environment")
+    for bad in ("", "Error: not logged in\n", SOME_VARS.replace("cast-forecast-web", "other")):
+        assert dc.flags_ok(bad, {})[0] is False, bad
+
+
 def test_main_scan_reads_the_listing_and_the_shell(tmp_path, monkeypatch):
     p = tmp_path / "env.txt"
     p.write_text(NO_VARS)
     monkeypatch.delenv("SCAN_ENABLED", raising=False)
+    monkeypatch.delenv("TONE_ENABLED", raising=False)
     assert dc.main(["scan", str(p)]) == 0
     monkeypatch.setenv("SCAN_ENABLED", "1")
     assert dc.main(["scan", str(p)]) == 1
     monkeypatch.delenv("SCAN_ENABLED")
+    monkeypatch.setenv("TONE_ENABLED", "1")
+    assert dc.main(["scan", str(p)]) == 1
+    monkeypatch.delenv("TONE_ENABLED")
+    p.write_text(SOME_VARS + " TONE_ENABLED  Encrypted  Production\n")
+    assert dc.main(["scan", str(p)]) == 1
     p.write_text("")
     assert dc.main(["scan", str(p)]) == 1
     assert dc.main(["scan", str(tmp_path / "missing.txt")]) == 1
@@ -641,6 +667,7 @@ class Rig:
         }
         for name in (
             "SCAN_ENABLED",
+            "TONE_ENABLED",
             "DRY_RUN",
             "VERCEL_ORG_ID",
             "VERCEL_PROJECT_ID",
@@ -814,6 +841,22 @@ def test_prod_refuses_when_the_scan_flag_is_set_anywhere(rig):
     assert code == 1 and "SCAN_ENABLED" in out and "DRY_RUN=1" not in out
     code, _ = rig.run("deploy-prod.sh", DRY_RUN="1", SCAN_ENABLED="0")
     assert code == 0
+    assert rig.deployed() == []
+
+
+@pytest.mark.parametrize("script", ["deploy-prod.sh", "deploy-preview.sh"])
+def test_scripts_refuse_when_the_tone_flag_is_set_anywhere(rig, script):
+    if script == "deploy-preview.sh":
+        _track_branch(rig)
+    rig.env_ls.write_text(SOME_VARS + " TONE_ENABLED  Encrypted  Production  1m ago\n")
+    code, out = rig.run(script, DRY_RUN="1")
+    assert code == 1 and "TONE_ENABLED is set in the target environment" in out, out
+    assert "DRY_RUN=1" not in out
+    rig.env_ls.write_text(NO_VARS)
+    code, out = rig.run(script, DRY_RUN="1", TONE_ENABLED="1")
+    assert code == 1 and "TONE_ENABLED is set in this shell" in out and "DRY_RUN=1" not in out, out
+    code, out = rig.run(script, DRY_RUN="1", TONE_ENABLED="0")
+    assert code == 0, out
     assert rig.deployed() == []
 
 

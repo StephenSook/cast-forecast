@@ -12,10 +12,15 @@ import { readSession } from "@/server/session";
 const ToneBody = z.object({ fileId: z.string().min(1).max(512) });
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 
-/** POST /api/tone, JSON {fileId}: 200 ToneResult. The render order without the bottle step; 20 units are held. */
+/**
+ * POST /api/tone, JSON {fileId}: 200 ToneResult. The render order without the bottle step; 20 units are held.
+ * No page calls it, so it answers a bare 404 unless the server sets TONE_ENABLED=1: before the key check, the limiter,
+ * the balance or any YouCam call.
+ */
 export function makeToneHandler(deps: () => RouteDeps): (req: Request) => Promise<Response> {
   return guarded("tone", async (req) => {
     const d = deps();
+    if (!d.env.toneEnabled) return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
     const now = d.now();
     const { youcamKey: key, sessionSecret: secret } = d.env;
     if (!key || !secret) return errorResponse("not_configured", 503);

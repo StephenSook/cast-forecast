@@ -5,6 +5,8 @@ export type ServerEnv = {
   sessionSecret: string | null;
   creditFloor: number;
   scanEnabled: boolean;
+  /** TONE_ENABLED=1 opens POST /api/tone (20 units a call, called by no page). Off by default; never set in Vercel. */
+  toneEnabled: boolean;
 };
 
 const MIN_SECRET_LENGTH = 32;
@@ -27,5 +29,6 @@ export function readServerEnv(env: Partial<NodeJS.ProcessEnv> = process.env): Se
     sessionSecret: secret !== undefined && secret.length >= MIN_SECRET_LENGTH ? secret : null,
     creditFloor: Number.isSafeInteger(parsedFloor) ? parsedFloor : DEFAULT_CREDIT_FLOOR,
     scanEnabled: env.SCAN_ENABLED === "1",
+    toneEnabled: env.TONE_ENABLED === "1",
   };
 }

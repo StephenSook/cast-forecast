@@ -1,10 +1,10 @@
 """Deploy gates for the Cast Forecast web app. Stdlib only, so the Mac needs nothing installed.
 
 The two deploy scripts call this file for every verdict that needs real parsing: the linked Vercel
-project, the CI check-runs for a SHA, what git would ship from ignored files, the SCAN_ENABLED
-flag, the absence of the YouCam key where a deploy must have none, and the live release check
-after a deploy. Every check fails closed: an empty, missing or unparseable input is a failure,
-never a pass.
+project, the CI check-runs for a SHA, what git would ship from ignored files, the SCAN_ENABLED and
+TONE_ENABLED flags, the absence of the YouCam key where a deploy must have none, and the live
+release check after a deploy. Every check fails closed: an empty, missing or unparseable input is
+a failure, never a pass.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from html.parser import HTMLParser
 
 PROJECT_NAME = "cast-forecast-web"
@@ -25,6 +25,8 @@ AUTH_401 = "deployment is behind Vercel Authentication (401)"
 PROJECT_ID = "prj_13eXRfxiEveDWgUuyKar6XOzl4Lm"
 REQUIRED_JOBS = ("test", "web")
 SCAN_FLAG = "SCAN_ENABLED"
+TONE_FLAG = "TONE_ENABLED"
+OFF_FLAGS = (SCAN_FLAG, TONE_FLAG)
 KEY_NAME = "YOUCAM_API_KEY"
 KEY_LIVE = "youcam is true on a deploy that must hold no key"
 IGNORED_OK = (
@@ -168,21 +170,34 @@ def _lists_name(env_listing: str, name: str) -> bool:
     return bool(re.search(rf"(?<![\w]){name}(?![\w])", env_listing))
 
 
-def scan_flag_ok(env_listing: str, local_value: str | None) -> tuple[bool, str]:
-    """The scan flag must be unset in the target Vercel environment and in this shell.
+def scan_flag_ok(
+    env_listing: str, local_value: str | None, flag: str = SCAN_FLAG
+) -> tuple[bool, str]:
+    """A flag (SCAN_ENABLED by default) must be unset in the target Vercel environment and in
+    this shell.
 
     `vercel env ls` shows names only (sensitive values are never readable), so the rule is
-    stricter than "0 or unset": any variable named SCAN_ENABLED in the target fails the deploy.
+    stricter than "0 or unset": any variable with the flag's name in the target fails the deploy.
     A listing that does not name this project (empty, an error, the wrong project) is a failure,
     not a pass.
     """
     if not _listing_names_project(env_listing):
         return False, f"environment listing does not name {PROJECT_NAME} (the listing failed)"
-    if _lists_name(env_listing, SCAN_FLAG):
-        return False, f"{SCAN_FLAG} is set in the target environment"
+    if _lists_name(env_listing, flag):
+        return False, f"{flag} is set in the target environment"
     if local_value not in (None, "", "0"):
-        return False, f"{SCAN_FLAG} is set in this shell"
-    return True, f"ok: {SCAN_FLAG} is not set"
+        return False, f"{flag} is set in this shell"
+    return True, f"ok: {flag} is not set"
+
+
+def flags_ok(env_listing: str, env: Mapping[str, str]) -> tuple[bool, str]:
+    """SCAN_ENABLED and TONE_ENABLED, each by the scan_flag_ok rule. TONE_ENABLED opens the paid
+    /api/tone that no page calls, so no deploy may carry it."""
+    for flag in OFF_FLAGS:
+        ok, why = scan_flag_ok(env_listing, env.get(flag), flag)
+        if not ok:
+            return False, why
+    return True, f"ok: {' and '.join(OFF_FLAGS)} are not set"
 
 
 def key_absent_ok(env_listing: str) -> tuple[bool, str]:
@@ -355,7 +370,7 @@ def main(argv: list[str]) -> int:
         raw = _read(args[0])
         if raw is None:
             return _done(False, "environment listing file is missing")
-        return _done(*scan_flag_ok(raw, os.environ.get(SCAN_FLAG)))
+        return _done(*flags_ok(raw, os.environ))
     if cmd == "nokey" and len(args) == 1:
         raw = _read(args[0])
         if raw is None:

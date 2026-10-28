@@ -49,11 +49,13 @@ if ! gh api "repos/StephenSook/cast-forecast/commits/$SHA/check-runs?per_page=10
 fi
 if ! python3 -I scripts/deploy_checks.py ci "$tmp" 2; then fail "CI is not green for $SHA."; fi
 
-# 3b. the scan flag must not exist in the preview environment or this shell
+# 3b. the scan and tone flags must not exist in the preview environment or this shell
 if ! $V env ls preview --scope "$SCOPE" > "$tmp.env" 2>&1; then
   fail "Could not list preview environment variables."
 fi
-if ! python3 -I scripts/deploy_checks.py scan "$tmp.env"; then fail "SCAN_ENABLED must not be set."; fi
+if ! python3 -I scripts/deploy_checks.py scan "$tmp.env"; then
+  fail "SCAN_ENABLED and TONE_ENABLED must not be set."
+fi
 
 # 3c. previews hold no YouCam key: the name alone in the preview listing refuses the deploy
 if ! python3 -I scripts/deploy_checks.py nokey "$tmp.env"; then

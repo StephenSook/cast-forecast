@@ -5,11 +5,40 @@ import { makeCreditsHandler } from "@/server/routes/credits";
 import { makeToneHandler } from "@/server/routes/tone";
 import { NOW, POLL_TONE, RUN_TONE } from "../helpers/constants";
 import { jsonReply } from "../helpers/fakeFetch";
-import { cookieFor, get, jsonPost, taskRouteWorstCase, testDeps } from "../helpers/routes";
+import { cookieFor, get, jsonPost, taskRouteWorstCase, testDeps as baseTestDeps } from "../helpers/routes";
+
+// /api/tone answers only when the server sets TONE_ENABLED=1. Every test here runs with it on (the route's behaviour
+// when enabled) unless it passes toneEnabled: false.
+const testDeps = (o: Parameters<typeof baseTestDeps>[0] = {}) => baseTestDeps({ ...o, env: { toneEnabled: true, ...o.env } });
 
 const okTone = (skin: string) => ({ [RUN_TONE]: jsonReply(200, { data: { task_id: "t2" } }),
   [POLL_TONE]: jsonReply(200, { data: { task_status: "success", results: { color: { skin_color: skin } } } }) });
 const toneReq = () => jsonPost("/api/tone", { fileId: "file-1" }, cookieFor(["file-1"]));
+
+test("TONE_ENABLED off: tone answers 404 before the key check, the limiter, the balance or any YouCam call", async () => {
+  const { deps, ff } = testDeps({ env: { toneEnabled: false }, balance: 879, routes: okTone("#C08A6B") });
+  const take = vi.spyOn(deps().limiter, "take");
+  const reserve = vi.spyOn(deps().balance, "reserve");
+  const h = makeToneHandler(deps);
+  for (const req of [toneReq(), toneReq(), toneReq(), jsonPost("/api/tone", { fileId: "file-1" })]) {
+    const res = await h(req);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.text()).toBe("");
+  }
+  const unconfigured = testDeps({ env: { toneEnabled: false, youcamKey: null, sessionSecret: null } });
+  expect((await makeToneHandler(unconfigured.deps)(toneReq())).status).toBe(404);
+  expect(take).not.toHaveBeenCalled();
+  expect(reserve).not.toHaveBeenCalled();
+  expect(ff.calls).toEqual([]);
+  expect(unconfigured.ff.calls).toEqual([]);
+});
+test("TONE_ENABLED on: the same request runs the tone task", async () => {
+  const { deps, ff } = testDeps({ env: { toneEnabled: true }, balance: 879, routes: okTone("#C08A6B") });
+  const res = await makeToneHandler(deps)(toneReq());
+  expect(res.status).toBe(200);
+  expect(ff.taskStarts()).toBe(1);
+});
 
 test.each([[119, 503, 0], [120, 200, 1]])("tone needs balance >= floor + 20 (balance %i)", async (balance, status, starts) => {
   const { deps, ff } = testDeps({ balance, routes: okTone("#C08A6B") });

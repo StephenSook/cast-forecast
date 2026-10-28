@@ -23,8 +23,9 @@ vi.mock("@/server/jpeg", async (importOriginal) => {
 const firstCookie = (res: Response) => cookieHeaderFrom(res.headers.get("set-cookie")!);
 const okUpload = { [REGISTER]: registerReply("file-1"), [PUT]: new Response(null, { status: 200 }) };
 
+// toneEnabled: with TONE_ENABLED off, tone answers 404 before any of these checks (routes.tone.test.ts).
 test("routes answer 503 not_configured without a key", async () => {                 // Review Focus 5
-  const { deps, ff } = testDeps({ env: { youcamKey: null } });
+  const { deps, ff } = testDeps({ env: { youcamKey: null, toneEnabled: true } });
   const responses = [
     await makeUploadHandler(deps)(jpegPost(fakeJpeg(640, 480))),
     await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"]))),
@@ -34,7 +35,7 @@ test("routes answer 503 not_configured without a key", async () => {            
   expect(ff.calls).toEqual([]);
 });
 test("upload, render and tone answer 503 not_configured without a session secret", async () => {
-  const { deps, ff } = testDeps({ env: { sessionSecret: null } });
+  const { deps, ff } = testDeps({ env: { sessionSecret: null, toneEnabled: true } });
   const responses = [
     await makeUploadHandler(deps)(jpegPost(fakeJpeg(640, 480))),
     await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" })),

@@ -79,11 +79,13 @@ if ! gh api "repos/StephenSook/cast-forecast/commits/$SHA/check-runs?per_page=10
 fi
 if ! python3 -I scripts/deploy_checks.py ci "$tmp" 2; then fail "CI is not green for $SHA."; fi
 
-# 3b. the scan flag must not exist in the production environment or this shell
+# 3b. the scan and tone flags must not exist in the production environment or this shell
 if ! $V env ls production --scope "$SCOPE" > "$tmp.env" 2>&1; then
   fail "Could not list production environment variables."
 fi
-if ! python3 -I scripts/deploy_checks.py scan "$tmp.env"; then fail "SCAN_ENABLED must not be set."; fi
+if ! python3 -I scripts/deploy_checks.py scan "$tmp.env"; then
+  fail "SCAN_ENABLED and TONE_ENABLED must not be set."
+fi
 
 # 3c. a paused deploy holds no YouCam key: refuse while production still lists one (presence alone
 # fails, and a failed listing already failed above)

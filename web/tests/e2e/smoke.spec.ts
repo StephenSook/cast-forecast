@@ -53,6 +53,12 @@ test("evidence renders with no key", async ({ page }) => {                      
   expect(await r.json()).toEqual({ error: { code: "not_configured", message: "Try-on is paused. Evidence is open." } });
 });
 
+test("/api/tone is 404 when the server does not set TONE_ENABLED", async ({ page }) => {
+  const r = await page.request.post("/api/tone", { data: { fileId: "file-1" } });
+  expect(r.status()).toBe(404);
+  expect(await r.text()).toBe("");
+});
+
 test("/bottle/anything and /scan are 404 with an empty catalogue", async ({ page }) => {
   expect((await page.goto("/bottle/anything"))!.status()).toBe(404);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Not here.");
