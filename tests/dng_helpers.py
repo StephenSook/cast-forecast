@@ -23,6 +23,7 @@ def linear_dng(
     black=(0,),
     lut=None,
     photometric=34892,  # LinearRaw; 32803 is a Bayer CFA
+    extra=(),  # more tifffile extratags
 ):
     """A DNG holding `data` (H, W, 3 uint16 for linear, H, W for CFA), with AsShotNeutral
     `neutral` (white balance multipliers 1 / neutral), WhiteLevel `white` (one value or one per
@@ -40,6 +41,7 @@ def linear_dng(
     ]
     if lut is not None:
         tags.append((50712, 3, len(lut), tuple(int(v) for v in lut), True))
+    tags += list(extra)
     kwargs = {"planarconfig": "contig"} if np.ndim(data) == 3 else {}
     tifffile.imwrite(
         path,

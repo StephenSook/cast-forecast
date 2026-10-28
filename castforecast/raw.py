@@ -9,7 +9,9 @@ any Gate 2 photo existed; changing one after the first measurement is a reported
 
 Only linear DNGs are decoded (Apple ProRAW: every pixel carries its own three samples, so no
 interpolation spreads a saturated sample to its neighbours). A Bayer file, per-channel white
-levels that differ, or a non-zero black level is refused rather than guessed at.
+levels that differ, any non-zero black level (BlackLevel, its row and column deltas, or what
+LibRaw ends up using), or any DNG opcode list (processing LibRaw may skip) is refused rather than
+guessed at. Stephen's iPhone 17 Pro ProRAW files carry none of these.
 
 A pixel is dropped as clipped (Amendment 1 rule 1) when any of its raw samples reaches the
 saturation level: the DNG WhiteLevel, or the top of its LinearizationTable if that is lower
@@ -72,6 +74,8 @@ def _info(r) -> dict:
 
 
 LINEAR_RAW = 34892
+BLACK_DELTAS = (50715, 50716)  # BlackLevelDeltaH, BlackLevelDeltaV
+OPCODE_LISTS = (51008, 51009, 51022)  # OpcodeList1, 2, 3
 
 
 def _raw_ifd(pages):
@@ -87,13 +91,20 @@ def _raw_ifd(pages):
 def saturation_level(path) -> float:
     """The raw sample value at which the sensor saturates, from the DNG raw IFD's own tags.
 
-    ValueError for anything but a linear DNG with one white level and a zero black level.
+    ValueError for anything but a linear DNG with one white level, a zero black level and no
+    opcode lists.
     """
     with tifffile.TiffFile(str(path)) as tf:
         ifd = _raw_ifd(tf.pages)
         if ifd is None:
             raise ValueError("no raw image in this file")
         tags = ifd.tags
+        for page in (tf.pages[0], ifd):
+            if any(code in page.tags for code in OPCODE_LISTS):
+                raise ValueError("DNG opcode lists are not supported")
+        for code in BLACK_DELTAS:
+            if code in tags and any(float(v) != 0 for v in np.atleast_1d(tags[code].value)):
+                raise ValueError("a non-zero black level delta is not supported")
         if tags[262].value != LINEAR_RAW:
             raise ValueError(
                 f"only linear DNG (ProRAW) is supported, photometric {tags[262].value}"
@@ -128,6 +139,8 @@ def decode(path) -> Decoded:
     level = saturation_level(path)
     with rawpy.imread(str(path)) as r:
         info = _info(r) | {"saturation_level": level}
+        if any(info["black_level_per_channel"]):
+            raise ValueError("LibRaw applied a non-zero black level, which is not supported")
         sensor = sensor_clipped(r, level)
         rgb = r.postprocess(**SETTINGS)
     if sensor.shape != rgb.shape[:2]:

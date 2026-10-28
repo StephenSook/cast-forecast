@@ -101,6 +101,30 @@ def test_levels_the_decoder_cannot_trust_are_refused(tmp_path, kwargs, why):
         decode(linear_dng(tmp_path / "odd.dng", _frame(9000), **kwargs))
 
 
+def test_an_opcode_list_is_refused(tmp_path):
+    # Codex review r3: a mandatory MapPolynomial in OpcodeList2 decoded as if absent, doubling
+    # reflectance with nothing flagged.
+    opcodes = bytes(16)  # contents are never trusted: any list is refused
+    with pytest.raises(ValueError, match="opcode"):
+        decode(
+            linear_dng(
+                tmp_path / "op.dng", _frame(9000), extra=[(51009, 7, len(opcodes), opcodes, True)]
+            )
+        )
+
+
+def test_a_black_level_delta_is_refused(tmp_path):
+    # Codex review r3: BlackLevelDeltaH offsets were averaged by LibRaw, giving a false 1.40 ratio
+    # between the left and right halves of one flat signal.
+    delta = tuple([0] * 24 + [2000] * 24)
+    with pytest.raises(ValueError, match="black level delta"):
+        decode(
+            linear_dng(
+                tmp_path / "bd.dng", _frame(9000), extra=[(50715, 4, len(delta), delta, True)]
+            )
+        )
+
+
 def test_a_bayer_file_is_refused(tmp_path):
     # Codex review r2: AHD spreads a saturated site further than any fixed mask; only linear
     # DNGs (no interpolation) are decoded.
