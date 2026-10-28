@@ -1,0 +1,12 @@
+node_modules
+.next
+.vercel
+next-env.d.ts
+*.tsbuildinfo
+playwright-report
+test-results
+tests/fixtures
+.DS_Store
+__pycache__
+.env*
+!.env.example
