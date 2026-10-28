@@ -182,3 +182,51 @@ test("the progressive fixture keeps its ten scans and the restart fixture its re
   expect(rstCount(stripMetadata(rst)!)).toBe(rstCount(rst));
   expect(rstCount(rst)).toBeGreaterThan(MAX_SEGMENTS);
 });
+
+// Codex r2 finding F: an allowlist. Kept: SOI, DQT, DHT, DRI, SOFn, SOS with its scan data, EOI; APP0 only as JFIF,
+// rewritten with no thumbnail; APP2 only as ICC_PROFILE; APP14 only as Adobe. Every other APPn and every COM goes.
+const gpsApp1 = (() => {
+  const src = readFileSync("tests/fixtures/exif-rot6-4032x3024.jpg");
+  const at = src.indexOf(Buffer.from([0xff, 0xe1]));
+  return [...src.subarray(at, at + 2 + ((src[at + 2] << 8) | src[at + 3]))];
+})();
+const GPS_IFD_TAG = [0x88, 0x25];                                                             // tag 0x8825; this fixture's TIFF header is MM (big-endian)
+const hasBytes = (b: Uint8Array, needle: number[]) => Buffer.from(b).includes(Buffer.from(needle));
+const BASE = (...extra: number[][]) => u8(SOI, APP0, ...extra, DQT, sof(0xc0, 640, 480), DHT, SOS, SCAN, EOI);
+test("a JFXX APP0 whose JPEG thumbnail carries the GPS EXIF fixture is dropped whole", () => {
+  const thumb = [...SOI, ...gpsApp1, ...fakeJpeg(16, 16).slice(2)];
+  const jfxx = seg(0xe0, [...ascii("JFXX"), 0, 0x10, ...thumb]);
+  const input = BASE(jfxx);
+  expect(has(input, "Exif\0\0") && has(input, "JFXX") && hasBytes(input, GPS_IFD_TAG)).toBe(true);   // precondition
+  const out = stripMetadata(input)!;
+  expect(out).toEqual(BASE());
+  expect([has(out, "Exif\0\0"), has(out, "JFXX"), hasBytes(out, GPS_IFD_TAG)]).toEqual([false, false, false]);
+});
+test("a JFIF APP0 keeps its version, units and density and loses its thumbnail", () => {
+  const withThumb = seg(0xe0, [...ascii("JFIF"), 0, 1, 2, 1, 0, 72, 0, 72, 2, 1, ...ascii("THUMBS")]);
+  const want = seg(0xe0, [...ascii("JFIF"), 0, 1, 2, 1, 0, 72, 0, 72, 0, 0]);
+  const input = u8(SOI, withThumb, DQT, sof(0xc0, 640, 480), DHT, SOS, SCAN, EOI);
+  const out = stripMetadata(input)!;
+  expect(out).toEqual(u8(SOI, want, DQT, sof(0xc0, 640, 480), DHT, SOS, SCAN, EOI));
+  expect(has(out, "THUMBS")).toBe(false);
+  expect(stripMetadata(out)).toEqual(out);
+});
+test("APP12, APP3, a non-ICC APP2, a non-Adobe APP14 and a short JFIF APP0 are dropped; ICC and Adobe stay", () => {
+  const APP12 = seg(0xec, [...ascii("Ducky"), ...ascii("APP12-SECRET")]);
+  const APP3 = seg(0xe3, ascii("APP3-SECRET"));
+  const FPXR = seg(0xe2, [...ascii("FPXR"), 0, ...ascii("FPXR-SECRET")]);
+  const ADOBE = seg(0xee, [...ascii("Adobe"), 0, 100, 0, 0, 0, 0, 1]);
+  const OTHER14 = seg(0xee, ascii("NOTADOBE-SECRET"));
+  const SHORT_JFIF = seg(0xe0, [...ascii("JFIF"), 0, 1]);
+  const input = BASE(APP12, APP3, FPXR, ICC, ADOBE, OTHER14, SHORT_JFIF);
+  const out = stripMetadata(input)!;
+  expect(out).toEqual(BASE(ICC, ADOBE));
+  for (const s of ["APP12-SECRET", "APP3-SECRET", "FPXR-SECRET", "NOTADOBE-SECRET"]) expect(has(out, s), s).toBe(false);
+});
+test.each([
+  ["a DAC segment (arithmetic conditioning)", seg(0xcc, [0, 0x10])],
+  ["a DNL segment", seg(0xdc, [1, 0xe0])],
+  ["a JPG extension segment", seg(0xf0, [0])],
+  ["a restart marker outside any scan", [0xff, 0xd0]],
+])("stripMetadata refuses %s, a marker it can neither keep nor drop safely", (_name, marker) =>
+  expect(stripMetadata(BASE(marker))).toBeNull());

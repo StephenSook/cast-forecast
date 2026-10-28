@@ -10,9 +10,21 @@ const MIN_SHORT_SIDE = 480;
 const SOI = 0xd8;
 const EOI = 0xd9;
 const SOS = 0xda;
-const APP2 = 0xe2; // ICC profile (kept) or an MPF index (dropped with the frames it points to)
-// Never needed to decode: Exif and XMP (APP1), C2PA and JUMBF (APP11), IPTC (APP13), comments (COM).
-const DROPPED = new Set([0xe1, 0xeb, 0xed, 0xfe]);
+const DQT = 0xdb;
+const DHT = 0xc4;
+const DRI = 0xdd;
+const APP0 = 0xe0; // kept only as JFIF, rewritten without its thumbnail
+const APP2 = 0xe2; // kept only as an ICC profile (never MPF or FlashPix)
+const APP14 = 0xee; // kept only as Adobe (it says how to read the colour components)
+const COM = 0xfe;
+const isApp = (m: number) => m >= 0xe0 && m <= 0xef;
+
+const ascii = (s: string): readonly number[] => Object.freeze([...s].map((c) => c.charCodeAt(0)));
+const JFIF_ID = ascii("JFIF\0");
+const ICC_ID = ascii("ICC_PROFILE\0");
+const ADOBE_ID = ascii("Adobe");
+// JFIF APP0 payload before the thumbnail: identifier 5, version 2, units 1, X and Y density 2 each.
+const JFIF_HEAD = 12;
 
 // Frame headers SOF0-3, SOF5-7, SOF9-11, SOF13-15. Not C4 (DHT), C8 (reserved) or CC (DAC).
 const isSof = (m: number) => m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc;
@@ -116,19 +128,39 @@ export function checkUploadImage(
   return { ok: true, width, height };
 }
 
-function isMpfIndex(b: Uint8Array, s: Segment): boolean {
+/** True when the payload of the length-bearing segment `s` starts with `id`. */
+function hasId(b: Uint8Array, s: Segment, id: readonly number[]): boolean {
   const p = s.lenAt + 2;
-  return s.end - p >= 4 && b[p] === 0x4d && b[p + 1] === 0x50 && b[p + 2] === 0x46 && b[p + 3] === 0x00; // "MPF\0"
+  if (s.end - p < id.length) return false;
+  for (let k = 0; k < id.length; k++) if (b[p + k] !== id[k]) return false;
+  return true;
 }
 
 /**
- * A copy of the primary image only, walked marker by marker through every scan (pixels are never decoded).
- * Drops APP1 (Exif, XMP), APP11 (C2PA), APP13 (IPTC) and COM wherever they occur, with their fill bytes,
- * and an APP2 MPF index. Keeps everything else in order: SOF, DHT, DQT, DRI, SOS and its scan data,
- * APP0, an APP2 ICC profile. Stops at the primary image's EOI and drops every byte after it (MPF frames,
- * Motion Photo video). Null on malformed or truncated input, a scan before any frame header, or more than
- * MAX_SEGMENTS marker segments outside the scans. Memory is one buffer the size of the input plus the result; the
- * walk allocates nothing per marker.
+ * Writes a JFIF APP0 with no thumbnail: its identifier, version, units and density, then Xthumbnail = Ythumbnail = 0,
+ * length 16. Returns the next write index.
+ */
+function writeJfif(b: Uint8Array, s: Segment, out: Uint8Array, at: number): number {
+  out[at++] = 0xff;
+  out[at++] = APP0;
+  out[at++] = 0x00;
+  out[at++] = JFIF_HEAD + 4;
+  at = copy(b, s.lenAt + 2, s.lenAt + 2 + JFIF_HEAD, out, at);
+  out[at++] = 0;
+  out[at++] = 0;
+  return at;
+}
+
+/**
+ * A copy of the primary image only, walked marker by marker through every scan (pixels are never decoded). An
+ * allowlist: keeps SOI, DQT, DHT, DRI, every SOFn, SOS with its scan data and EOI, in order; APP0 only when it is
+ * JFIF, rewritten with no thumbnail; APP2 only when it is ICC_PROFILE; APP14 only when it is Adobe. Drops, with
+ * their fill bytes, every other APPn (Exif and XMP, JFXX and its thumbnail, MPF, C2PA, IPTC, maker data) and every
+ * COM. Stops at the primary image's EOI and drops every byte after it (MPF frames, Motion Photo video). Null on
+ * malformed or truncated input, a scan before any frame header, any other marker (DAC, DNL, JPGn, a restart marker
+ * outside a scan: neither needed by a baseline or progressive image nor droppable without breaking one), or more
+ * than MAX_SEGMENTS marker segments outside the scans. Memory is one buffer the size of the input plus the result;
+ * the walk allocates nothing per marker.
  */
 export function stripMetadata(b: Uint8Array): Uint8Array | null {
   if (b.length < 4 || b[0] !== 0xff || b[1] !== SOI) return null;
@@ -139,14 +171,21 @@ export function stripMetadata(b: Uint8Array): Uint8Array | null {
   let i = 2;
   for (let count = 1; ; count++) {
     if (count > MAX_SEGMENTS || !readSegment(b, i, s) || s.marker === SOI) return null;
-    if (s.marker === EOI) {
+    const m = s.marker;
+    if (m === EOI) {
       at = copy(b, s.start, s.end, out, at);
       break;
     }
-    if (isSof(s.marker)) sawFrame = true;
-    if (s.marker === SOS && !sawFrame) return null;
-    const drop = DROPPED.has(s.marker) || (s.marker === APP2 && isMpfIndex(b, s));
-    if (!drop) at = copy(b, s.start, s.end, out, at);
+    if (isSof(m)) sawFrame = true;
+    if (m === SOS && !sawFrame) return null;
+    if (m === DQT || m === DHT || m === DRI || m === SOS || isSof(m)) at = copy(b, s.start, s.end, out, at);
+    else if (m === APP0) {
+      if (s.end - (s.lenAt + 2) >= JFIF_HEAD + 2 && hasId(b, s, JFIF_ID)) at = writeJfif(b, s, out, at);
+    } else if (m === APP2) {
+      if (hasId(b, s, ICC_ID)) at = copy(b, s.start, s.end, out, at);
+    } else if (m === APP14) {
+      if (hasId(b, s, ADOBE_ID)) at = copy(b, s.start, s.end, out, at);
+    } else if (!isApp(m) && m !== COM) return null;
     i = s.end;
     if (s.marker === SOS) {
       const end = scanEnd(b, i);
