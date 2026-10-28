@@ -5,7 +5,9 @@
 # uploaded.
 # Exit codes: 0 ok, 1 refused or a verified release failure (the check read a mismatched response),
 # 4 UNVERIFIED: the release check could not reach the preview, hit a checker error, or was blocked
-# by Vercel Authentication. A preview is never rolled back; on 4, rerun the release check by hand.
+# by Vercel Authentication. A preview is never rolled back. Previews sit behind Vercel
+# Authentication, so a 4 from its 401 is expected: open the preview in a logged-in browser. On any
+# other 4 (unreachable, a checker error), rerun the release check by hand.
 set -euo pipefail
 
 # These two variables override .vercel/project.json, which would bypass the link gate.
@@ -84,7 +86,19 @@ if $V inspect "$URL" --logs --scope "$SCOPE" > "$BUILD_LOG" 2>&1; then :; else e
 grep -i -E "node|pnpm" "$BUILD_LOG" || true
 echo "full build log: $BUILD_LOG"
 
-# 7. the release check, the last line printed: exit 1 only for a verified mismatch, 4 when nothing
-# was verified (unreachable, a checker error, or a 401); health must say youcam=false, so a preview
-# that holds an active key fails
-python3 -I scripts/deploy_checks.py release "$URL" "$SHA" --require-no-youcam
+# 7. the release check: exit 1 only for a verified mismatch, 4 when nothing was verified
+# (unreachable, a checker error, or a 401); health must say youcam=false, so a preview that holds an
+# active key fails. Its output is printed as is; on 4 one more line names the next step.
+rc=0
+python3 -I scripts/deploy_checks.py release "$URL" "$SHA" --require-no-youcam > "$tmp.release" || rc=$?
+cat "$tmp.release" || true
+if [ "$rc" = "4" ]; then
+  auth=0
+  grep -F -q "Vercel Authentication (401)" "$tmp.release" || auth=$?
+  if [ "$auth" = "0" ]; then
+    echo "Previews sit behind Vercel Authentication, so this 401 is expected: open the preview in a logged-in browser to check it."
+  else
+    echo "The release check could not verify the preview (unreachable from this Mac, or a checker error). Fix that, then rerun the release check by hand (README, deploy section)."
+  fi
+fi
+exit "$rc"

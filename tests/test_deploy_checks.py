@@ -1060,3 +1060,29 @@ def test_preview_release_failure_and_401_are_not_green(rig, site):
     rig.deploy_out.write_text("Error: nothing\n")
     code, out = rig.run("deploy-preview.sh")
     assert code != 0 and "release" not in out.splitlines()[-1][:8]
+
+
+def test_preview_exit_4_names_the_next_step(rig, site):
+    # Previews sit behind Vercel Authentication, so a 401 is expected: the step is a logged-in
+    # browser, not a rerun of the check (which would get the same 401).
+    _track_branch(rig)
+    sha = rig.head()
+    rig.deploy_out.write_text(site(_pages(sha, **{"/": [(401, "")]})) + "\n")
+    code, out = rig.run("deploy-preview.sh")
+    assert code == 4, out
+    assert out.splitlines()[-1] == (
+        "Previews sit behind Vercel Authentication, so this 401 is expected: "
+        "open the preview in a logged-in browser to check it."
+    )
+    assert "rerun" not in out
+    # Unreachable from this Mac is not a 401: there a rerun is the step.
+    rig.deploy_out.write_text("http://127.0.0.1:9\n")
+    code, out = rig.run("deploy-preview.sh", RELEASE_ATTEMPTS="1")
+    assert code == 4, out
+    assert "logged-in browser" not in out
+    assert out.splitlines()[-1].startswith("The release check could not verify the preview")
+    assert "rerun the release check by hand" in out.splitlines()[-1]
+    # 0 and 1 add no line after the checker's own.
+    rig.deploy_out.write_text(site(_keyless(sha)) + "\n")
+    code, out = rig.run("deploy-preview.sh")
+    assert code == 0 and out.splitlines()[-1].startswith(f"release {sha} ok:"), out
