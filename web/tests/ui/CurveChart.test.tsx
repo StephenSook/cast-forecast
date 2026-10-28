@@ -64,3 +64,10 @@ test("has no axe violations", async () => {
   const { container } = chart();
   await expectNoAxeViolations(container);
 });
+
+test("an optional visible title and y label render as text, outside the SVG", () => {
+  const { container } = render(<CurveChart points={POINTS} yMax={0.4} xLabel="colorIntensity" ariaLabel={LABEL} title="K1b blend strength by colorIntensity" yLabel="blend strength" />);
+  expect(screen.getByText("K1b blend strength by colorIntensity")).toBeVisible();
+  expect(screen.getByText("blend strength")).toBeVisible();
+  expect(container.querySelector("svg")).not.toHaveTextContent("blend strength");
+});

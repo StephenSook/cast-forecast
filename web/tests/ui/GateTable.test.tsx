@@ -16,6 +16,8 @@ test("one row per gate, the verdict as a word chip, and result links resolved to
   expect(rows[0]).toHaveTextContent("5 of 5.");
   expect(rows[0].textContent).not.toMatch(/PASS\s*PASS/);
   expect(rows[1]).toHaveTextContent("FAIL");
+  expect(within(rows[0]).getByText("PASS").className).toContain("bg-amber-soft");
+  expect(within(rows[1]).getByText("FAIL").className).toContain("bg-red-soft");
   expect(rows[1]).toHaveTextContent("2 of 3: moved little.");
   expect(within(rows[0]).getByRole("link", { name: /r\.md/ })).toHaveAttribute("href", "https://github.com/StephenSook/cast-forecast/blob/main/docs/gates/r.md");
   expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Gate", "Question", "Result"]);

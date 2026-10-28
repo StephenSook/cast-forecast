@@ -28,7 +28,7 @@ export function evidenceSteps(base: string, bottles: number): JudgeStep[] {
   return [
     {
       title: "Read the gates",
-      body: "Each rule was written before its data. Every result stays, pass or fail.",
+      body: "Each gate has a written pass rule, and every result stays, pass or fail. Gate 1's page notes what was looked at before its rule was written.",
       href: githubDocUrl("README.md"),
       cta: "docs/gates on GitHub",
       external: true,

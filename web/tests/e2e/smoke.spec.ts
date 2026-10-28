@@ -41,7 +41,9 @@ test("evidence lists K1b as PASS and prints the curl", async ({ page }) => {
 
 test("evidence step cards never clip at 390", async ({ page }) => {
   await page.goto("/evidence");
-  for (const li of await page.locator("ol > li").all()) expect(await li.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+  const items = await page.locator("ol > li").all();
+  expect(items).toHaveLength(4);
+  for (const li of items) expect(await li.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
 });
 
 test("evidence renders with no key", async ({ page }) => {                          // Review Focus 5

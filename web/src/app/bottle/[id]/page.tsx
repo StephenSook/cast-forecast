@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CATALOGUE, findBottle, formatWhitening } from "@/lib/catalogue";
+import { measuredLine } from "@/lib/compare";
 import { ResultBlock } from "@/ui/ResultBlock";
 import { SquashButton } from "@/ui/SquashButton";
 
@@ -19,7 +20,6 @@ export async function generateMetadata({ params }: PageProps<"/bottle/[id]">): P
 export default async function BottlePage({ params }: PageProps<"/bottle/[id]">) {
   const bottle = findBottle((await params).id);
   if (!bottle) notFound();
-  const { whitening, evidence } = bottle;
   return (
     <section className="section-card bg-aqua-soft px-5 sm:px-12 pt-28 pb-16">
       <p className="hand text-3xl text-teal -rotate-2">{bottle.brand}</p>
@@ -27,7 +27,7 @@ export default async function BottlePage({ params }: PageProps<"/bottle/[id]">) 
       <div className="mt-8">
         <ResultBlock
           word={formatWhitening(bottle)}
-          line={`Range ${whitening.low.toFixed(1)} to ${whitening.high.toFixed(1)} ${whitening.unit}, from ${evidence.photos} photos measured ${evidence.measuredAt}.`}
+          line={measuredLine(bottle)}
           tone="amber"
         />
       </div>

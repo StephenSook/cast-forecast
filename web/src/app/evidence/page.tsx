@@ -33,7 +33,7 @@ export default async function Evidence() {
 
       <div className="mt-8 max-w-3xl rounded-[2rem] border-[3px] border-ink bg-paper p-5">
         <ChartGuard problem={curveProblem(points, CURVE_Y_MAX)} what="the K1b blend strength curve">
-          <CurveChart points={points} yMax={CURVE_Y_MAX} xLabel="colorIntensity" ariaLabel={curveLabel(K1B)} />
+          <CurveChart points={points} yMax={CURVE_Y_MAX} xLabel="colorIntensity" title="K1b blend strength by colorIntensity" yLabel="blend strength" ariaLabel={curveLabel(K1B)} />
         </ChartGuard>
       </div>
 

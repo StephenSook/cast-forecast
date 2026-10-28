@@ -23,11 +23,15 @@ export function curveProblem(points: readonly Point[], yMax: number): string | n
  * Throws RangeError for anything the pinned axis cannot show (see curveProblem); pages check curveProblem first
  * and show a "data unavailable" card instead.
  */
-export function CurveChart({ points, yMax, ariaLabel, xLabel }: {
+export function CurveChart({ points, yMax, ariaLabel, xLabel, title, yLabel }: {
   points: readonly Point[];
   yMax: number;
   ariaLabel: string;
   xLabel: string;
+  /** Visible title above the chart, so the meaning is not only in the aria-label. */
+  title?: string;
+  /** Visible y-axis meaning, shown above the bars. */
+  yLabel?: string;
 }) {
   const problem = curveProblem(points, yMax);
   if (problem) throw new RangeError(problem);
@@ -37,6 +41,8 @@ export function CurveChart({ points, yMax, ariaLabel, xLabel }: {
   const last = points[points.length - 1];
   return (
     <div className="w-full">
+      {title && <p className="mb-1 font-extrabold">{title}</p>}
+      {yLabel && <p className="mb-1 text-sm font-bold">{yLabel}</p>}
       <svg viewBox={`0 0 ${W} 82`} className="w-full h-auto max-h-48" role="img" aria-label={ariaLabel}>
         {points.map((p, i) => {
           const h = (p.y / yMax) * PLOT;

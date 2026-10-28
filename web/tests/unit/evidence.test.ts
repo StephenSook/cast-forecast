@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { evidenceSteps, evidenceTiles, factLine, MEASUREMENTS_CSV_URL } from "@/lib/evidence";
+import { cellParts, CURVE_Y_MAX, curveLabel, curvePoints, evidenceSteps, evidenceTiles, factLine, MEASUREMENTS_CSV_URL, originFrom } from "@/lib/evidence";
 import { K1B } from "@/lib/gates";
 
 test("tiles read the recorded K1b numbers", () => {
@@ -30,11 +30,16 @@ test("steps print the curl and link no CSV until one is published", () => {
   expect(MEASUREMENTS_CSV_URL).toBeNull();
 });
 
+// docs/gates/gate1-results.md discloses that Gate 1's first rows were printed before its rule, so "written before its data" is false.
+test("step 1 does not claim every rule preceded its data", () => {
+  const body = evidenceSteps("https://x.test", 0)[0].body;
+  expect(body).toBe("Each gate has a written pass rule, and every result stays, pass or fail. Gate 1's page notes what was looked at before its rule was written.");
+  expect(body).not.toMatch(/written before its data/);
+});
+
 test("the fact line carries the counts and the 7 character release", () => {
   expect(factLine(0, 4, "63868ece36982b8a")).toBe("Bottles measured: 0. Gates on record: 4. Release 63868ec.");
 });
-
-import { cellParts, CURVE_Y_MAX, curvePoints, curveLabel, originFrom } from "@/lib/evidence";
 
 test("the curve points and its label come from the K1b fit", () => {
   expect(curvePoints(K1B).map((p) => p.x)).toEqual([0, 20, 40, 60, 80, 100]);
