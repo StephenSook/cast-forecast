@@ -115,7 +115,9 @@ export function createLimiter(
       if (now - newest >= windowMs) t.buckets.delete(key);
       else next = Math.min(next, newest + windowMs);
     }
-    t.earliestExpiry = next;
+    // Capped at now + windowMs: every bucket added after this scan (and the unstamped one from this take) is stamped
+    // at or after now, so it is still a lower bound, and a scan that leaves no stamped bucket never caches Infinity.
+    t.earliestExpiry = Math.min(next, now + windowMs);
     return t.buckets.size < maxBuckets;
   }
 

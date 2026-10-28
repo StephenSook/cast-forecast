@@ -119,6 +119,19 @@ test.each([
   ["a stray byte where a marker belongs", u8(SOI, APP0, [0x00], sof(0xc0, 640, 480), EOI)],
   ["an APP1 length past the end", u8(SOI, APP0, [0xff, 0xe1, 0x40, 0x00, 0x45])],
 ])("stripMetadata returns null for %s", (_name, input) => expect(stripMetadata(input)).toBeNull());
+// Fix round 2: fill bytes (a run of FF) may precede a restart marker inside a scan. Like libjpeg, a run of FF
+// followed by 00 is one stuffed data byte, and followed by RSTn it is a restart marker; both stay in the scan.
+test("stripMetadata keeps fill bytes before a restart marker inside a scan", () => {
+  const scan = [0x12, 0xff, 0xff, 0xd0, 0x34, 0xff, 0xff, 0xff, 0xd1, 0x56, 0xff, 0xff, 0x00, 0x78];
+  const input = u8(SOI, APP0, DQT, sof(0xc0, 640, 480), DHT, DRI, SOS, scan, app1("GPS-A"), EOI);
+  const out = stripMetadata(input);
+  expect(out).toEqual(u8(SOI, APP0, DQT, sof(0xc0, 640, 480), DHT, DRI, SOS, scan, EOI));
+  expect(has(out!, "GPS-A-SECRET")).toBe(false);
+});
+test.each([
+  ["a run of fill bytes at the very end", u8(SOI, sof(0xc0, 640, 480), DHT, SOS, SCAN, [0xff, 0xff, 0xff])],
+  ["a restart marker run cut before its marker byte", u8(SOI, sof(0xc0, 640, 480), DHT, SOS, [0x12, 0xff, 0xff])],
+])("stripMetadata still returns null for %s", (_name, input) => expect(stripMetadata(input)).toBeNull());
 test("jpegSize stops at the first frame header and reads nothing after it", () => {
   const b = fakeJpeg(800, 600);
   expect(jpegSize(b.slice(0, b.length - 2))).toEqual({ width: 800, height: 600 });               // no EOI

@@ -187,6 +187,39 @@ test("with earliestExpiry in the future, a full table sends new keys to overflow
   for (let i = 1; i < 50; i++) l.take("credits", null, `n${i}`, NOW + 2000);
   expect(scans).toHaveLength(1);                                                               // no scan until a can expire
   expect(l.take("credits", null, "late", NOW + 3_600_000)).toEqual({ ok: true });
+  expect(scans).toHaveLength(2);                                                               // that scan emptied the table
+  fill(l, "credits", null, "late2", 1, NOW + 3_600_000);                                       // full again
+  const [k1, k2] = keysInShard("again", overflowShard("again-0"), 2);
+  expect(remaining(l, "credits", null, k1, NOW + 7_200_000)).toBe(30);                         // a third scan runs
+  expect(remaining(l, "credits", null, k2, NOW + 7_200_000)).toBe(30);                         // own buckets, not one shard
+  expect(scans).toHaveLength(3);
+});
+// Fix round 2: a scan that leaves no stamped bucket must not cache earliestExpiry = Infinity.
+test("after a scan empties the table, a refilled table is scanned again once it can expire", () => {
+  const scans: Action[] = [];
+  const l = createLimiter(RULES, 2, (a) => scans.push(a));
+  fill(l, "tone", null, "a", 1, NOW);
+  fill(l, "tone", null, "b", 1, NOW);
+  fill(l, "tone", null, "c", 1, NOW + 3_600_000);                                              // scan 1 deletes a and b
+  fill(l, "tone", null, "d", 1, NOW + 3_600_000);                                              // full again
+  expect(scans).toHaveLength(1);
+  const later = NOW + 100 * 3_600_000;
+  const [k1, k2] = keysInShard("fresh", overflowShard("fresh-0"), 2);
+  expect(remaining(l, "tone", null, k1, later)).toBe(6);
+  expect(remaining(l, "tone", null, k2, later)).toBe(6);                                       // 12 in all, not 6
+  expect(scans).toHaveLength(2);
+});
+test("a scan that leaves only this take's unstamped bucket still allows later scans", () => {
+  const scans: Action[] = [];
+  const l = createLimiter(RULES, 2, (a) => scans.push(a));
+  fill(l, "upload", null, "A", 1, NOW);
+  // N's IP bucket fits without a scan; s9's slot comes from a scan that deletes A and sees only the unstamped N.
+  expect(l.take("upload", "s9", "N", NOW + 3_600_000)).toEqual({ ok: true });
+  expect(scans).toHaveLength(1);
+  const later = NOW + 100 * 3_600_000;
+  const [k1, k2] = keysInShard("fresh", overflowShard("fresh-0"), 2);
+  expect(remaining(l, "upload", null, k1, later)).toBe(20);
+  expect(remaining(l, "upload", null, k2, later)).toBe(20);                                    // 40 in all, not 20
   expect(scans).toHaveLength(2);
 });
 test("expired buckets are evicted and their room goes to a new key's own bucket", () => {

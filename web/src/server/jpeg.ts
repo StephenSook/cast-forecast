@@ -38,8 +38,9 @@ function segmentAt(b: Uint8Array, i: number): Segment | null {
 }
 
 /**
- * Index of the marker that ends the entropy-coded data starting at `i`: the first FF that is not
- * byte stuffing (FF 00) and not a restart marker (RST0-RST7). Null when the data runs off the end.
+ * Index of the marker that ends the entropy-coded data starting at `i`, at the first of its fill bytes. A run of FF
+ * is fill before what follows it (as libjpeg reads it): followed by 00 it is one stuffed data byte, followed by
+ * RST0-RST7 a restart marker, and both stay in the scan. Null when the data runs off the end. `i` always advances.
  */
 function scanEnd(b: Uint8Array, i: number): number | null {
   while (i < b.length) {
@@ -47,9 +48,11 @@ function scanEnd(b: Uint8Array, i: number): number | null {
       i++;
       continue;
     }
-    if (i + 1 >= b.length) return null;
-    const next = b[i + 1];
-    if (next === 0x00 || isRst(next)) i += 2;
+    let j = i + 1;
+    while (j < b.length && b[j] === 0xff) j++; // fill bytes
+    if (j >= b.length) return null;
+    const next = b[j];
+    if (next === 0x00 || isRst(next)) i = j + 1;
     else return i;
   }
   return null;
