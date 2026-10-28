@@ -79,7 +79,7 @@ def test_whitening_band_is_none_if_any_run_has_no_usable_film():
     assert whitening_band({0.80: None, 0.88: film3(0.1, 0.8), 0.95: film3(0.1, 0.8)}, base) is None
 
 
-# The films behind web/tests/fixtures/catalogue-from-python.json, which
+# The films behind web/tests/contracts/catalogue-from-python.json, which
 # web/tests/unit/routes.render.test.ts feeds through the loader and the render route.
 FIXTURE_FILMS = {
     # Codex review r2: one blend cannot copy a film that scatters only blue.
@@ -107,7 +107,7 @@ def test_the_web_fixture_is_what_render_entry_writes_today():
     from castforecast.catalogue import render_entry
 
     fixture = (
-        Path(__file__).resolve().parent.parent / "web/tests/fixtures/catalogue-from-python.json"
+        Path(__file__).resolve().parent.parent / "web/tests/contracts/catalogue-from-python.json"
     )
     bottles = {b["id"]: b for b in json.loads(fixture.read_text())["bottles"]}
     assert set(bottles) == set(FIXTURE_FILMS)
