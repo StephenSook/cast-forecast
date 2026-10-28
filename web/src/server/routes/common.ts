@@ -143,9 +143,12 @@ export function youcamFor(route: string, d: RouteDeps, key: string): YouCam | nu
 }
 
 /**
- * One paid task. Holds `units` before the task starts (so concurrent requests cannot all pass the floor on one
- * balance), then keeps them when the task succeeds or refunds them when the start or the poll fails or times out.
- * The refund sits in `finally`, so no path out of here leaves a hold behind.
+ * One paid task. Holds `units` before the task starts (so concurrent requests on this instance cannot all pass the
+ * floor on one balance). The hold is refunded only when `yc.run` throws, before YouCam has returned a task id, i.e.
+ * the task was never accepted. Once a task id exists the units are kept on every outcome: success, unusable
+ * results, a vendor error, a poll failure or a timeout, because YouCam may already have charged the task. Keeping
+ * them can over-count spend in the cache, which errs toward refusing a task rather than going under the floor; the
+ * 30 s balance refresh reconciles it with the real balance. The decision sits in `finally`, so no path out of here leaves a hold behind.
  */
 export async function paidTask(
   route: string,
@@ -163,16 +166,17 @@ export async function paidTask(
     return { response: failure(route, e) };
   }
   if (!hold) return { response: errorResponse("credits_low", 503) };
+  let accepted = false;
   try {
     const taskId = await yc.run(endpoint, payload);
+    accepted = true;
     const results = await yc.poll(endpoint, taskId, POLL_TIMEOUT_MS);
-    // YouCam charges a task that succeeded, so its units stay spent even if the results turn out unusable.
-    hold.keep();
     return { results };
   } catch (e) {
     return { response: failure(route, e) };
   } finally {
-    hold.refund(); // a no-op once kept
+    if (accepted) hold.keep();
+    else hold.refund();
   }
 }
 

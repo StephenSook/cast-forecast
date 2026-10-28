@@ -77,17 +77,37 @@ const balanceAfter = async (deps: ReturnType<typeof testDeps>["deps"], clock: { 
   clock.now = NOW;                                                                       // inside the 30 s cache: reads the held value, not a fresh one
   return (await (await makeCreditsHandler(deps)(get("/api/credits"))).json()).balance;
 };
+// Codex r1 finding A: a refund is only for a task YouCam never accepted. These replace the old "refunded after %s" table,
+// whose face-error and poll-timeout rows refunded a unit after the task had been accepted.
 test.each([
-  ["a face error", { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }), [POLL_VTO]: jsonReply(200, { data: { task_status: "error", error: "error_face_angle_invalid" } }) }],
-  ["an upstream 429", { [RUN_VTO]: new Response("", { status: 429 }) }],
-  ["a poll timeout", { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }), [POLL_VTO]: jsonReply(200, { data: { task_status: "running" } }) }],
-  ["a network failure", { [RUN_VTO]: new TypeError("fetch failed") }],
+  ["an upstream 429 at the task start", { [RUN_VTO]: new Response("", { status: 429 }) }],
+  ["a network failure at the task start", { [RUN_VTO]: new TypeError("fetch failed") }],
   ["a task start with no usable id", { [RUN_VTO]: jsonReply(200, { data: { task_id: "../x" } }) }],
 ])("carry 1: the held unit is refunded after %s (balance back to 879)", async (_why, routes) => {
   const { deps, ff, clock } = testDeps({ catalogue: [testEntry()], balance: 879, routes });
   expect((await makeRenderHandler(deps)(renderReq())).status).not.toBe(200);
   expect(await balanceAfter(deps, clock)).toBe(879);
   expect(ff.calls.filter((c) => c.url.endsWith("/client/credit"))).toHaveLength(1);
+});
+const accepted = { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }) };
+test.each([
+  ["a face error", { ...accepted, [POLL_VTO]: jsonReply(200, { data: { task_status: "error", error: "error_face_angle_invalid" } }) }, 422],
+  ["a poll timeout", { ...accepted, [POLL_VTO]: jsonReply(200, { data: { task_status: "running" } }) }, 504],
+  ["a success with empty results (bad_shape)", { ...accepted, [POLL_VTO]: jsonReply(200, { data: { task_status: "success", results: {} } }) }, 502],
+  ["a network failure while polling", { ...accepted, [POLL_VTO]: new TypeError("fetch failed") }, 502],
+  ["a transport timeout while polling", { ...accepted, [POLL_VTO]: Object.assign(new Error("slow"), { name: "TimeoutError" }) }, 504],
+  ["an HTTP 500 while polling", { ...accepted, [POLL_VTO]: new Response("", { status: 500 }) }, 502],
+])("an accepted task keeps its unit after %s (balance 878)", async (_why, routes, status) => {
+  const { deps, ff, clock } = testDeps({ catalogue: [testEntry()], balance: 879, routes });
+  expect((await makeRenderHandler(deps)(renderReq())).status).toBe(status);
+  expect(await balanceAfter(deps, clock)).toBe(878);
+  expect(ff.taskStarts()).toBe(1);
+  expect(ff.calls.filter((c) => c.url.endsWith("/client/credit"))).toHaveLength(1);
+});
+test("a successful render keeps its unit (balance 878)", async () => {
+  const { deps, clock } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
+  expect((await makeRenderHandler(deps)(renderReq())).status).toBe(200);
+  expect(await balanceAfter(deps, clock)).toBe(878);
 });
 test("carry 1: the unit is held before the task starts, so a second render at the floor edge starts nothing", async () => {
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 101, routes: okRender });
@@ -160,7 +180,7 @@ test("carry 2: render route config is nodejs and maxDuration 120, at least 10 s 
   expect(renderRoute.maxDuration * 1000).toBeGreaterThanOrEqual(WORST_CASE_MS + 10_000);
   expect(typeof renderRoute.POST).toBe("function");
 });
-test("carry 2: with every YouCam call taking its full timeout, the route still answers inside the worst case and refunds", async () => {
+test("carry 2: with every YouCam call taking its full timeout, the route still answers inside the worst case and keeps the accepted task's unit", async () => {
   const t = testDeps({ catalogue: [testEntry()], balance: 879, routes: { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }),
     [POLL_VTO]: jsonReply(200, { data: { task_status: "running" } }) } });
   const slow: typeof fetch = async (input, init) => { t.clock.now += JSON_TIMEOUT_MS; return t.ff.fetch(input, init); };
@@ -169,7 +189,7 @@ test("carry 2: with every YouCam call taking its full timeout, the route still a
   const res = await makeRenderHandler(deps)(renderReq());
   expect(res.status).toBe(504);
   expect(t.clock.now - NOW).toBeLessThanOrEqual(WORST_CASE_MS - BODY_READ_DEADLINE_MS);
-  expect(await balanceAfter(deps, t.clock)).toBe(879);
+  expect(await balanceAfter(deps, t.clock)).toBe(878);                                     // the poll timed out after YouCam accepted the task
 });
 
 // Fix round 1 item 2: the body read has a 10 s deadline, so a trickled body cannot push a held task past maxDuration.

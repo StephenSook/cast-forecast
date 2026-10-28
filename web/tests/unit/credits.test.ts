@@ -46,7 +46,7 @@ test("spend before any read changes nothing and a custom TTL is honoured", async
   expect(balance).toHaveBeenCalledTimes(2);
 });
 
-// Task 5 carry 1: reserve before the run, refund on failure.
+// Task 5 carry 1: reserve before the run, refund only when the task start fails (Codex r1 finding A).
 test("reserve holds units at once and refund drops the hold (balance back to its prior value)", async () => {
   const c = createBalanceCache(); const yc = { balance: vi.fn(async () => 879) } as unknown as YouCam;
   const hold = await c.reserve(yc, NOW, 1, 100);

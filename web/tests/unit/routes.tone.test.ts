@@ -39,14 +39,32 @@ const balanceAfter = async (deps: ReturnType<typeof testDeps>["deps"], clock: { 
   clock.now = NOW;
   return (await (await makeCreditsHandler(deps)(get("/api/credits"))).json()).balance;
 };
-test("carry 1: tone holds 20 units; a success keeps them and a failure refunds them", async () => {
+// Codex r1 finding A: this replaces "a success keeps them and a failure refunds them", which refunded the 20 units of a
+// task YouCam had already accepted (an error_no_face poll result).
+test("carry 1: tone holds 20 units; they stay spent once YouCam accepts the task, whatever the poll says", async () => {
+  const accepted = { [RUN_TONE]: jsonReply(200, { data: { task_id: "t2" } }) };
   const ok = testDeps({ balance: 879, routes: okTone("#C08A6B") });
   expect((await makeToneHandler(ok.deps)(toneReq())).status).toBe(200);
   expect(await balanceAfter(ok.deps, ok.clock)).toBe(859);
-  const bad = testDeps({ balance: 879, routes: { [RUN_TONE]: jsonReply(200, { data: { task_id: "t2" } }),
-    [POLL_TONE]: jsonReply(200, { data: { task_status: "error", error: "error_no_face" } }) } });
-  expect((await makeToneHandler(bad.deps)(toneReq())).status).toBe(422);
-  expect(await balanceAfter(bad.deps, bad.clock)).toBe(879);
+  const cases: [Record<string, Response | Error>, number][] = [
+    [{ ...accepted, [POLL_TONE]: jsonReply(200, { data: { task_status: "error", error: "error_no_face" } }) }, 422],
+    [{ ...accepted, [POLL_TONE]: jsonReply(200, { data: { task_status: "success", results: {} } }) }, 502],
+    [{ ...accepted, [POLL_TONE]: jsonReply(200, { data: { task_status: "running" } }) }, 504],
+    [{ ...accepted, [POLL_TONE]: new TypeError("fetch failed") }, 502],
+  ];
+  for (const [routes, status] of cases) {
+    const t = testDeps({ balance: 879, routes });
+    expect((await makeToneHandler(t.deps)(toneReq())).status).toBe(status);
+    expect(await balanceAfter(t.deps, t.clock)).toBe(859);
+  }
+});
+test("carry 1: tone refunds its 20 units when the task start fails", async () => {
+  for (const start of [new Response("", { status: 429 }), new TypeError("fetch failed"), jsonReply(200, { data: {} })]) {
+    const t = testDeps({ balance: 879, routes: { [RUN_TONE]: start } });
+    expect((await makeToneHandler(t.deps)(toneReq())).status).not.toBe(200);
+    expect(await balanceAfter(t.deps, t.clock)).toBe(879);
+    expect(t.ff.taskStarts()).toBe(1);
+  }
 });
 test("tone refuses a fileId outside the session with 401 and no call", async () => {
   const { deps, ff } = testDeps({ balance: 879, routes: okTone("#C08A6B") });

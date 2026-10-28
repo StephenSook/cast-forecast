@@ -50,6 +50,15 @@ test("render: a non-YouCam throw from the task start is 502, refunded, and logs 
   expectNameOnly(log.lines(), "render", "TypeError");
   expect((await (await makeCreditsHandler(t.deps)(get("/api/credits"))).json()).balance).toBe(879);
 });
+test("render: a non-YouCam throw from the poll, after YouCam accepted the task, is 502 and its unit stays spent", async () => {
+  const log = logged();
+  const t = testDeps({ catalogue: [testEntry()], balance: 879, routes: { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }) } });
+  const deps = () => ({ ...t.deps(), youcam: (key: string) => ({ ...t.deps().youcam(key), poll: async () => { throw leaky(); } }) });
+  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"])));
+  expect(res.status).toBe(502);
+  expectNameOnly(log.lines(), "render", "TypeError");
+  expect((await (await makeCreditsHandler(t.deps)(get("/api/credits"))).json()).balance).toBe(878);
+});
 test("youcamFor: a non-YouCam throw building the client is 503 not_configured and logs only its name", async () => {
   const log = logged();
   const t = testDeps();

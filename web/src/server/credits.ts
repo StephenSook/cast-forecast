@@ -1,7 +1,7 @@
 import "server-only";
 import type { YouCam } from "@/server/youcam";
 
-/** YouCam units per task, charged on success only. */
+/** YouCam units per task. The app counts them as spent once YouCam accepts the task (routes/common.ts paidTask). */
 export const UNIT_COST = { render: 1, tone: 20 } as const;
 
 /** True when paying `cost` still leaves at least `floor` units. A non-finite balance is never above. */
@@ -9,7 +9,10 @@ export function aboveFloor(balance: number, cost: number, floor: number): boolea
   return Number.isFinite(balance) && balance - cost >= floor;
 }
 
-/** Units held for one paid task. `keep` spends them (the task succeeded), `refund` drops them; only the first call acts. */
+/**
+ * Units held for one paid task. `keep` spends them (YouCam accepted the task), `refund` drops them (it never did);
+ * only the first call acts.
+ */
 export type Hold = { keep(): void; refund(): void };
 
 export type BalanceCache = {
