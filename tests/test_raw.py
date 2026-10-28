@@ -101,6 +101,23 @@ def test_levels_the_decoder_cannot_trust_are_refused(tmp_path, kwargs, why):
         decode(linear_dng(tmp_path / "odd.dng", _frame(9000), **kwargs))
 
 
+def test_a_rational_zero_black_level_decodes(tmp_path):
+    # Codex review r4: BlackLevel stored as RATIONAL 0/1 came back as (0, 1) and was refused.
+    d = decode(linear_dng(tmp_path / "r0.dng", _frame(9000), black=(0, 0, 0), black_type=5))
+    assert not d.clipped.any()
+
+
+def test_a_rational_non_zero_black_level_is_still_refused(tmp_path):
+    with pytest.raises(ValueError, match="black level"):
+        decode(linear_dng(tmp_path / "r1.dng", _frame(9000), black=(256, 0, 0), black_type=5))
+
+
+def test_a_zero_srational_black_delta_is_not_a_delta(tmp_path):
+    zero = (0, 1) * 48
+    d = decode(linear_dng(tmp_path / "d0.dng", _frame(9000), extra=[(50715, 10, 48, zero, True)]))
+    assert not d.clipped.any()
+
+
 def test_an_opcode_list_is_refused(tmp_path):
     # Codex review r3: a mandatory MapPolynomial in OpcodeList2 decoded as if absent, doubling
     # reflectance with nothing flagged.

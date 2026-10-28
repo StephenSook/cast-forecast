@@ -76,6 +76,23 @@ def _info(r) -> dict:
 LINEAR_RAW = 34892
 BLACK_DELTAS = (50715, 50716)  # BlackLevelDeltaH, BlackLevelDeltaV
 OPCODE_LISTS = (51008, 51009, 51022)  # OpcodeList1, 2, 3
+RATIONAL_TYPES = (
+    5,
+    10,
+)  # TIFF RATIONAL and SRATIONAL: tifffile returns numerator, denominator pairs
+
+
+def _numbers(tag) -> np.ndarray:
+    """A tag's values as numbers, with RATIONAL and SRATIONAL pairs divided out."""
+    v = np.atleast_1d(np.asarray(tag.value, float))
+    if int(tag.dtype) not in RATIONAL_TYPES:
+        return v
+    if v.size % 2:
+        raise ValueError(f"tag {tag.code} has an odd number of rational parts")
+    num, den = v.reshape(-1, 2).T
+    if (den == 0).any():
+        raise ValueError(f"tag {tag.code} has a zero denominator")
+    return num / den
 
 
 def _raw_ifd(pages):
@@ -103,22 +120,22 @@ def saturation_level(path) -> float:
             if any(code in page.tags for code in OPCODE_LISTS):
                 raise ValueError("DNG opcode lists are not supported")
         for code in BLACK_DELTAS:
-            if code in tags and any(float(v) != 0 for v in np.atleast_1d(tags[code].value)):
+            if code in tags and (_numbers(tags[code]) != 0).any():
                 raise ValueError("a non-zero black level delta is not supported")
         if tags[262].value != LINEAR_RAW:
             raise ValueError(
                 f"only linear DNG (ProRAW) is supported, photometric {tags[262].value}"
             )
         bits = np.atleast_1d(tags[258].value)
-        white = np.atleast_1d(tags[50717].value) if 50717 in tags else 2.0**bits - 1
-        black = np.atleast_1d(tags[50714].value) if 50714 in tags else np.zeros(1)
+        white = _numbers(tags[50717]) if 50717 in tags else 2.0**bits - 1
+        black = _numbers(tags[50714]) if 50714 in tags else np.zeros(1)
         if len({float(w) for w in white}) != 1:
             raise ValueError("per-channel white levels are not supported")
         if any(float(b) != 0 for b in black):
             raise ValueError("a non-zero black level is not supported")
         level = float(white[0])
         if 50712 in tags:
-            level = min(level, float(np.max(tags[50712].value)))
+            level = min(level, float(np.max(_numbers(tags[50712]))))
     return level
 
 

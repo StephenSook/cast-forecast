@@ -15,6 +15,12 @@ def _rationals(values, den):
     return tuple(out)
 
 
+def _black_tag(black, black_type):
+    if black_type == 5:
+        return (50714, 5, len(black), _rationals(black, 1), True)
+    return (50714, black_type, len(black), tuple(black), True)
+
+
 def linear_dng(
     path,
     data: np.ndarray,
@@ -24,6 +30,7 @@ def linear_dng(
     lut=None,
     photometric=34892,  # LinearRaw; 32803 is a Bayer CFA
     extra=(),  # more tifffile extratags
+    black_type=4,  # LONG; 5 writes RATIONAL numerator/denominator pairs
 ):
     """A DNG holding `data` (H, W, 3 uint16 for linear, H, W for CFA), with AsShotNeutral
     `neutral` (white balance multipliers 1 / neutral), WhiteLevel `white` (one value or one per
@@ -34,7 +41,7 @@ def linear_dng(
         (50707, 1, 4, (1, 1, 0, 0), True),  # DNGBackwardVersion
         (50708, 2, 0, "Synthetic", True),  # UniqueCameraModel
         (50717, 4, len(white), white, True),  # WhiteLevel
-        (50714, 4, len(black), tuple(black), True),  # BlackLevel
+        _black_tag(black, black_type),  # BlackLevel
         (50721, 10, 9, _rationals(_XYZ_TO_SRGB, 10000), True),  # ColorMatrix1
         (50778, 3, 1, (21,), True),  # CalibrationIlluminant1 = D65
         (50728, 5, 3, _rationals(neutral, 1_000_000), True),  # AsShotNeutral
