@@ -98,5 +98,7 @@ export const FOCUS_ON_SURFACE: ReadonlyArray<readonly [TokenName, TokenName, num
   ["focus", "sand"],
   ["focus", "aqua-soft"],
   ["focus", "amber-soft"],
+  // The current nav pill and the CopyLine button draw the focus blue inside an amber fill.
+  ["focus", "amber"],
   ["amber", "ink"],
 ];

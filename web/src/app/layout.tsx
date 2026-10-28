@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { RELEASE } from "@/lib/release";
 import { siteUrl } from "@/lib/site";
+import { Footer } from "@/ui/Footer";
+import { PillNav } from "@/ui/PillNav";
 import "./globals.css";
 
 // Self-hosted (SIL Open Font License, latin variable files from Google Fonts). next/font/google downloads the
@@ -31,7 +33,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           }}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <PillNav />
+        <main className="px-3 pt-3 pb-3">{children}</main>
+        <Footer />
+      </body>
     </html>
   );
 }
