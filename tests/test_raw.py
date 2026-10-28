@@ -75,19 +75,44 @@ def test_the_brightest_pixel_is_not_clipped_just_for_being_brightest(tmp_path):
     assert d.rgb[5, 5, 1] / d.rgb[10, 10, 1] == pytest.approx(13000 / 6000, rel=1e-3)
 
 
-def test_bayer_saturation_drops_the_neighbours_interpolation_uses():
-    raw = np.full((6, 6), 1000, np.uint16)
-    raw[2, 3] = WHITE
-    r = SimpleNamespace(
-        raw_image_visible=raw,
-        raw_colors_visible=np.zeros((6, 6), np.uint8),
-        white_level=WHITE,
-        camera_white_level_per_channel=None,
-        color_desc=b"RGBG",
-    )
-    got = sensor_clipped(r)
-    assert got[1:4, 2:5].all()
-    assert got.sum() == 9
+def test_a_linearization_table_sets_the_saturation_level(tmp_path):
+    # ProRAW stores 10-bit codes and a table; LibRaw hands back table values, so the table's top
+    # (here 65472, below WhiteLevel 65535) is where a sample saturates.
+    lut = np.arange(1024) * 64
+    data = np.full((32, 48, 3), 600, np.uint16)
+    data[3, 4, 1] = 1023
+    d = decode(linear_dng(tmp_path / "lut.dng", data, white=65535, neutral=(1, 1, 1), lut=lut))
+    assert d.info["saturation_level"] == 65472
+    assert d.clipped.sum() == 1 and d.clipped[3, 4]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "why"),
+    [
+        # Codex review r2: LibRaw reported one white level (16000) for these per-channel levels,
+        # so red samples at their 10000 ceiling were never marked.
+        ({"white": (10000, 12000, 16000)}, "per-channel white"),
+        # Codex review r2: with these black levels LibRaw reported white 16883, above the samples.
+        ({"black": (1000, 500, 2000)}, "black level"),
+    ],
+)
+def test_levels_the_decoder_cannot_trust_are_refused(tmp_path, kwargs, why):
+    with pytest.raises(ValueError, match=why):
+        decode(linear_dng(tmp_path / "odd.dng", _frame(9000), **kwargs))
+
+
+def test_a_bayer_file_is_refused(tmp_path):
+    # Codex review r2: AHD spreads a saturated site further than any fixed mask; only linear
+    # DNGs (no interpolation) are decoded.
+    cfa = np.full((32, 48), 6000, np.uint16)
+    with pytest.raises(ValueError, match="linear DNG"):
+        decode(linear_dng(tmp_path / "cfa.dng", cfa, photometric=32803))
+
+
+def test_samples_above_the_saturation_level_are_a_mismatch_not_data():
+    r = SimpleNamespace(raw_image_visible=np.full((2, 2, 4), 70000.0))
+    with pytest.raises(ValueError, match="exceed"):
+        sensor_clipped(r, 65535.0)
 
 
 def _decoded(n_clipped):

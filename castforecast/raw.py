@@ -7,11 +7,16 @@ largest multiplier, so balancing can never push a channel past full scale), and 
 is the file's white level, never re-estimated from the brightest pixel. They were written before
 any Gate 2 photo existed; changing one after the first measurement is a reported deviation.
 
-A pixel is dropped as clipped (Amendment 1 rule 1) when any of its raw sensor samples reaches the
-file's white level, read from the unpacked samples before any white balance or interpolation; on
-a Bayer sensor every output pixel next to a saturated site is dropped too, since interpolation
-uses it. A pixel whose decoded sRGB value sits at full scale is dropped as well: the colour
-conversion saturated it, so its value is not a measurement.
+Only linear DNGs are decoded (Apple ProRAW: every pixel carries its own three samples, so no
+interpolation spreads a saturated sample to its neighbours). A Bayer file, per-channel white
+levels that differ, or a non-zero black level is refused rather than guessed at.
+
+A pixel is dropped as clipped (Amendment 1 rule 1) when any of its raw samples reaches the
+saturation level: the DNG WhiteLevel, or the top of its LinearizationTable if that is lower
+(ProRAW stores 10-bit codes and a table; LibRaw hands back the table's values). The levels are
+read from the raw IFD itself, not from LibRaw's summary, and samples above them are refused as a
+representation mismatch. A pixel whose decoded sRGB value sits at full scale is dropped as well:
+the colour conversion saturated it, so its value is not a measurement.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import rawpy
+import tifffile
 
 FULL = 65535
 MAX_CLIPPED = 0.05  # a region with more than this fraction of pixels dropped is unusable
@@ -65,35 +71,64 @@ def _info(r) -> dict:
     }
 
 
-def _white(r) -> np.ndarray:
-    per = getattr(r, "camera_white_level_per_channel", None)
-    if per is not None and any(per):
-        return np.array([w if w else r.white_level for w in per], float)
-    return np.full(4, float(r.white_level))
+LINEAR_RAW = 34892
 
 
-def sensor_clipped(r) -> np.ndarray:
-    """Output pixels whose raw samples reached the white level (see the module docstring)."""
+def _raw_ifd(pages):
+    for page in pages:
+        if page.tags.get(254) is not None and page.tags[254].value == 0 and 262 in page.tags:
+            return page
+        found = _raw_ifd(page.pages) if page.pages else None
+        if found is not None:
+            return found
+    return None
+
+
+def saturation_level(path) -> float:
+    """The raw sample value at which the sensor saturates, from the DNG raw IFD's own tags.
+
+    ValueError for anything but a linear DNG with one white level and a zero black level.
+    """
+    with tifffile.TiffFile(str(path)) as tf:
+        ifd = _raw_ifd(tf.pages)
+        if ifd is None:
+            raise ValueError("no raw image in this file")
+        tags = ifd.tags
+        if tags[262].value != LINEAR_RAW:
+            raise ValueError(
+                f"only linear DNG (ProRAW) is supported, photometric {tags[262].value}"
+            )
+        bits = np.atleast_1d(tags[258].value)
+        white = np.atleast_1d(tags[50717].value) if 50717 in tags else 2.0**bits - 1
+        black = np.atleast_1d(tags[50714].value) if 50714 in tags else np.zeros(1)
+        if len({float(w) for w in white}) != 1:
+            raise ValueError("per-channel white levels are not supported")
+        if any(float(b) != 0 for b in black):
+            raise ValueError("a non-zero black level is not supported")
+        level = float(white[0])
+        if 50712 in tags:
+            level = min(level, float(np.max(tags[50712].value)))
+    return level
+
+
+def sensor_clipped(r, level: float) -> np.ndarray:
+    """Output pixels with any raw sample at or above `level` (see the module docstring)."""
     raw = np.asarray(r.raw_image_visible)
-    white = _white(r)
-    if raw.ndim == 3:  # linear DNG (ProRAW): every pixel carries its own colour samples
-        n = min(raw.shape[2], len(r.color_desc), 3)
-        return (raw[..., :n] >= white[:n]).any(axis=2)
-    sat = raw >= white[np.asarray(r.raw_colors_visible)]
-    pad = np.pad(sat, 1)
-    rows, cols = sat.shape
-    near = np.zeros_like(sat)
-    for dy in range(3):
-        for dx in range(3):
-            near |= pad[dy : dy + rows, dx : dx + cols]
-    return near
+    if raw.ndim != 3:
+        raise ValueError("only linear DNG (ProRAW) is supported, not a Bayer mosaic")
+    n = min(raw.shape[2], 3)
+    samples = raw[..., :n]
+    if samples.max(initial=0) > level:
+        raise ValueError(f"raw samples exceed the saturation level {level:g}")
+    return (samples >= level).any(axis=2)
 
 
 def decode(path) -> Decoded:
     """Decode one RAW file with `SETTINGS` and mark the pixels to drop."""
+    level = saturation_level(path)
     with rawpy.imread(str(path)) as r:
-        info = _info(r)
-        sensor = sensor_clipped(r)
+        info = _info(r) | {"saturation_level": level}
+        sensor = sensor_clipped(r, level)
         rgb = r.postprocess(**SETTINGS)
     if sensor.shape != rgb.shape[:2]:
         raise ValueError(
