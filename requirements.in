@@ -1,0 +1,10 @@
+# Direct dependencies of the gate harness and its CI checks, pinned to the versions the
+# published runs and tests used. requirements.lock is generated from this file:
+#   uv pip compile requirements.in --universal --python-version 3.12 --generate-hashes -o requirements.lock
+numpy==2.5.4
+pillow==13.0.0
+opencv-python-headless==5.0.0.93
+colour-science==0.4.7
+mediapipe==1.1.1
+pytest==9.2.0
+ruff==0.17.3
