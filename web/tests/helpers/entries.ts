@@ -9,7 +9,7 @@ export function testEntry(o: Partial<Bottle> = {}): Bottle {
     upc: null,
     filter: "mineral",
     tinted: false,
-    render: { paletteHex: "#FFFFFF", blend: 0.169 },
+    render: { paletteHex: "#FFFFFF", blend: 0.169, errorL: 0.4 },
     whitening: { value: 2.4, low: 1.9, high: 2.9, unit: "L*" },
     evidence: { csvRowId: "test-row-1", measuredAt: "2026-10-27", photos: 3 },
     ...o,

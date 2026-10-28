@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import * as renderRoute from "@/app/api/render/route";
+import { loadCatalogue } from "@/lib/catalogue";
 import { MESSAGES } from "@/lib/messages";
 import { mapYouCamError } from "@/server/errors";
 import { makeupVtoPayload } from "@/server/payload";
@@ -7,6 +8,7 @@ import { BODY_READ_DEADLINE_MS } from "@/server/routes/common";
 import { makeCreditsHandler } from "@/server/routes/credits";
 import { makeRenderHandler } from "@/server/routes/render";
 import { JSON_TIMEOUT_MS, POLL_INTERVAL_MS, YouCamError, createYouCam } from "@/server/youcam";
+import fromPython from "../fixtures/catalogue-from-python.json";
 import { CREDIT, NOW, POLL_VTO, RUN_VTO } from "../helpers/constants";
 import { testEntry } from "../helpers/entries";
 import { jsonReply } from "../helpers/fakeFetch";
@@ -146,9 +148,22 @@ test("a failed balance read is mapped and starts no task", async () => {
   expect(res.status).toBe(502); expect((await res.json()).error.code).toBe("upstream"); expect(ff.taskStarts()).toBe(0);
 });
 test("carry 4: a bottle whose blend the K1b curve cannot reach is 404 unknown_bottle before any YouCam call", async () => {
-  const { deps, ff } = testDeps({ catalogue: [testEntry({ render: { paletteHex: "#FFFFFF", blend: 0.5 } })], balance: 879, routes: okRender });
+  const { deps, ff } = testDeps({ catalogue: [testEntry({ render: { paletteHex: "#FFFFFF", blend: 0.5, errorL: 0.4 } })], balance: 879, routes: okRender });
   const res = await makeRenderHandler(deps)(renderReq());
   expect(res.status).toBe(404); expect((await res.json()).error.code).toBe("unknown_bottle"); expect(ff.calls).toEqual([]);
+});
+// Codex reviews r4 and r5: renders the Python catalogue rejected (1.26 L* from the film; 1.06 L* once rounded to
+// what YouCam is sent) used to reach a paid task. The fixture is written by castforecast.catalogue.render_entry and
+// tests/test_catalogue.py checks it still matches, so this runs the producer, the loader and the handler together.
+test("every render that misses its film by more than 1 L* is 404 unknown_bottle before any YouCam call", async () => {
+  const catalogue = loadCatalogue(fromPython);
+  expect(catalogue.map((b) => b.id)).toEqual(["test-blue-scatter", "test-quantized"]);
+  for (const bottle of catalogue) {
+    expect(bottle.render.errorL).toBeGreaterThan(1);
+    const { deps, ff } = testDeps({ catalogue, balance: 879, routes: okRender });
+    const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: bottle.id }, cookieFor(["file-1"])));
+    expect(res.status).toBe(404); expect((await res.json()).error.code).toBe("unknown_bottle"); expect(ff.calls).toEqual([]);
+  }
 });
 test("carry 4: an unknown bottle id makes zero fetch calls", async () => {
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
