@@ -1,6 +1,48 @@
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { MESSAGES } from "@/lib/messages";
-import { ImageError, type ImageDeps, JPEG_QUALITY, MIN_SHORT_SIDE, RENDER_MAX, fitWithin, prepareImage } from "@/lib/image";
+import { ImageError, type ImageDeps, JPEG_QUALITY, MIN_SHORT_SIDE, RENDER_MAX, browserImageDeps, fitWithin, prepareImage } from "@/lib/image";
+
+afterEach(() => vi.unstubAllGlobals());
+
+// A stand-in for the browser's createImageBitmap. Node has none, so each test installs its own.
+function fakeBitmap(width: number, height: number) {
+  return { width, height, close: vi.fn() } as unknown as ImageBitmap & { close: ReturnType<typeof vi.fn> };
+}
+
+test("browser decode asks for the EXIF orientation", async () => {
+  const bm = fakeBitmap(3024, 4032);
+  const cib = vi.fn(async () => bm);
+  vi.stubGlobal("createImageBitmap", cib);
+  const blob = new Blob(["x"]);
+  const d = await browserImageDeps.decode(blob);
+  expect(cib.mock.calls).toEqual([[blob, { imageOrientation: "from-image" }]]);
+  expect(d).toMatchObject({ width: 3024, height: 4032, source: bm });
+  d.close(); expect(bm.close).toHaveBeenCalledTimes(1);
+});
+
+test("browser decode retries once without options when the browser refuses them (TypeError)", async () => {
+  const bm = fakeBitmap(640, 480);
+  const cib = vi.fn().mockRejectedValueOnce(new TypeError("unknown imageOrientation")).mockResolvedValueOnce(bm);
+  vi.stubGlobal("createImageBitmap", cib);
+  const blob = new Blob(["x"]);
+  const d = await browserImageDeps.decode(blob);
+  expect(cib.mock.calls).toEqual([[blob, { imageOrientation: "from-image" }], [blob]]);
+  expect(d).toMatchObject({ width: 640, height: 480, source: bm });
+});
+
+test("a refused option that also fails without options is unsupported_image, after exactly two tries", async () => {
+  const cib = vi.fn().mockRejectedValueOnce(new TypeError("options")).mockRejectedValueOnce(new DOMException("bad", "InvalidStateError"));
+  vi.stubGlobal("createImageBitmap", cib);
+  const e = await prepareImage(new Blob(["x"]), { ...browserImageDeps, encode: vi.fn(), objectUrl: vi.fn() }).catch((x) => x);
+  expect(e).toBeInstanceOf(ImageError); expect(e.code).toBe("unsupported_image"); expect(cib).toHaveBeenCalledTimes(2);
+});
+
+test("an undecodable file is not retried: one try, then unsupported_image", async () => {
+  const cib = vi.fn().mockRejectedValue(new DOMException("The source image could not be decoded.", "InvalidStateError"));
+  vi.stubGlobal("createImageBitmap", cib);
+  const e = await prepareImage(new Blob(["x"]), { ...browserImageDeps, encode: vi.fn(), objectUrl: vi.fn() }).catch((x) => x);
+  expect(e).toBeInstanceOf(ImageError); expect(e.code).toBe("unsupported_image"); expect(cib).toHaveBeenCalledTimes(1);
+});
 
 // Expected sizes computed with castforecast.preflight.upload_copy rounding.
 test.each([[4032, 3024, 1438, 1079], [3024, 4032, 809, 1079], [1920, 1080, 1918, 1079], [1919, 1079, 1919, 1079], [1080, 1920, 606, 1079],

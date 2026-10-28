@@ -37,13 +37,24 @@ export class ImageError extends Error {
   }
 }
 
+/** Decodes with the EXIF orientation applied. A browser that rejects the options object (a TypeError) gets one plain retry. */
+async function decodeBitmap(f: Blob): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(f, { imageOrientation: "from-image" });
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+    // The HTML spec's default imageOrientation is "from-image", so an engine that follows it is still upright here.
+    return await createImageBitmap(f);
+  }
+}
+
 /**
  * Browser decode and encode. The decode applies the EXIF orientation, so a phone photo stored sideways comes out
  * upright; the encode draws only pixels onto a canvas, so nothing from the source file (EXIF, GPS, XMP) survives.
  */
 export const browserImageDeps: ImageDeps = {
   async decode(f) {
-    const bitmap = await createImageBitmap(f, { imageOrientation: "from-image" });
+    const bitmap = await decodeBitmap(f);
     return { width: bitmap.width, height: bitmap.height, source: bitmap, close: () => bitmap.close() };
   },
   encode(src, w, h) {
