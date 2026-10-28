@@ -41,14 +41,31 @@ test("credits: a non-YouCam throw from the balance read is 502 and logs only its
   expect(res.status).toBe(502);
   expectNameOnly(log.lines(), "credits", "TypeError");
 });
-test("render: a non-YouCam throw from the task start is 502, refunded, and logs only its name", async () => {
+// Controller follow-up to finding A: a non-YouCam throw is not a confirmed refusal, so the unit stays spent.
+test("render: a non-YouCam throw from the task start is 502, keeps its unit, and logs only its name", async () => {
   const log = logged();
   const t = testDeps({ catalogue: [testEntry()], balance: 879 });
   const deps = () => ({ ...t.deps(), youcam: (key: string) => ({ ...t.deps().youcam(key), run: async () => { throw leaky(); } }) });
   const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"])));
   expect(res.status).toBe(502);
   expectNameOnly(log.lines(), "render", "TypeError");
-  expect((await (await makeCreditsHandler(t.deps)(get("/api/credits"))).json()).balance).toBe(879);
+  expect((await (await makeCreditsHandler(t.deps)(get("/api/credits"))).json()).balance).toBe(878);
+});
+test("render: a YouCamError from the task start refunds only when it carries a 4xx status", async () => {
+  const cases: [YouCamError, number][] = [
+    [new YouCamError("refused", "http_400", { status: 400 }), 879],
+    [new YouCamError("refused", "http_499", { status: 499 }), 879],
+    [new YouCamError("down", "http_500", { status: 500 }), 878],
+    [new YouCamError("odd", "http_399", { status: 399 }), 878],
+    [new YouCamError("no status", "network"), 878],
+    [new YouCamError("bad id", "bad_shape"), 878],
+  ];
+  for (const [thrown, want] of cases) {
+    const t = testDeps({ catalogue: [testEntry()], balance: 879 });
+    const deps = () => ({ ...t.deps(), youcam: (key: string) => ({ ...t.deps().youcam(key), run: async () => { throw thrown; } }) });
+    expect((await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"])))).status).not.toBe(200);
+    expect((await (await makeCreditsHandler(t.deps)(get("/api/credits"))).json()).balance, thrown.code).toBe(want);
+  }
 });
 test("render: a non-YouCam throw from the poll, after YouCam accepted the task, is 502 and its unit stays spent", async () => {
   const log = logged();

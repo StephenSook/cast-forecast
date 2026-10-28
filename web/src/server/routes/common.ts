@@ -143,12 +143,23 @@ export function youcamFor(route: string, d: RouteDeps, key: string): YouCam | nu
 }
 
 /**
+ * True only for a confirmed refusal of a task start: YouCam answered and its HTTP status was 4xx. A timeout, a
+ * transport error, a 5xx, an error with no status, a 2xx whose body was unusable or a non-YouCam throw can all
+ * follow a start YouCam accepted, so none of them counts.
+ */
+function startRefused(e: unknown): boolean {
+  if (!(e instanceof YouCamError) || e.status === undefined) return false;
+  return Number.isInteger(e.status) && e.status >= 400 && e.status < 500;
+}
+
+/**
  * One paid task. Holds `units` before the task starts (so concurrent requests on this instance cannot all pass the
- * floor on one balance). The hold is refunded only when `yc.run` throws, before YouCam has returned a task id, i.e.
- * the task was never accepted. Once a task id exists the units are kept on every outcome: success, unusable
- * results, a vendor error, a poll failure or a timeout, because YouCam may already have charged the task. Keeping
- * them can over-count spend in the cache, which errs toward refusing a task rather than going under the floor; the
- * 30 s balance refresh reconciles it with the real balance. The decision sits in `finally`, so no path out of here leaves a hold behind.
+ * floor on one balance). The hold is refunded only when `yc.run` fails with a confirmed refusal (startRefused: a
+ * 4xx answer), so YouCam never took the task. Every other outcome keeps the units: success, unusable results, a
+ * vendor error, a poll failure or timeout, and any task-start failure that is not a 4xx, because YouCam may already
+ * have accepted and charged the task. Keeping them can over-count spend in the cache, which errs toward refusing a
+ * task rather than going under the floor; the 30 s balance refresh reconciles it with the real balance. The
+ * decision sits in `finally`, so no path out of here leaves a hold behind.
  */
 export async function paidTask(
   route: string,
@@ -166,17 +177,19 @@ export async function paidTask(
     return { response: failure(route, e) };
   }
   if (!hold) return { response: errorResponse("credits_low", 503) };
-  let accepted = false;
+  let refused = false;
   try {
-    const taskId = await yc.run(endpoint, payload);
-    accepted = true;
+    const taskId = await yc.run(endpoint, payload).catch((e: unknown) => {
+      refused = startRefused(e);
+      throw e;
+    });
     const results = await yc.poll(endpoint, taskId, POLL_TIMEOUT_MS);
     return { results };
   } catch (e) {
     return { response: failure(route, e) };
   } finally {
-    if (accepted) hold.keep();
-    else hold.refund();
+    if (refused) hold.refund();
+    else hold.keep();
   }
 }
 

@@ -77,16 +77,33 @@ const balanceAfter = async (deps: ReturnType<typeof testDeps>["deps"], clock: { 
   clock.now = NOW;                                                                       // inside the 30 s cache: reads the held value, not a fresh one
   return (await (await makeCreditsHandler(deps)(get("/api/credits"))).json()).balance;
 };
-// Codex r1 finding A: a refund is only for a task YouCam never accepted. These replace the old "refunded after %s" table,
-// whose face-error and poll-timeout rows refunded a unit after the task had been accepted.
+// Codex r1 finding A and its controller follow-up: a refund is only for a task start YouCam answered with a 4xx (it
+// refused the task). These replace the old "refunded after %s" table, whose face-error and poll-timeout rows refunded a
+// unit after the task had been accepted, and whose network-failure and no-usable-id rows refunded a start YouCam may
+// have accepted.
 test.each([
+  ["a 400 at the task start", { [RUN_VTO]: new Response("", { status: 400 }) }],
+  ["a 402 CreditInsufficiency at the task start", { [RUN_VTO]: jsonReply(402, { error_code: "CreditInsufficiency" }) }],
+  ["a 404 at the task start", { [RUN_VTO]: new Response("", { status: 404 }) }],
   ["an upstream 429 at the task start", { [RUN_VTO]: new Response("", { status: 429 }) }],
-  ["a network failure at the task start", { [RUN_VTO]: new TypeError("fetch failed") }],
-  ["a task start with no usable id", { [RUN_VTO]: jsonReply(200, { data: { task_id: "../x" } }) }],
 ])("carry 1: the held unit is refunded after %s (balance back to 879)", async (_why, routes) => {
   const { deps, ff, clock } = testDeps({ catalogue: [testEntry()], balance: 879, routes });
   expect((await makeRenderHandler(deps)(renderReq())).status).not.toBe(200);
   expect(await balanceAfter(deps, clock)).toBe(879);
+  expect(ff.taskStarts()).toBe(1);
+  expect(ff.calls.filter((c) => c.url.endsWith("/client/credit"))).toHaveLength(1);
+});
+test.each([
+  ["a transport timeout", { [RUN_VTO]: Object.assign(new Error("slow"), { name: "TimeoutError" }) }, 504],
+  ["a network failure", { [RUN_VTO]: new TypeError("fetch failed") }, 502],
+  ["a 503", { [RUN_VTO]: new Response("", { status: 503 }) }, 502],
+  ["a 2xx with no usable task id (bad_shape)", { [RUN_VTO]: jsonReply(200, { data: { task_id: "../x" } }) }, 502],
+  ["a 2xx that is not JSON (bad_json)", { [RUN_VTO]: new Response("not json", { status: 200 }) }, 502],
+])("a task start that may have been accepted keeps its unit after %s (balance 878)", async (_why, routes, status) => {
+  const { deps, ff, clock } = testDeps({ catalogue: [testEntry()], balance: 879, routes });
+  expect((await makeRenderHandler(deps)(renderReq())).status).toBe(status);
+  expect(await balanceAfter(deps, clock)).toBe(878);
+  expect(ff.taskStarts()).toBe(1);
   expect(ff.calls.filter((c) => c.url.endsWith("/client/credit"))).toHaveLength(1);
 });
 const accepted = { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }) };

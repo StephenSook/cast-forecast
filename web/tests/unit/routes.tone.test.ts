@@ -58,11 +58,22 @@ test("carry 1: tone holds 20 units; they stay spent once YouCam accepts the task
     expect(await balanceAfter(t.deps, t.clock)).toBe(859);
   }
 });
-test("carry 1: tone refunds its 20 units when the task start fails", async () => {
-  for (const start of [new Response("", { status: 429 }), new TypeError("fetch failed"), jsonReply(200, { data: {} })]) {
+// Controller follow-up to finding A: only a 4xx answer to the task start (a confirmed refusal) refunds.
+test("carry 1: tone refunds its 20 units only when YouCam answers the task start with a 4xx", async () => {
+  for (const start of [new Response("", { status: 400 }), jsonReply(402, { error_code: "CreditInsufficiency" }), new Response("", { status: 429 })]) {
     const t = testDeps({ balance: 879, routes: { [RUN_TONE]: start } });
     expect((await makeToneHandler(t.deps)(toneReq())).status).not.toBe(200);
     expect(await balanceAfter(t.deps, t.clock)).toBe(879);
+    expect(t.ff.taskStarts()).toBe(1);
+  }
+});
+test("carry 1: tone keeps its 20 units when the task start fails in a way YouCam may have accepted", async () => {
+  const starts = [new TypeError("fetch failed"), Object.assign(new Error("slow"), { name: "TimeoutError" }),
+    new Response("", { status: 503 }), jsonReply(200, { data: {} })];
+  for (const start of starts) {
+    const t = testDeps({ balance: 879, routes: { [RUN_TONE]: start } });
+    expect((await makeToneHandler(t.deps)(toneReq())).status).not.toBe(200);
+    expect(await balanceAfter(t.deps, t.clock)).toBe(859);
     expect(t.ff.taskStarts()).toBe(1);
   }
 });
