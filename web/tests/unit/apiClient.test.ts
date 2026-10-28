@@ -81,12 +81,35 @@ test("a 200 that does not carry the promised fields is upstream", async () => {
   expect(await renderBottle("f", "b", vi.fn(async () => json(200, good)))).toEqual(good);
 });
 
-test("each call carries an abort signal, and its deadline outlasts the route's own maxDuration", async () => {
+test("each deadline outlasts its route's own maxDuration", () => {
   expect(UPLOAD_TIMEOUT_MS).toBeGreaterThan(60_000);   // web/src/app/api/upload/route.ts maxDuration
   expect(RENDER_TIMEOUT_MS).toBeGreaterThan(120_000);  // web/src/app/api/render/route.ts maxDuration
-  const f = vi.fn<typeof fetch>(async () => json(200, { fileId: "file-1" }));
-  await uploadSelfie(new Blob(["x"]), f);
-  expect(f.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+});
+
+test("uploadSelfie passes a signal that fires at UPLOAD_TIMEOUT_MS", async () => {
+  const timeout = vi.spyOn(AbortSignal, "timeout");
+  try {
+    const f = vi.fn<typeof fetch>(async () => json(200, { fileId: "file-1" }));
+    await uploadSelfie(new Blob(["x"]), f);
+    expect(timeout.mock.calls).toEqual([[UPLOAD_TIMEOUT_MS]]);
+    const signal = f.mock.calls[0][1]?.signal;
+    expect(signal).toBeInstanceOf(AbortSignal); expect(signal).toBe(timeout.mock.results[0].value);
+  } finally {
+    timeout.mockRestore();
+  }
+});
+
+test("renderBottle passes a signal that fires at RENDER_TIMEOUT_MS", async () => {
+  const timeout = vi.spyOn(AbortSignal, "timeout");
+  try {
+    const f = vi.fn<typeof fetch>(async () => json(200, { imageUrl: "u", bottleId: "test-a", colorIntensity: 49, predictedBlend: 0.17, expiresAt: 1 }));
+    await renderBottle("file-1", "test-a", f);
+    expect(timeout.mock.calls).toEqual([[RENDER_TIMEOUT_MS]]);
+    const signal = f.mock.calls[0][1]?.signal;
+    expect(signal).toBeInstanceOf(AbortSignal); expect(signal).toBe(timeout.mock.results[0].value);
+  } finally {
+    timeout.mockRestore();
+  }
 });
 
 test("our own deadline passing is timeout, not upstream", async () => {
