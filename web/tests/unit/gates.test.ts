@@ -28,10 +28,11 @@ test("nothing under src reads files at runtime", () => {
   expect(files.length).toBeGreaterThanOrEqual(5);
   for (const f of files) expect(readFileSync(f, "utf8"), f).not.toMatch(FS_IMPORT);
 });
-test("parses the four shipped gate rows", () => {
+test("parses the five shipped gate rows, Gate 2 still pending", () => {
   const rows = loadGates();
-  expect(rows.map((r) => r.gate)).toEqual(["Gate 1", "K2", "K1", "K1b"]);
-  expect(rows.map((r) => r.verdict)).toEqual(["FAIL", "FAIL", "FAIL", "PASS"]);
+  expect(rows.map((r) => r.gate)).toEqual(["Gate 1", "K2", "K1", "K1b", "Gate 2"]);
+  expect(rows.map((r) => r.verdict)).toEqual(["FAIL", "FAIL", "FAIL", "PASS", "OTHER"]);
+  expect(rows[4].result).toBe("Pending");
 });
 test("resolves relative md links to GitHub", () =>
   expect(loadGates()[3].links.map((l) => l.href)).toContain(githubDocUrl("k1b-preregistration.md")));

@@ -10,7 +10,7 @@ test("health reports booleans, counts and the Node version, never the key or sec
   const { deps } = testDeps();
   const s = await (await makeHealthHandler(deps)(get("/api/health"))).text();
   expect(s).not.toContain(KEY); expect(s).not.toContain(SECRET);
-  expect(JSON.parse(s)).toEqual({ release: RELEASE, youcam: true, session: true, bottles: 0, gates: 4, node: process.versions.node });
+  expect(JSON.parse(s)).toEqual({ release: RELEASE, youcam: true, session: true, bottles: 0, gates: 5, node: process.versions.node });
 });
 test("health reports youcam and session false without them", async () => {
   const { deps } = testDeps({ env: { youcamKey: null, sessionSecret: null } });

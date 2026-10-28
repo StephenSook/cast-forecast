@@ -8,7 +8,7 @@ test("gates recomputes 29, 49 and 73 and every entry matches", () => {
   const p = gatesPayload();
   expect(p.k1b.inverseCheck.map((c) => c.recomputed)).toEqual([29, 49, 73]);
   expect(p.k1b.inverseCheck.every((c) => c.match)).toBe(true);
-  expect(p.gates.map((g) => g.verdict)).toEqual(["FAIL", "FAIL", "FAIL", "PASS"]);
+  expect(p.gates.map((g) => g.verdict)).toEqual(["FAIL", "FAIL", "FAIL", "PASS", "OTHER"]);
 });
 test("makeGatesHandler serves the payload as JSON", async () => {
   const res = await makeGatesHandler()();
