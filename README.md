@@ -57,6 +57,16 @@ Privacy (web app): the selfie leaves the browser only when a bottle is tapped. T
 ## Deploy
 Deploys run from this Mac with the Vercel CLI (project `cast-forecast-web`, scope `ssookra-7703s-projects`). There is no deploy token, no deploy job in CI and no Git integration, so a push never deploys. Vercel Git integration: none (checked 2026-10-28, CLI).
 
+Vercel environment variables, exactly these:
+
+| Environment | Variables |
+|---|---|
+| Production | `YOUCAM_API_KEY` (sensitive), `SESSION_SECRET` (sensitive, 32+ characters), `CREDIT_FLOOR=100`, `ENABLE_EXPERIMENTAL_COREPACK=1` |
+| Preview | `SESSION_SECRET` (sensitive, 32+ characters), `ENABLE_EXPERIMENTAL_COREPACK=1` |
+| Never | `SCAN_ENABLED`, `TONE_ENABLED` or `SITE_URL` in any environment, and no YouCam key on preview |
+
+`NEXT_PUBLIC_RELEASE_SHA` is not stored in Vercel: the deploy scripts pass it on each deploy with `--build-env`.
+
 - `web/scripts/deploy-preview.sh` deploys a preview of a pushed commit. Previews never hold a YouCam key: the script refuses before deploying when the preview environment lists `YOUCAM_API_KEY` at all (the name alone fails, and a listing that fails is a refusal), and its release check needs `/api/health` to answer `youcam` exactly `false`. Its build log is kept in `web/.vercel/preview-build.log`. Previews sit behind Vercel Authentication, so the script usually exits 4 on the checker's 401 and says so: open the preview in a logged-in browser to check it (a rerun of the release check would get the same 401). On any other exit 4 (unreachable from this Mac, or a checker error), rerun the release check by hand.
 - `web/scripts/deploy-prod.sh [--paused]` deploys production, and only when HEAD is `origin/main` and GitHub's `main` is that same SHA. A live deploy's release check needs `youcam` exactly `true`. A `--paused` deploy holds no key: it refuses before deploying while the production environment still lists `YOUCAM_API_KEY`, and its release check needs `youcam` exactly `false`.
 - Both scripts refuse unless `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` are unset (they override the link), the linked project is `cast-forecast-web`, the tree is clean (untracked files included, whatever `status.showUntrackedFiles` says), no ignored file would ship, the commit's `test` and `web` CI check-runs are both green (two found, none missing), and neither `SCAN_ENABLED` nor `TONE_ENABLED` is set in the target Vercel environment (the name alone fails, whatever its value) or in the shell (anything but empty or `0`). After a deploy they check the served release SHA, `/api/health`, `/evidence` and `/api/gates`.

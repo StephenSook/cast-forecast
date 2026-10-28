@@ -1,7 +1,20 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { readServerEnv } from "@/server/env";
 import { createYouCam } from "@/server/youcam";
 import { fakeFetch } from "../helpers/fakeFetch";
+
+// .env.example is what gets copied into a new environment, so the two flags the deploy scripts refuse appear there
+// only as comments, each saying it is never set in Vercel.
+test(".env.example names SCAN_ENABLED and TONE_ENABLED only in comments that say never set in Vercel", () => {
+  const lines = readFileSync(".env.example", "utf8").split("\n");
+  for (const flag of ["SCAN_ENABLED", "TONE_ENABLED"]) {
+    const hits = lines.filter((l) => l.includes(flag));
+    expect(hits, flag).toHaveLength(1);
+    expect(hits[0].trimStart().startsWith("#"), hits[0]).toBe(true);
+    expect(hits[0], flag).toContain("never set in Vercel");
+  }
+});
 
 test("empty key is null", () => expect(readServerEnv({ YOUCAM_API_KEY: "" }).youcamKey).toBeNull());
 test("secret under 32 chars is null; 32 is kept", () => {
