@@ -223,13 +223,21 @@ def key_absent_ok(env_listing: str) -> tuple[bool, str]:
 def deployed_url(raw: str, target: str) -> tuple[bool, str]:
     """(ok, url or reason) from the stdout of `vercel deploy --format json`.
 
-    Vercel reports target "production" for a production deployment and null for a preview. A
-    preview that Vercel made a production deployment is a loud failure: production has changed.
+    vercel@62.1.0 prints one of two success shapes: {"status": "ok", "deployment": {...}} in
+    non-interactive mode (--non-interactive, or an agent without a TTY), the bare deployment object
+    otherwise. The scripts pass --non-interactive; both shapes are accepted, nothing else is.
+    Vercel reports target "production" for a production deployment and null for a preview; the key
+    must be present. A preview that Vercel made a production deployment is a loud failure:
+    production has changed.
     """
     data = _json(raw)
-    deployment = data.get("deployment") if isinstance(data, dict) else None
-    if not isinstance(data, dict) or data.get("status") != "ok" or not isinstance(deployment, dict):
-        return False, "the deploy output is not Vercel's JSON with status ok"
+    if not isinstance(data, dict):
+        return False, "the deploy output is not Vercel's JSON"
+    deployment = data.get("deployment") if "status" in data else data
+    if "status" in data and data.get("status") != "ok":
+        return False, "the deploy output does not say status ok"
+    if not isinstance(deployment, dict) or "target" not in deployment:
+        return False, "the deploy output has no deployment with a target"
     url = deployment.get("url")
     # http://127.0.0.1 is accepted only so the test suite can point a script at a local fixture.
     if not isinstance(url, str) or not url.startswith(("https://", "http://127.0.0.1:")):

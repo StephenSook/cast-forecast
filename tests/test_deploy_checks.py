@@ -459,6 +459,20 @@ def test_deployed_url_takes_the_url_only_for_the_requested_target():
         assert not ok and "not production" in why, target
 
 
+def test_deployed_url_reads_the_bare_object_a_terminal_run_prints():
+    # Codex r5: vercel@62.1.0 wraps the JSON only in non-interactive mode. The scripts force that
+    # mode, and the bare object a terminal run prints is read the same way.
+    url = "https://cast-forecast-x.vercel.app"
+    bare = {"id": "dpl_x", "url": url, "readyState": "READY", "deploymentProtection": None}
+    assert dc.deployed_url(json.dumps({**bare, "target": None}), "preview") == (True, url)
+    assert dc.deployed_url(json.dumps({**bare, "target": "production"}), "production") == (
+        True,
+        url,
+    )
+    ok, why = dc.deployed_url(json.dumps({**bare, "target": "production"}), "preview")
+    assert not ok and "PRODUCTION" in why
+
+
 def test_deployed_url_fails_closed_on_anything_else():
     url = "https://cast-forecast-x.vercel.app"
     bad = [
@@ -466,8 +480,12 @@ def test_deployed_url_fails_closed_on_anything_else():
         "https://cast-forecast-x.vercel.app",  # the old plain-text output
         "}",
         json.dumps({"status": "error", "deployment": {"url": url, "target": None}}),
+        json.dumps({"status": "error", "reason": "deploy_failed", "message": "x"}),
         json.dumps({"status": "ok"}),
         json.dumps({"status": "ok", "deployment": {"target": None}}),
+        json.dumps({"status": "ok", "deployment": {"url": url}}),  # no target key: not a preview
+        json.dumps({"url": url}),
+        json.dumps({"target": None}),
         _deploy_json("ftp://cast-forecast-x.vercel.app", None),
         _deploy_json(["https://a"], None),
         json.dumps([1, 2]),
@@ -668,7 +686,13 @@ case "$1" in
     target='"production"'
     case " $* " in *" --target preview "*) target=null ;; esac
     if [ -n "${FAKE_DEPLOY_TARGET:-}" ]; then target="$FAKE_DEPLOY_TARGET"; fi
-    printf '{\\n  "status": "ok",\\n  "deployment": {"url": "%s", "target": %s}\\n}\\n' "$url" "$target"
+    # Its --format json output is wrapped only in non-interactive mode; a terminal run gets the
+    # bare deployment object.
+    case " $* " in
+      *" --non-interactive "*)
+        printf '{\\n  "status": "ok",\\n  "deployment": {"url": "%s", "target": %s}\\n}\\n' "$url" "$target" ;;
+      *) printf '{\\n  "url": "%s",\\n  "target": %s\\n}\\n' "$url" "$target" ;;
+    esac
     exit 0 ;;
   inspect)
     if [ -n "${FAKE_INSPECT_FAIL:-}" ]; then echo "Error: inspect failed"; exit 1; fi
@@ -972,7 +996,8 @@ def test_prod_deploys_and_verifies(rig, site):
     assert f"deployment: {FAKE_URL}" in out and f"serving {sha}" in out
     assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health")
     assert any(
-        c.startswith("deploy --prod --format json") and f"NEXT_PUBLIC_RELEASE_SHA={sha}" in c
+        c.startswith("deploy --prod --format json --non-interactive")
+        and f"NEXT_PUBLIC_RELEASE_SHA={sha}" in c
         for c in rig.calls()
     )
     log = (rig.work / "web" / ".vercel" / "deploy-log.txt").read_text()
@@ -1194,7 +1219,8 @@ def test_preview_deploys_verifies_and_keeps_its_build_log(rig, site):
     assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health (youcam=false")
     assert "Node.js Version 22.x" in out
     deploys = [c for c in rig.calls() if c.startswith("deploy ")]
-    assert len(deploys) == 1 and deploys[0].startswith("deploy --target preview --format json")
+    assert len(deploys) == 1
+    assert deploys[0].startswith("deploy --target preview --format json --non-interactive")
     assert "--prod" not in deploys[0]
     log = rig.work / "web" / ".vercel" / "preview-build.log"
     assert "pnpm 12.3.4" in log.read_text()

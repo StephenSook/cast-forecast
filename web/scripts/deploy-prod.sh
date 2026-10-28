@@ -112,8 +112,9 @@ echo "$SERVING"
 echo "$(date -u +%FT%TZ) $SERVING before $SHA" >> "$LOG"
 
 # 6. deploy (from here on, failures are exit 4, never 1)
-# The JSON output names the deployment's target; only a production target counts.
-if ! $V deploy --prod --format json --yes --scope "$SCOPE" \
+# The JSON output names the deployment's target; only a production target counts. --non-interactive
+# gives the output the same shape from a terminal as from an agent.
+if ! $V deploy --prod --format json --non-interactive --yes --scope "$SCOPE" \
   --build-env "NEXT_PUBLIC_RELEASE_SHA=$SHA" > "$tmp.url"; then
   unverified "vercel deploy exited non-zero."
 fi

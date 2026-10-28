@@ -71,8 +71,9 @@ case "${DRY_RUN:-}" in
 esac
 
 # 5. deploy. The target is explicit: on a project with no production deployment yet, vercel@62.1.0
-# made an untargeted deploy a PRODUCTION deploy (2026-10-28). The JSON output names the target.
-if ! $V deploy --target preview --format json --yes --scope "$SCOPE" \
+# made an untargeted deploy a PRODUCTION deploy (2026-10-28). The JSON output names the target, and
+# --non-interactive gives it the same shape from a terminal as from an agent.
+if ! $V deploy --target preview --format json --non-interactive --yes --scope "$SCOPE" \
   --build-env "NEXT_PUBLIC_RELEASE_SHA=$SHA" > "$tmp.url"; then
   fail "vercel deploy failed."
 fi
