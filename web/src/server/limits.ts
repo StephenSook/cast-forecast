@@ -10,6 +10,8 @@ const HOUR_MS = 3_600_000;
  * Sliding one-hour windows per session and per IP. Frozen.
  * The limiter is in memory, per instance and best-effort (controller ruling 2): instances do not share counts
  * and a cold start forgets them. The global backstop is the live YouCam credit floor (credits.ts aboveFloor).
+ * Under a distributed flood larger than the table cap within one window, newcomers in saturated overflow shards get
+ * 429 busy with Retry-After; existing buckets are unaffected; the global credit floor guards the YouCam balance.
  */
 export const RULES: Readonly<Record<Action, Rule>> = Object.freeze({
   upload: Object.freeze({ perSession: 6, perIp: 20, windowMs: HOUR_MS }),
@@ -19,8 +21,8 @@ export const RULES: Readonly<Record<Action, Rule>> = Object.freeze({
 });
 
 /**
- * `busy: true` marks a refusal by the action's shared overflow bucket: the table was full of live buckets and the
- * overflow had reached its limit (answer 429 busy with Retry-After). Without it, the caller's own limit refused it.
+ * `busy: true` marks a refusal by the caller's overflow shard: the table was full of live buckets and that shard had
+ * reached its limit (answer 429 busy with Retry-After). Without it, the caller's own limit refused it.
  */
 export type Limiter = {
   take(a: Action, sid: string | null, ip: string, now: number): { ok: true } | { ok: false; retryAfterS: number; busy?: true };
@@ -32,14 +34,27 @@ const MAX_BUCKETS = 10_000;
 const MAX_SIDS_PER_IP = 20;
 const MAX_IP_LENGTH = 64;
 
+/** Overflow buckets per action. A new key that finds the table full lands in one, picked by its IP key. */
+export const OVERFLOW_SHARDS = 64;
+
+/** The overflow shard for an IP key (as `clientIp` returns it): FNV-1a 32-bit over its code units, mod 64. Stable. */
+export function overflowShard(ip: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < ip.length; i++) {
+    h ^= ip.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) % OVERFLOW_SHARDS;
+}
+
 /** Stamps of allowed takes, oldest first; the bucket's own limit; for an IP bucket, when it created session buckets. */
 type Bucket = { stamps: number[]; limit: number; mints: number[] };
 /**
- * One action's buckets in recency order (every take moves its buckets to the back), the shared overflow stamps, and
- * `earliestExpiry`: no bucket can be fully expired before it. It stays a lower bound because stamps are only added
- * later and a bucket created after a scan expires after every bucket that scan saw.
+ * One action's buckets in recency order (every take moves its buckets to the back), its 64 overflow shards (stamps
+ * per shard, never evicted), and `earliestExpiry`: no bucket can be fully expired before it. It stays a lower bound
+ * because stamps are only added later and a bucket created after a scan expires after every bucket that scan saw.
  */
-type Table = { buckets: Map<string, Bucket>; overflow: number[]; earliestExpiry: number };
+type Table = { buckets: Map<string, Bucket>; overflow: number[][]; earliestExpiry: number };
 
 const inWindow = (list: number[], now: number, windowMs: number) => list.filter((s) => now - s < windowMs);
 
@@ -57,7 +72,8 @@ export function createLimiter(
   function table(a: Action): Table {
     let t = tables.get(a);
     if (!t) {
-      t = { buckets: new Map(), overflow: [], earliestExpiry: Number.NEGATIVE_INFINITY };
+      const overflow = Array.from({ length: OVERFLOW_SHARDS }, (): number[] => []);
+      t = { buckets: new Map(), overflow, earliestExpiry: Number.NEGATIVE_INFINITY };
       tables.set(a, t);
     }
     return t;
@@ -135,18 +151,18 @@ export function createLimiter(
       if (sidKey) touch(t, sidKey);
       if (retryAfterS > 0) return { ok: false, retryAfterS }; // a denied take records nothing
 
-      let useOverflow = false;
+      let shard = -1;
       if (!ipB) {
         if (makeRoom(a, t, now, windowMs)) {
           ipB = { stamps: [], limit: perIp, mints: [] };
           t.buckets.set(ipKey, ipB);
         } else {
-          // Full of live buckets: new addresses share one overflow bucket with the IP limit (degraded mode under a
-          // flood from many addresses). It is never evicted, and existing buckets are unaffected.
-          t.overflow = inWindow(t.overflow, now, windowMs);
-          const w = wait(t.overflow, perIp, now, windowMs);
+          // Full of live buckets: a new address shares its overflow shard (chosen by its IP key) under the IP limit,
+          // so a flood saturates only the shards it hashes to. Shards are never evicted; existing buckets are unaffected.
+          shard = overflowShard(ip);
+          t.overflow[shard] = inWindow(t.overflow[shard], now, windowMs);
+          const w = wait(t.overflow[shard], perIp, now, windowMs);
           if (w > 0) return { ok: false, retryAfterS: w, busy: true };
-          useOverflow = true;
         }
       }
       // A new session bucket needs a real IP bucket under its mint cap and a free slot; otherwise the IP limit alone applies.
@@ -156,7 +172,7 @@ export function createLimiter(
         stamp(ipB.mints, now);
       }
 
-      if (useOverflow) stamp(t.overflow, now);
+      if (shard >= 0) stamp(t.overflow[shard], now);
       if (ipB) stamp(ipB.stamps, now);
       if (sidB) stamp(sidB.stamps, now);
       return { ok: true };

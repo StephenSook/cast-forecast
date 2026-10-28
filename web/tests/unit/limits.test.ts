@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { RULES, clientIp, createLimiter } from "@/server/limits";
+import { OVERFLOW_SHARDS, RULES, clientIp, createLimiter, overflowShard } from "@/server/limits";
 import type { Action, Limiter } from "@/server/limits";
 import { NOW } from "../helpers/constants";
 
@@ -135,6 +135,23 @@ const remaining = (l: Limiter, a: Action, sid: string | null, ip: string, now: n
   return n;
 };
 const BUSY = (retryAfterS: number) => ({ ok: false, retryAfterS, busy: true });
+/** The first `n` keys `${prefix}-<i>` whose overflow shard is `shard`. */
+const keysInShard = (prefix: string, shard: number, n: number) => {
+  const out: string[] = [];
+  for (let i = 0; out.length < n; i++) {
+    if (i > 100_000) throw new Error(`shard ${shard} unreachable`);
+    if (overflowShard(`${prefix}-${i}`) === shard) out.push(`${prefix}-${i}`);
+  }
+  return out;
+};
+test("overflowShard is a stable hash of the IP key into 64 shards", () => {
+  expect(OVERFLOW_SHARDS).toBe(64);
+  expect(overflowShard("203.0.113.1")).toBe(18);                        // FNV-1a 32-bit mod 64, computed independently
+  expect(overflowShard("2001:db8:abcd:12::/64")).toBe(22);
+  const seen = new Set(Array.from({ length: 1000 }, (_, i) => overflowShard(`198.51.${i >> 8}.${i & 255}`)));
+  expect(seen.size).toBe(64);                                           // 1,000 addresses reach every shard
+  for (const s of seen) expect(Number.isInteger(s) && s >= 0 && s < 64).toBe(true);
+});
 test("live buckets are never evicted by any flood: a bucket at its limit stays at its limit", () => {
   const l = createLimiter(RULES, 3);
   fill(l, "tone", null, "full", 6, NOW);
@@ -144,16 +161,20 @@ test("live buckets are never evicted by any flood: a bucket at its limit stays a
   expect(remaining(l, "tone", "s1", "one", NOW + 1000)).toBe(1);        // s1 kept: 1 of 2
   expect(remaining(l, "tone", null, "one", NOW + 1000)).toBe(4);        // ip:one kept: 2 of 6
 });
-test("a full table of live buckets sends new keys to overflow, then answers busy when overflow is full", () => {
+test("a flood into one overflow shard answers busy while a newcomer in another shard is admitted", () => {
   const l = createLimiter(RULES, 2);
   fill(l, "tone", null, "a", 1, NOW);
-  fill(l, "tone", null, "b", 1, NOW);
-  for (let i = 0; i < 6; i++) expect(l.take("tone", null, `new-${i}`, NOW + 1000)).toEqual({ ok: true });
-  expect(l.take("tone", null, "new-6", NOW + 1000)).toEqual(BUSY(3600));
-  expect(l.take("tone", null, "new-0", NOW + 1000)).toEqual(BUSY(3600));                       // still in overflow
+  fill(l, "tone", null, "b", 1, NOW);                                                          // full of live buckets
+  const shard = overflowShard("flood-0");
+  const flood = keysInShard("flood", shard, 8);
+  for (const ip of flood.slice(0, 6)) expect(l.take("tone", null, ip, NOW + 1000)).toEqual({ ok: true });
+  for (const ip of flood.slice(6)) expect(l.take("tone", null, ip, NOW + 1000)).toEqual(BUSY(3600));
+  expect(l.take("tone", null, flood[0], NOW + 1000)).toEqual(BUSY(3600));                      // still in its shard
+  const newcomer = keysInShard("newcomer", (shard + 1) % OVERFLOW_SHARDS, 1)[0];
+  expect(l.take("tone", null, newcomer, NOW + 1000)).toEqual({ ok: true });                    // another shard admits
   fill(l, "tone", null, "a", 1, NOW + 2000);                                                   // existing keys still served
   fill(l, "tone", null, "b", 1, NOW + 2000);
-  expect(l.take("tone", null, "new-7", NOW + 3_601_000)).toEqual({ ok: true });                // overflow window slid
+  expect(l.take("tone", null, keysInShard("late", shard, 1)[0], NOW + 3_601_000)).toEqual({ ok: true });   // shard slid
 });
 test("with earliestExpiry in the future, a full table sends new keys to overflow without scanning", () => {
   const scans: Action[] = [];
@@ -201,15 +222,15 @@ test("each action has its own table, so filling one never pushes another into ov
   fill(l, "tone", null, "t1", 6, NOW);
   fill(l, "tone", null, "t2", 6, NOW);                                                         // each has its own bucket
 });
-test("the default cap is 10,000 buckets per action; past it new keys share the overflow limit", () => {
+test("the default cap is 10,000 buckets per action; past it new keys share their shard's limit", () => {
   const l = createLimiter();
   fill(l, "credits", null, "first", 30, NOW);
   let refused = 0;
   for (let i = 1; i < 10_000; i++) if (!l.take("credits", null, `ip-${i}`, NOW).ok) refused++;
   expect(refused).toBe(0);                                                                     // 10,000 buckets
   let allowed = 0;
-  for (let i = 0; i < 40; i++) if (l.take("credits", null, `late-${i}`, NOW).ok) allowed++;
-  expect(allowed).toBe(30);                                                                    // the overflow's IP limit
+  for (const ip of keysInShard("late", overflowShard("late-0"), 40)) if (l.take("credits", null, ip, NOW).ok) allowed++;
+  expect(allowed).toBe(30);                                                                    // one shard: the IP limit
   expect(l.take("credits", null, "first", NOW)).toEqual({ ok: false, retryAfterS: 3600 });     // never reset
   expect(remaining(l, "credits", null, "ip-1", NOW, 31)).toBe(29);                             // ip-1 kept its stamp
   expect(l.take("upload", "s1", "late-0", NOW)).toEqual({ ok: true });                         // another action's table
