@@ -119,7 +119,11 @@ case "$URL" in https://*) ;; *) unverified "Unexpected deploy output: $URL" ;; e
 MODE=live
 if [ "$PAUSED" = "1" ]; then MODE=paused; fi
 echo "deployment: $URL"
-echo "$(date -u +%FT%TZ) deployment $URL sha $SHA mode $MODE" >> "$LOG"
+# The deploy has happened: a log that cannot be written is a warning, never the rollback exit 1.
+LINE="deployment $URL sha $SHA mode $MODE"
+if ! echo "$(date -u +%FT%TZ) $LINE" >> "$LOG"; then
+  echo "warning: could not write $LOG: $LINE. Not a release failure; the deploy goes on (keep this line)."
+fi
 
 # 7. the production alias must point at this deployment
 if ! $V inspect "$URL" --scope "$SCOPE" > "$tmp.inspect" 2>&1; then
@@ -127,8 +131,16 @@ if ! $V inspect "$URL" --scope "$SCOPE" > "$tmp.inspect" 2>&1; then
   unverified "Could not inspect $URL."
 fi
 cat "$tmp.inspect"
+# Whole tokens only: one token per line with the scheme and trailing slashes removed, so a longer
+# alias that merely contains $ALIAS (old-cast-forecast-web.vercel.app) does not match.
+if ! tr -s '[:space:]' '\n' < "$tmp.inspect" > "$tmp.words"; then
+  unverified "Could not split the inspect output."
+fi
+if ! sed -E -e 's#^https?://##' -e 's#/+$##' "$tmp.words" > "$tmp.aliases"; then
+  unverified "Could not read the aliases from the inspect output."
+fi
 rc=0
-grep -F -q "$ALIAS" "$tmp.inspect" || rc=$?
+grep -F -x -q -- "$ALIAS" "$tmp.aliases" || rc=$?
 if [ "$rc" = "1" ]; then
   echo "$PROD is not an alias of $URL. Not a release failure: do not roll back. See README (deploy section): alias mismatch or post-rollback path."
   exit 3

@@ -575,6 +575,10 @@ case "$1" in
     cat "$FAKE_ENV_LS"; exit 0 ;;
   deploy)
     if [ -n "${FAKE_DEPLOY_FAIL:-}" ]; then echo "Error: build failed" >&2; exit 1; fi
+    # Turns the deploy log into a directory mid-run, so the next append to it fails.
+    if [ -n "${FAKE_BREAK_LOG:-}" ]; then
+      mv "$FAKE_BREAK_LOG" "$FAKE_BREAK_LOG.moved" && mkdir "$FAKE_BREAK_LOG"
+    fi
     cat "$FAKE_DEPLOY_OUT"; exit 0 ;;
   inspect)
     if [ -n "${FAKE_INSPECT_FAIL:-}" ]; then echo "Error: inspect failed"; exit 1; fi
@@ -934,6 +938,43 @@ def test_prod_alias_mismatch_is_exit_3_not_a_rollback_trigger(rig, site):
     code, out = rig.run("deploy-prod.sh", PROD_URL=site(_pages(rig.head())))
     assert code == 3, out
     assert "do not roll back" in out and "release" not in out.splitlines()[-1].split()[:1]
+
+
+# Every proxy points at a closed port, so a check that reaches for the real production URL fails at
+# once on this machine instead of touching the network.
+DEAD_PROXY = {
+    name: "http://127.0.0.1:9"
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+} | {"NO_PROXY": "", "no_proxy": ""}
+
+
+def test_prod_alias_must_match_a_whole_token(rig):
+    # PROD_URL is the default https://cast-forecast-web.vercel.app; a longer alias that merely
+    # contains it is a different host.
+    rig.inspect_out.write_text("  Aliases\n\n    - https://old-cast-forecast-web.vercel.app\n")
+    code, out = rig.run("deploy-prod.sh", RELEASE_ATTEMPTS="1", **DEAD_PROXY)
+    assert code == 3, out
+    assert "is not an alias of" in out and "html: unreachable" not in out
+    # The real alias as its own token (scheme and a trailing slash allowed) matches, so the script
+    # goes on to the release check, which cannot get past the dead proxy: exit 4, never 3.
+    rig.inspect_out.write_text(
+        "  Aliases\n\n    - https://old-cast-forecast-web.vercel.app\n"
+        "    - https://cast-forecast-web.vercel.app/\n"
+    )
+    code, out = rig.run("deploy-prod.sh", RELEASE_ATTEMPTS="1", **DEAD_PROXY)
+    assert code == 4 and "html: unreachable (" in out, out
+    assert "is not an alias of" not in out
+
+
+def test_prod_post_deploy_log_failure_is_a_warning_not_a_rollback_trigger(rig, site):
+    sha = rig.head()
+    base = _alias(rig, site(_pages(sha)))
+    log = rig.work / "web" / ".vercel" / "deploy-log.txt"
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base, FAKE_BREAK_LOG=str(log))
+    assert code == 0, out
+    assert f"warning: could not write .vercel/deploy-log.txt: deployment {FAKE_URL}" in out
+    assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health")
+    assert f"before {sha}" in log.with_name("deploy-log.txt.moved").read_text()
 
 
 def test_prod_release_failure_is_exit_1_and_names_the_rollback(rig, site):
