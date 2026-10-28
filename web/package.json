@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:live:task": "vitest run --config vitest.live-task.config.ts",
+    "e2e": "playwright test",
     "sync:gates": "node scripts/sync-gates.mjs"
   },
   "dependencies": {
