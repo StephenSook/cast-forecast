@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { MAX_UPLOAD_BYTES, checkUploadImage, jpegSize, stripMetadata } from "@/server/jpeg";
+import { MAX_SEGMENTS, MAX_UPLOAD_BYTES, checkUploadImage, jpegSize, stripMetadata } from "@/server/jpeg";
 import { fakeJpeg } from "../helpers/fakeJpeg";
 
 const has = (b: Uint8Array, s: string) => Buffer.from(b).includes(s);
@@ -136,4 +136,49 @@ test("jpegSize stops at the first frame header and reads nothing after it", () =
   const b = fakeJpeg(800, 600);
   expect(jpegSize(b.slice(0, b.length - 2))).toEqual({ width: 800, height: 600 });               // no EOI
   expect(jpegSize(u8([...b.slice(0, b.length - 2)], [0xff, 0xe1, 0xff, 0xff]))).toEqual({ width: 800, height: 600 });
+});
+
+// Codex r2 finding E: the walk is bounded. A file may hold at most MAX_SEGMENTS (512) marker segments outside its
+// entropy-coded scans (SOI not counted); more is refused before any copy grows with them.
+const APP3_EMPTY = [0xff, 0xe3, 0x00, 0x02];
+const filler = (k: number) => Array.from({ length: k }, () => APP3_EMPTY).flat();
+const withSegments = (n: number) => u8(SOI, sof(0xc0, 640, 480), filler(n - 4), DHT, SOS, SCAN, EOI); // n counts SOF, DHT, SOS, EOI too
+test("MAX_SEGMENTS is 512", () => expect(MAX_SEGMENTS).toBe(512));
+test("stripMetadata accepts 512 marker segments outside the scans and refuses 513", () => {
+  expect(stripMetadata(withSegments(512))).not.toBeNull();
+  expect(stripMetadata(withSegments(513))).toBeNull();
+});
+test("stripMetadata refuses a body of a million standalone markers outside the scans", () => {
+  const rst = Array.from({ length: 1_000_000 }, () => [0xff, 0xd0]).flat();
+  expect(stripMetadata(u8(SOI, sof(0xc0, 640, 480), DHT, rst, SOS, SCAN, EOI))).toBeNull();
+});
+test("restart markers inside a scan do not count toward the cap", () => {
+  const scan = Array.from({ length: 2000 }, (_, k) => [0x12, 0xff, 0xd0 + (k % 8)]).flat();
+  const input = u8(SOI, APP0, DQT, sof(0xc0, 640, 480), DHT, DRI, SOS, scan, EOI);
+  expect(stripMetadata(input)).toEqual(input);
+});
+test("jpegSize reads at most 512 segments before the frame header", () => {
+  expect(jpegSize(u8(SOI, filler(511), sof(0xc0, 640, 480), EOI))).toEqual({ width: 640, height: 480 });
+  expect(jpegSize(u8(SOI, filler(512), sof(0xc0, 640, 480), EOI))).toBeNull();
+});
+test.each(["plain-640x480.jpg", "exif-rot6-4032x3024.jpg", "progressive-640x480.jpg", "restart-640x480.jpg"])(
+  "the real Pillow fixture %s still strips: same size, ends at EOI, no Exif or comment, stable", (name) => {
+    const src = new Uint8Array(readFileSync(`tests/fixtures/${name}`));
+    const out = stripMetadata(src)!;
+    expect(out).not.toBeNull();
+    expect(jpegSize(out)).toEqual(jpegSize(src));
+    expect([...out.slice(-2)]).toEqual([0xff, 0xd9]);
+    for (const s of ["Exif\0\0", "COM-SECRET"]) expect(has(out, s), s).toBe(false);
+    expect(stripMetadata(out)).toEqual(out);
+  });
+test("the progressive fixture keeps its ten scans and the restart fixture its restart markers", () => {
+  const prog = readFileSync("tests/fixtures/progressive-640x480.jpg");
+  const rst = readFileSync("tests/fixtures/restart-640x480.jpg");
+  expect(has(prog, "COM-SECRET") && has(rst, "Exif\0\0")).toBe(true);                         // precondition
+  const sosCount = (b: Uint8Array) => { let n = 0; for (let k = 0; k + 1 < b.length; k++) if (b[k] === 0xff && b[k + 1] === 0xda) n++; return n; };
+  expect(sosCount(stripMetadata(prog)!)).toBe(sosCount(prog));
+  expect(sosCount(prog)).toBeGreaterThanOrEqual(10);
+  const rstCount = (b: Uint8Array) => { let n = 0; for (let k = 0; k + 1 < b.length; k++) if (b[k] === 0xff && b[k + 1] >= 0xd0 && b[k + 1] <= 0xd7) n++; return n; };
+  expect(rstCount(stripMetadata(rst)!)).toBe(rstCount(rst));
+  expect(rstCount(rst)).toBeGreaterThan(MAX_SEGMENTS);
 });

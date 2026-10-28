@@ -8,7 +8,8 @@ import { newSession, readSession, sessionCookie, withFile } from "@/server/sessi
 
 /**
  * POST /api/upload, image/jpeg bytes: 200 {fileId} and a session cookie listing it. Only the metadata-stripped copy
- * ever leaves this function; a JPEG the strip cannot fully walk is refused.
+ * ever leaves this function; a JPEG the strip cannot fully walk is refused. The limiter runs before the body is read,
+ * so a refused caller costs no read, size check or strip; every attempt that reaches the body counts against it.
  */
 export function makeUploadHandler(deps: () => RouteDeps): (req: Request) => Promise<Response> {
   return guarded("upload", async (req) => {
@@ -18,6 +19,11 @@ export function makeUploadHandler(deps: () => RouteDeps): (req: Request) => Prom
     if (!key || !secret) return errorResponse("not_configured", 503);
     if (mediaType(req) !== "image/jpeg") return errorResponse("unsupported_image", 415);
 
+    // A valid cookie is kept as is (same sid, files and iat); anything else silently becomes a new session.
+    const session = readSession(req.headers.get("cookie"), secret, now) ?? newSession(now);
+    const limit = d.limiter.take("upload", session.sid, clientIp(req), now);
+    if (!limit.ok) return refusal(limit);
+
     const raw = await readCapped(req, MAX_UPLOAD_BYTES);
     if (raw === "too_large") return errorResponse("too_large", 413);
     if (raw === null) return errorResponse("bad_request", 400);
@@ -25,11 +31,6 @@ export function makeUploadHandler(deps: () => RouteDeps): (req: Request) => Prom
     if (!check.ok) return errorResponse(check.code, check.status);
     const stripped = stripMetadata(raw);
     if (!stripped) return errorResponse("unsupported_image", 415);
-
-    // A valid cookie is kept as is (same sid, files and iat); anything else silently becomes a new session.
-    const session = readSession(req.headers.get("cookie"), secret, now) ?? newSession(now);
-    const limit = d.limiter.take("upload", session.sid, clientIp(req), now);
-    if (!limit.ok) return refusal(limit);
 
     const yc = youcamFor("upload", d, key);
     if (!yc) return errorResponse("not_configured", 503);

@@ -24,10 +24,8 @@ def gradient(width: int, height: int) -> Image.Image:
     return Image.merge("RGB", (red, green, blue))
 
 
-def rotated_with_gps() -> tuple[Image.Image, Image.Exif]:
-    """Stored landscape 4032x3024 with a dark band on the left third, EXIF Orientation 6, GPS 0,0."""
-    im = Image.new("RGB", (4032, 3024), (200, 170, 150))
-    im.paste((30, 30, 30), (0, 0, 4032 // 3, 3024))
+def gps_exif() -> Image.Exif:
+    """EXIF Orientation 6 and a GPS IFD at 0,0."""
     zero = TiffImagePlugin.IFDRational(0, 1)
     exif = Image.Exif()
     exif[ORIENTATION] = 6
@@ -37,7 +35,14 @@ def rotated_with_gps() -> tuple[Image.Image, Image.Exif]:
         3: "E",  # GPSLongitudeRef
         4: (zero, zero, zero),  # GPSLongitude: degrees, minutes, seconds
     }
-    return im, exif
+    return exif
+
+
+def rotated_with_gps() -> tuple[Image.Image, Image.Exif]:
+    """Stored landscape 4032x3024 with a dark band on the left third, EXIF Orientation 6, GPS 0,0."""
+    im = Image.new("RGB", (4032, 3024), (200, 170, 150))
+    im.paste((30, 30, 30), (0, 0, 4032 // 3, 3024))
+    return im, gps_exif()
 
 
 def main() -> None:
@@ -58,6 +63,19 @@ def main() -> None:
 
     out = HERE / "not-an-image.heic"
     out.write_bytes(b"\x00\x00\x00\x18ftypheic" + random.Random(7).randbytes(2048))
+    written.append(out)
+
+    # Real encoder output for the strip: many scans, and restart markers inside the scan data.
+    out = HERE / "progressive-640x480.jpg"
+    gradient(640, 480).save(
+        out, "JPEG", quality=85, progressive=True, exif=gps_exif(), comment=b"COM-SECRET"
+    )
+    written.append(out)
+
+    out = HERE / "restart-640x480.jpg"
+    gradient(640, 480).save(
+        out, "JPEG", quality=85, restart_marker_blocks=1, exif=gps_exif(), comment=b"COM-SECRET"
+    )
     written.append(out)
 
     for path in written:

@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import * as uploadRoute from "@/app/api/upload/route";
+import * as jpeg from "@/server/jpeg";
 import { MAX_UPLOAD_BYTES } from "@/server/jpeg";
 import { BODY_READ_DEADLINE_MS, waitText } from "@/server/routes/common";
 import { makeCreditsHandler } from "@/server/routes/credits";
@@ -12,6 +13,12 @@ import { NOW, PUT, REGISTER, SECRET, cookieHeaderFrom, registerReply } from "../
 import { jsonReply } from "../helpers/fakeFetch";
 import { fakeJpeg } from "../helpers/fakeJpeg";
 import { cookieFor, get, jpegPost, jsonPost, stalledPost, testDeps } from "../helpers/routes";
+
+// The real functions, wrapped so a test can see whether the route reached them.
+vi.mock("@/server/jpeg", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/server/jpeg")>();
+  return { ...real, checkUploadImage: vi.fn(real.checkUploadImage), stripMetadata: vi.fn(real.stripMetadata) };
+});
 
 const firstCookie = (res: Response) => cookieHeaderFrom(res.headers.get("set-cookie")!);
 const okUpload = { [REGISTER]: registerReply("file-1"), [PUT]: new Response(null, { status: 200 }) };
@@ -161,6 +168,40 @@ test.each([[30, "Busy right now. Try again in 30 seconds."], [3600, "Busy right 
     }
     expect(ff.calls).toEqual([]);
   });
+// Codex r2 finding E: the limiter runs before the body is read, so a refused caller costs no read, check or strip.
+const untouched = (req: Request) => ({ used: req.bodyUsed, locked: req.body?.locked });
+test("a caller over the session limit gets 429 before the body is read, checked or stripped", async () => {
+  const { deps, ff } = testDeps({ routes: okUpload });
+  const h = makeUploadHandler(deps);
+  let cookie: string | undefined;
+  for (let i = 0; i < 6; i++) cookie = firstCookie(await h(jpegPost(fakeJpeg(640, 480), cookie)));
+  vi.mocked(jpeg.checkUploadImage).mockClear(); vi.mocked(jpeg.stripMetadata).mockClear();
+  const seventh = jpegPost(fakeJpeg(640, 480), cookie);
+  const res = await h(seventh);
+  expect(res.status).toBe(429); expect((await res.json()).error.code).toBe("rate_limited");
+  expect(untouched(seventh)).toEqual({ used: false, locked: false });
+  expect(jpeg.checkUploadImage).not.toHaveBeenCalled(); expect(jpeg.stripMetadata).not.toHaveBeenCalled();
+  expect(ff.calls.filter((c) => c.method === "POST")).toHaveLength(6);
+});
+test("a busy refusal never reads a 4 MB body", async () => {
+  const { deps, ff } = busyDeps(30);
+  vi.mocked(jpeg.checkUploadImage).mockClear(); vi.mocked(jpeg.stripMetadata).mockClear();
+  const big = new Uint8Array(MAX_UPLOAD_BYTES);
+  big.set(fakeJpeg(640, 480));
+  const req = jpegPost(big);
+  expect((await makeUploadHandler(deps)(req)).status).toBe(429);
+  expect(untouched(req)).toEqual({ used: false, locked: false });
+  expect(jpeg.checkUploadImage).not.toHaveBeenCalled(); expect(jpeg.stripMetadata).not.toHaveBeenCalled();
+  expect(ff.calls).toEqual([]);
+});
+test("a marker-dense body (600 standalone markers after the frame header) is 415 with no call", async () => {
+  const { deps, ff } = testDeps({ routes: okUpload });
+  const plain = fakeJpeg(640, 480);
+  const dense = new Uint8Array([...plain.slice(0, -2), ...Array.from({ length: 600 }, () => [0xff, 0xd0]).flat(), ...plain.slice(-2)]);
+  const res = await makeUploadHandler(deps)(jpegPost(dense));
+  expect(res.status).toBe(415); expect((await res.json()).error.code).toBe("unsupported_image");
+  expect(ff.calls).toEqual([]);
+});
 test.each([[1, "1 second"], [30, "30 seconds"], [119, "119 seconds"], [120, "2 minutes"], [121, "3 minutes"], [3600, "60 minutes"]])(
   "waitText(%i) is %s (minutes round up, so the stated wait is never short)", (s, words) => expect(waitText(s)).toBe(words));
 
