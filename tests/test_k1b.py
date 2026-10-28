@@ -344,3 +344,25 @@ def test_texture_thresholds_come_from_k1b(selfies, tmp_path, monkeypatch):
     monkeypatch.setitem(k1b.THRESHOLDS, "texture_min_fraction", 1.01)
     code, out2 = _run(FakeClient(), selfies, tmp_path / "again")
     assert json.loads(out2.read_text())["criteria_pass"]["texture"] is False
+
+
+@pytest.mark.parametrize(
+    "code,cls", [(503, "content"), (4001, "content"), (None, "content"), (b"network", "content")]
+)
+def test_stop_class_accepts_non_string_codes(code, cls):
+    assert k1b.classify_stop(code) == cls
+
+
+def test_non_string_error_code_mid_run_is_classified(selfies, tmp_path):
+    class Failing(FakeClient):
+        def run(self, endpoint, payload):
+            if len(self.payloads) == 1:
+                raise YouCamError("boom", code=4001, task_id="tZ")
+            return super().run(endpoint, payload)
+
+    client = Failing()
+    client.balances = [1000, 999]
+    rc, out = _run(client, selfies, tmp_path)
+    assert rc != 0
+    r = json.loads(out.read_text())
+    assert r["stop_class"] == "content" and r["k1b_pass"] is False

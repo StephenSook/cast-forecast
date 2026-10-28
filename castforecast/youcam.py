@@ -220,7 +220,7 @@ class YouCamClient:
                     )
                 return results
             if status == "error":
-                code = data.get("error") or data.get("error_code") or "error"
+                code = str(data.get("error") or data.get("error_code") or "error")
                 raise YouCamError(f"task {task_id} failed: {code}", code=code, task_id=task_id)
             if self._clock() >= deadline:
                 raise YouCamError(

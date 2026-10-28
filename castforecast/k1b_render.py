@@ -59,9 +59,12 @@ def inverse_gate_ok(de: float, limit: float) -> bool:
     return bool(de <= limit)
 
 
-def classify_stop(code: str | None) -> str:
-    """infrastructure (network, timeout, HTTP 5xx or 429) may be re-run once; all else is content."""
-    c = code or ""
+def classify_stop(code: object) -> str:
+    """infrastructure (network, timeout, HTTP 5xx or 429) may be re-run once; all else is content.
+
+    A non-string code (a server sending a number or an object) is compared as its str().
+    """
+    c = "" if code is None else str(code)
     if c in ("network", "timeout", "http_429") or (c.startswith("http_5") and len(c) == 8):
         return "infrastructure"
     return "content"

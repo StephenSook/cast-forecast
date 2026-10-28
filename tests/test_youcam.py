@@ -332,3 +332,18 @@ def test_printable_key_with_symbols_is_accepted_and_sent():
     c = YouCamClient(transport=fake, key=key, sleep=lambda s: None)
     assert c.balance() == 5
     assert fake.calls[0].headers["Authorization"] == f"Bearer {key}"
+
+
+@pytest.mark.parametrize(
+    "data,code",
+    [
+        ({"task_status": "error", "error": 4001}, "4001"),
+        ({"task_status": "error", "error": None, "error_code": 7}, "7"),
+        ({"task_status": "error", "error": {"detail": "x"}}, "{'detail': 'x'}"),
+    ],
+)
+def test_poll_error_code_is_always_a_string(data, code):
+    c, _, _ = client([ok(data)])
+    with pytest.raises(YouCamError) as e:
+        c.poll("task/makeup-vto", "t3")
+    assert e.value.code == code and isinstance(e.value.code, str)
