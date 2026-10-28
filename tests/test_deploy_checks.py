@@ -359,6 +359,9 @@ def site():
                     status, body = replies[0] if len(replies) == 1 else replies.pop(0)
                 data = (json.dumps(body) if isinstance(body, dict) else body).encode()
                 self.send_response(status)
+                if 300 <= status < 400:  # a redirect's body is its Location
+                    self.send_header("Location", data.decode())
+                    data = b""
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -401,8 +404,87 @@ def test_release_gives_up_after_the_last_attempt(site):
 def test_release_stops_at_once_on_401(site):
     sleeps = []
     got = dc.release_check(site({"/": [(401, "")]}), SHA, sleep=sleeps.append)
-    assert got == (False, "deployment is behind Vercel Authentication (401)", False)
+    assert got == (False, dc.AUTH_BLOCKED, False)
+    assert "Vercel Authentication" in dc.AUTH_BLOCKED
     assert sleeps == []
+
+
+SSO = "https://vercel.com/sso-api?url=https%3A%2F%2Fcast-forecast-x.vercel.app%2F&nonce=n"
+
+
+def test_release_reads_the_vercel_login_redirect_as_authentication_not_a_mismatch(site):
+    # Seen live on 2026-10-28: a protected deployment answers 302 to vercel.com/sso-api, and the
+    # redirect ends on a 200 login page. Followed, that page read as "cf-release is not <sha>", a
+    # VERIFIED mismatch, which is the rollback signal on a production deploy.
+    for page in ("/", "/api/health", "/evidence", "/api/gates"):
+        sleeps = []
+        got = dc.release_check(site({page: [(302, SSO)]}), SHA, sleep=sleeps.append)
+        assert got == (False, dc.AUTH_BLOCKED, False), page
+        assert sleeps == [], page
+    login = "https://vercel.com/login?next=%2Fsso-api"
+    assert dc.release_check(site({"/": [(307, login)]}), SHA, sleep=[].append)[2] is False
+
+
+def test_release_never_follows_any_redirect_and_never_calls_it_verified(site):
+    sleeps = []
+    base = site({"/": [(301, "https://elsewhere.example/")]})
+    got = dc.release_check(base, SHA, attempts=2, sleep=sleeps.append)
+    assert got == (False, "html: redirected to elsewhere.example", False)
+    assert sleeps == [10]
+    lookalike = site({"/": [(302, "https://vercel.com.evil.example/sso-api")]})
+    assert dc.release_check(lookalike, SHA, attempts=1, sleep=[].append) == (
+        False,
+        "html: redirected to vercel.com.evil.example",
+        False,
+    )
+
+
+def test_main_release_exits_4_on_the_vercel_login_redirect(site):
+    assert dc.main(["release", site({"/": [(302, SSO)]}), SHA]) == 4
+
+
+def _deploy_json(url, target):
+    return json.dumps({"status": "ok", "deployment": {"url": url, "target": target}})
+
+
+def test_deployed_url_takes_the_url_only_for_the_requested_target():
+    url = "https://cast-forecast-x.vercel.app"
+    assert dc.deployed_url(_deploy_json(url, None), "preview") == (True, url)
+    assert dc.deployed_url(_deploy_json(url, "preview"), "preview") == (True, url)
+    assert dc.deployed_url(_deploy_json(url, "production"), "production") == (True, url)
+    ok, why = dc.deployed_url(_deploy_json(url, "production"), "preview")
+    assert not ok and "PRODUCTION" in why and url in why
+    for target in (None, "preview", "staging"):
+        ok, why = dc.deployed_url(_deploy_json(url, target), "production")
+        assert not ok and "not production" in why, target
+
+
+def test_deployed_url_fails_closed_on_anything_else():
+    url = "https://cast-forecast-x.vercel.app"
+    bad = [
+        "",
+        "https://cast-forecast-x.vercel.app",  # the old plain-text output
+        "}",
+        json.dumps({"status": "error", "deployment": {"url": url, "target": None}}),
+        json.dumps({"status": "ok"}),
+        json.dumps({"status": "ok", "deployment": {"target": None}}),
+        _deploy_json("ftp://cast-forecast-x.vercel.app", None),
+        _deploy_json(["https://a"], None),
+        json.dumps([1, 2]),
+    ]
+    for raw in bad:
+        ok, _ = dc.deployed_url(raw, "preview")
+        assert not ok, raw
+
+
+def test_main_deployed_prints_only_the_url(tmp_path, capsys):
+    f = tmp_path / "out.json"
+    f.write_text(_deploy_json("https://cast-forecast-x.vercel.app", None))
+    assert dc.main(["deployed", str(f), "preview"]) == 0
+    assert capsys.readouterr().out == "https://cast-forecast-x.vercel.app\n"
+    assert dc.main(["deployed", str(f), "production"]) == 1
+    assert dc.main(["deployed", str(f), "staging"]) == 2
+    assert dc.main(["deployed", str(tmp_path / "missing"), "preview"]) == 1
 
 
 def test_release_requires_youcam_true_live_and_false_without_a_key(site):
@@ -579,7 +661,15 @@ case "$1" in
     if [ -n "${FAKE_BREAK_LOG:-}" ]; then
       mv "$FAKE_BREAK_LOG" "$FAKE_BREAK_LOG.moved" && mkdir "$FAKE_BREAK_LOG"
     fi
-    cat "$FAKE_DEPLOY_OUT"; exit 0 ;;
+    url=$(head -n 1 "$FAKE_DEPLOY_OUT")
+    case "$url" in http*) ;; *) cat "$FAKE_DEPLOY_OUT"; exit 0 ;; esac
+    # Like vercel@62.1.0 on a project with no production deployment yet (seen 2026-10-28): a deploy
+    # with neither --prod nor --target preview is a PRODUCTION deploy. Preview's target is null.
+    target='"production"'
+    case " $* " in *" --target preview "*) target=null ;; esac
+    if [ -n "${FAKE_DEPLOY_TARGET:-}" ]; then target="$FAKE_DEPLOY_TARGET"; fi
+    printf '{\\n  "status": "ok",\\n  "deployment": {"url": "%s", "target": %s}\\n}\\n' "$url" "$target"
+    exit 0 ;;
   inspect)
     if [ -n "${FAKE_INSPECT_FAIL:-}" ]; then echo "Error: inspect failed"; exit 1; fi
     cat "$FAKE_INSPECT_OUT"; exit 0 ;;
@@ -882,7 +972,8 @@ def test_prod_deploys_and_verifies(rig, site):
     assert f"deployment: {FAKE_URL}" in out and f"serving {sha}" in out
     assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health")
     assert any(
-        c.startswith("deploy --prod") and f"NEXT_PUBLIC_RELEASE_SHA={sha}" in c for c in rig.calls()
+        c.startswith("deploy --prod --format json") and f"NEXT_PUBLIC_RELEASE_SHA={sha}" in c
+        for c in rig.calls()
     )
     log = (rig.work / "web" / ".vercel" / "deploy-log.txt").read_text()
     assert f"deployment {FAKE_URL} sha {sha} mode live" in log
@@ -993,6 +1084,22 @@ def test_prod_401_at_the_release_check_is_exit_4_and_not_a_rollback_trigger(rig,
     assert "Deployed, but the release check failed" not in out
 
 
+def test_prod_login_redirect_at_the_release_check_is_exit_4_and_not_a_rollback_trigger(rig, site):
+    base = _alias(rig, site(_pages(rig.head(), **{"/": [(302, SSO)]})))
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base)
+    assert code == 4, out
+    assert "Vercel Authentication blocks" in out and "not a release failure" in out
+    assert "Deployed, but the release check failed" not in out
+
+
+def test_prod_is_unverified_when_vercel_does_not_report_a_production_target(rig, site):
+    sha = rig.head()
+    base = _alias(rig, site(_pages(sha)))
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base, FAKE_DEPLOY_TARGET="null")
+    assert code == 4 and "UNVERIFIED" in out and "not production" in out, out
+    assert f"release {sha} ok" not in out
+
+
 def test_prod_unreachable_release_check_is_exit_4_with_no_rollback_line(rig):
     # Codex r2 finding G: the operator's network failing proves nothing about the release. One
     # attempt (RELEASE_ATTEMPTS) keeps the test from sleeping 50 s between six real ones.
@@ -1001,7 +1108,7 @@ def test_prod_unreachable_release_check_is_exit_4_with_no_rollback_line(rig):
     assert code == 4, out
     assert "html: unreachable (" in out and "not a release failure" in out
     assert "rollback" not in out.lower() and "Deployed, but the release check failed" not in out
-    assert "Vercel Authentication answers 401" not in out
+    assert "Vercel Authentication blocks" not in out
 
 
 def test_prod_post_deploy_failures_are_exit_4_with_a_serving_line(rig, site):
@@ -1086,10 +1193,25 @@ def test_preview_deploys_verifies_and_keeps_its_build_log(rig, site):
     assert code == 0, out
     assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health (youcam=false")
     assert "Node.js Version 22.x" in out
-    assert any(c.startswith("deploy ") and "--prod" not in c for c in rig.calls())
+    deploys = [c for c in rig.calls() if c.startswith("deploy ")]
+    assert len(deploys) == 1 and deploys[0].startswith("deploy --target preview --format json")
+    assert "--prod" not in deploys[0]
     log = rig.work / "web" / ".vercel" / "preview-build.log"
     assert "pnpm 12.3.4" in log.read_text()
     assert str(log.relative_to(rig.work / "web")) in out
+
+
+def test_preview_refuses_when_vercel_reports_a_production_deployment(rig, site):
+    # Seen live on 2026-10-28: the untargeted preview deploy of a new project went to production.
+    # The fake CLI now does the same, so this script must ask for preview and check what it got.
+    _track_branch(rig)
+    sha = rig.head()
+    rig.deploy_out.write_text(site(_keyless(sha)) + "\n")
+    code, out = rig.run("deploy-preview.sh", FAKE_DEPLOY_TARGET='"production"')
+    assert code == 1, out
+    assert "PRODUCTION" in out and "release check on production" in out
+    assert "deployment:" not in out and f"release {sha} ok" not in out
+    assert not any(c.startswith("inspect") for c in rig.calls())
 
 
 def test_preview_release_failure_and_401_are_not_green(rig, site):
@@ -1111,11 +1233,16 @@ def test_preview_exit_4_names_the_next_step(rig, site):
     rig.deploy_out.write_text(site(_pages(sha, **{"/": [(401, "")]})) + "\n")
     code, out = rig.run("deploy-preview.sh")
     assert code == 4, out
-    assert out.splitlines()[-1] == (
-        "Previews sit behind Vercel Authentication, so this 401 is expected: "
+    expected = (
+        "Previews sit behind Vercel Authentication, so this is expected: "
         "open the preview in a logged-in browser to check it."
     )
+    assert out.splitlines()[-1] == expected
     assert "rerun" not in out
+    # What Vercel actually sends a signed-out client: a redirect to its login, not a 401.
+    rig.deploy_out.write_text(site(_pages(sha, **{"/": [(302, SSO)]})) + "\n")
+    code, out = rig.run("deploy-preview.sh")
+    assert code == 4 and out.splitlines()[-1] == expected, out
     # Unreachable from this Mac is not a 401: there a rerun is the step.
     rig.deploy_out.write_text("http://127.0.0.1:9\n")
     code, out = rig.run("deploy-preview.sh", RELEASE_ATTEMPTS="1")
