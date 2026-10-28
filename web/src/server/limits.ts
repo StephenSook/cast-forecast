@@ -14,27 +14,72 @@ export const RULES: Readonly<Record<Action, Rule>> = Object.freeze({
   credits: Object.freeze({ perSession: Infinity, perIp: 30, windowMs: HOUR_MS }),
 });
 
+/**
+ * `full: true` marks a refusal because this action's table is full of live buckets (the caller is not over
+ * its own limit); `retryAfterS` is then the time until the earliest bucket can expire.
+ */
 export type Limiter = {
-  take(a: Action, sid: string | null, ip: string, now: number): { ok: true } | { ok: false; retryAfterS: number };
+  take(a: Action, sid: string | null, ip: string, now: number): { ok: true } | { ok: false; retryAfterS: number; full?: true };
 };
 
-/** Most buckets one limiter holds. A new bucket past this evicts the least recently recorded one. */
+/** Most buckets one action's table holds. Only expired buckets are ever evicted to make room. */
 const MAX_BUCKETS = 10_000;
 const MAX_IP_LENGTH = 64;
 
+/** One action's buckets, in recency order, and the earliest time any of them can expire (a lower bound). */
+type Table = { buckets: Map<string, number[]>; nextExpiryAt: number };
+
 export function createLimiter(rules: typeof RULES = RULES, maxBuckets: number = MAX_BUCKETS): Limiter {
-  // One take can record two buckets, so fewer than two would let a take evict its own first bucket.
+  // One take can need two new buckets, so a table must hold at least two.
   if (!Number.isInteger(maxBuckets) || maxBuckets < 2) throw new RangeError("maxBuckets must be an integer >= 2");
-  // Map order is the eviction order: a bucket moves to the back each time a take is recorded in it.
-  const stamps = new Map<string, number[]>();
+  // A table per action, so a flood of one action can never crowd out another's buckets.
+  const tables = new Map<Action, Table>();
+
+  function table(a: Action): Table {
+    let t = tables.get(a);
+    if (!t) {
+      t = { buckets: new Map(), nextExpiryAt: Number.NEGATIVE_INFINITY };
+      tables.set(a, t);
+    }
+    return t;
+  }
 
   /** The stamps still inside the window, oldest first. Expired ones are dropped from the bucket. */
-  function live(key: string, now: number, windowMs: number): number[] {
-    const all = stamps.get(key) ?? [];
-    const kept = all.filter((t) => now - t < windowMs);
-    if (kept.length === 0) stamps.delete(key);
-    else if (kept.length !== all.length) stamps.set(key, kept);
+  function live(t: Table, key: string, now: number, windowMs: number): number[] {
+    const all = t.buckets.get(key) ?? [];
+    const kept = all.filter((s) => now - s < windowMs);
+    if (kept.length === 0) t.buckets.delete(key);
+    else if (kept.length !== all.length) t.buckets.set(key, kept);
     return kept;
+  }
+
+  /** Moves an existing bucket to the back of its table's recency order. Allowed and denied takes both do this. */
+  function touch(t: Table, key: string): void {
+    const list = t.buckets.get(key);
+    if (list) {
+      t.buckets.delete(key);
+      t.buckets.set(key, list);
+    }
+  }
+
+  /**
+   * Makes room for `needed` new buckets by evicting expired buckets only, never a live one. Returns 0 when
+   * there is room, else the seconds until the earliest live bucket expires. The scan is skipped until that
+   * time, so a flood against a full table costs O(1) per request.
+   */
+  function room(t: Table, needed: number, now: number, windowMs: number): number {
+    if (t.buckets.size + needed <= maxBuckets) return 0;
+    if (now >= t.nextExpiryAt) {
+      let next = Number.POSITIVE_INFINITY;
+      for (const [key, list] of t.buckets) {
+        const expiresAt = list[list.length - 1] + windowMs;
+        if (now >= expiresAt) t.buckets.delete(key);
+        else next = Math.min(next, expiresAt);
+      }
+      t.nextExpiryAt = next;
+      if (t.buckets.size + needed <= maxBuckets) return 0;
+    }
+    return Math.max(1, Math.ceil((t.nextExpiryAt - now) / 1000));
   }
 
   /** Seconds until one more take fits, or 0 when it already fits. */
@@ -46,34 +91,32 @@ export function createLimiter(rules: typeof RULES = RULES, maxBuckets: number = 
     return Math.max(1, Math.ceil((binding + windowMs - now) / 1000));
   }
 
-  function record(key: string, now: number): void {
-    const list = stamps.get(key);
-    if (list) {
-      let i = list.length;
-      while (i > 0 && list[i - 1] > now) i--; // keep the list sorted if the clock stepped back
-      list.splice(i, 0, now);
-      stamps.delete(key);
-      stamps.set(key, list);
+  /** Adds a stamp; the bucket exists or `room` has made space for it. */
+  function record(t: Table, key: string, now: number): void {
+    const list = t.buckets.get(key);
+    if (!list) {
+      t.buckets.set(key, [now]);
       return;
     }
-    while (stamps.size >= maxBuckets) {
-      const oldest = stamps.keys().next().value;
-      if (oldest === undefined) break;
-      stamps.delete(oldest);
-    }
-    stamps.set(key, [now]);
+    let i = list.length;
+    while (i > 0 && list[i - 1] > now) i--; // keep the list sorted if the clock stepped back
+    list.splice(i, 0, now);
   }
 
   return {
     take(a, sid, ip, now) {
       const { perSession, perIp, windowMs } = rules[a];
+      const t = table(a);
       // Namespaced so a session id can never land in an IP's bucket.
-      const keys: [string, number][] = [[`${a}:ip:${ip}`, perIp]];
-      if (sid !== null) keys.push([`${a}:sid:${sid}`, perSession]);
+      const keys: [string, number][] = [[`ip:${ip}`, perIp]];
+      if (sid !== null) keys.push([`sid:${sid}`, perSession]);
       let retryAfterS = 0;
-      for (const [key, limit] of keys) retryAfterS = Math.max(retryAfterS, wait(live(key, now, windowMs), limit, now, windowMs));
+      for (const [key, limit] of keys) retryAfterS = Math.max(retryAfterS, wait(live(t, key, now, windowMs), limit, now, windowMs));
+      for (const [key] of keys) touch(t, key);
       if (retryAfterS > 0) return { ok: false, retryAfterS }; // a denied take records nothing
-      for (const [key] of keys) record(key, now);
+      const full = room(t, keys.filter(([key]) => !t.buckets.has(key)).length, now, windowMs);
+      if (full > 0) return { ok: false, retryAfterS: full, full: true }; // fail closed, records nothing
+      for (const [key] of keys) record(t, key, now);
       return { ok: true };
     },
   };
