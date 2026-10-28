@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { assertNoUnscripted } from "./helpers/fakeFetch";
 
 // jsdom has no matchMedia. Report reduced motion so GSAP effects (the letter bounce) stay off in tests.
 if (typeof window !== "undefined") {
@@ -21,3 +22,5 @@ if (typeof window !== "undefined") {
 }
 
 afterEach(cleanup);
+// A fake fetch that saw a call it was not scripted for fails the test that made it.
+afterEach(assertNoUnscripted);

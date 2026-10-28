@@ -16,3 +16,5 @@ test("recomputes every recorded K1b inverse plan entry", () => {
 });
 test("roundHalfEven matches Python round", () => expect([48.5, 49.5, 0.5, 1.5, 2.4999].map(roundHalfEven)).toEqual([48, 50, 0, 2, 2]));
 test("render coverage is the K1b inverse condition", () => expect(RENDER_COVERAGE).toBe(100));
+test.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])("a non-finite target %f is refused", (t) =>
+  expect(() => colorIntensityForBlend(t)).toThrow(RangeError));

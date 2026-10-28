@@ -22,11 +22,15 @@ function interp(x: number, keys: number[], vals: number[]): number {
   return vals[i - 1] + (vals[i] - vals[i - 1]) * t;
 }
 
-/** Port of castforecast.k1_render.coverage_for_alpha: invert the non-decreasing K1b curve. */
+/**
+ * Port of castforecast.k1_render.coverage_for_alpha: invert the non-decreasing K1b curve.
+ * A non-finite target throws RangeError, so NaN can never come back as a reachable intensity.
+ */
 export function colorIntensityForBlend(
   target: number,
   curve: ReadonlyMap<number, number> = K1B.g,
 ): { colorIntensity: number; predictedBlend: number; reachable: boolean } {
+  if (!Number.isFinite(target)) throw new RangeError("target blend must be a finite number");
   const keys = [...curve.keys()].sort((a, b) => a - b);
   const vals = keys.map((k) => curve.get(k) as number);
   const last = vals.length - 1;

@@ -12,10 +12,21 @@ test("synced gates files match docs/gates", () => {
   expect(GATES_README, "run pnpm sync:gates (README.md)").toBe(readFileSync(gatesSrc("README.md"), "utf8"));
   expect(readFileSync("src/data/gates/k1b-results.json").equals(readFileSync(gatesSrc("k1b-results.json"))), "run pnpm sync:gates (k1b-results.json)").toBe(true);
 });
+// Any import or require of fs or fs/promises, with or without the node: prefix.
+const FS_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["'`](?:node:)?fs(?:\/promises)?["'`]/;
+test("the fs ban catches every import form and spares near misses", () => {
+  for (const bad of ['import { readFileSync } from "fs";', "import fs from 'node:fs';", 'import { readFile } from "node:fs/promises";',
+    'export * from "fs/promises";', 'const fs = require("fs");', "require( 'node:fs/promises' )", 'await import("fs")',
+    "import(`node:fs`)", 'import "fs";', "import 'node:fs/promises';"])
+    expect(bad, bad).toMatch(FS_IMPORT);
+  for (const ok of ['import x from "fsevents";', 'import x from "./fs";', 'import x from "@/lib/fs";', 'const s = "fs";',
+    'import { z } from "zod";', 'import "server-only";'])
+    expect(ok, ok).not.toMatch(FS_IMPORT);
+});
 test("nothing under src reads files at runtime", () => {
   const files = walk("src", [".ts", ".tsx"]);
   expect(files.length).toBeGreaterThanOrEqual(5);
-  for (const f of files) expect(readFileSync(f, "utf8"), f).not.toMatch(/from ["'](node:)?fs(\/promises)?["']/);
+  for (const f of files) expect(readFileSync(f, "utf8"), f).not.toMatch(FS_IMPORT);
 });
 test("parses the four shipped gate rows", () => {
   const rows = loadGates();
