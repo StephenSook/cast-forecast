@@ -218,14 +218,18 @@ def check_texture(
     curves: dict[int, dict[int, float]],
     ctx: dict,
     min_a: float | None = None,
+    rel_tol: float | None = None,
+    min_fraction: float | None = None,
 ) -> dict:
     """Texture check against the IDEAL linear-light film on the input image.
 
     ctx: img (input upload copy, uint8), mask, scale_px, hf_energy of the input. For each usable
-    render with fitted a >= 0.2, the ideal film (1 - a) * skin + a * palette is built per pixel in
+    render with fitted a >= min_a (default THRESHOLDS texture_min_a), the ideal film (1 - a) * skin + a * palette is built per pixel in
     linear light, encoded to sRGB, and measured on the input's own mask and scale_px; the
     predicted ratio is hf_ideal / hf_input and the observed ratio is hf_render / hf_input.
     """
+    rel_tol = THRESHOLDS["texture_rel_tol"] if rel_tol is None else rel_tol
+    min_fraction = THRESHOLDS["texture_min_fraction"] if min_fraction is None else min_fraction
     hf_in = ctx["hf_energy"]
     lin_in = _decode(ctx["img"].astype(np.float64) / 255.0)
     rows = []
@@ -240,18 +244,14 @@ def check_texture(
         hf_ideal = patch_stats(ideal_u8, ctx["mask"], ctx["scale_px"])["hf_energy"]
         pred = hf_ideal / hf_in if hf_in > 0 else None
         obs = r["hf_energy"] / hf_in if hf_in > 0 else None
-        ok = (
-            pred is not None
-            and obs is not None
-            and abs(obs - pred) <= THRESHOLDS["texture_rel_tol"] * pred
-        )
+        ok = pred is not None and obs is not None and abs(obs - pred) <= rel_tol * pred
         rows.append({"id": r["id"], "a": a, "predicted": pred, "observed": obs, "ok": bool(ok)})
     frac = (sum(x["ok"] for x in rows) / len(rows)) if rows else None
     return {
         "n_eligible": len(rows),
         "fraction_ok": frac,
         "rows": rows,
-        "pass": frac is not None and frac >= THRESHOLDS["texture_min_fraction"],
+        "pass": frac is not None and frac >= min_fraction,
     }
 
 

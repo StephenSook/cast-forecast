@@ -126,7 +126,7 @@ def test_ideal_dose_film_passes_all_five(selfies, tmp_path):
     assert all(type(v) is bool for v in r["criteria_pass"].values())
     assert r["k1b_pass"] is True
     assert r["fit"]["r2"] > 0.99
-    assert r["fit"]["g"]["100"] == pytest.approx(0.36, abs=1e-2)
+    assert r["fit"]["g"]["100"] == pytest.approx(0.36, abs=2e-3)
     assert r["inverse_plan"][1]["target_alpha"] == 0.169
     assert all(p.name.endswith(".upload.jpg") for p in client.uploaded)
     first = r["renders"][0]
@@ -257,3 +257,90 @@ def test_error_mid_run_keeps_partial(selfies, tmp_path):
     r = json.loads(out.read_text())
     assert len(r["renders"]) == 3 and r["error"]["code"] == "error_boom"
     assert r["balance_after"] == 997 and r["k1b_pass"] is False
+
+
+def test_one_unusable_a_render_fails_r2_with_reason(selfies, tmp_path, monkeypatch):
+    def patches(img):
+        if tuple(img[0, 0]) == (1, 2, 3):
+            return None
+        return _fake_patches(img)
+
+    class Hiding(FakeClient):
+        def run(self, endpoint, payload):
+            tid = super().run(endpoint, payload)
+            pal = payload["effects"][1]["palettes"][0]
+            if (pal["color"], pal["colorIntensity"], pal["coverageIntensity"]) == (
+                "#FFFFFF",
+                40,
+                0,
+            ):
+                self.results[tid][0, 0] = (1, 2, 3)
+            return tid
+
+    monkeypatch.setattr(k1_render, "cheek_patches", patches)
+    code, out = _run(Hiding(), selfies, tmp_path)
+    assert code == 0
+    r = json.loads(out.read_text())
+    assert r["n_usable_a"] == 15
+    assert r["criteria_pass"]["r2"] is False
+    assert "all 16" in r["criteria_reasons"]["r2"]
+    assert r["k1b_pass"] is False
+
+
+def test_refuses_existing_results_file(selfies, tmp_path):
+    out = tmp_path / "k1b.json"
+    out.write_text('{"earlier": true}')
+    client = FakeClient()
+    code, _ = _run(client, selfies, tmp_path)
+    assert code != 0
+    assert client.calls == [] and client.payloads == []
+    assert out.read_text() == '{"earlier": true}'
+
+
+def test_refuses_existing_k1b_renders(selfies, tmp_path):
+    rd = tmp_path / "renders"
+    rd.mkdir()
+    (rd / "A_FFFFFF_ci40_cov0.png").write_bytes(b"x")
+    client = FakeClient()
+    code, out = _run(client, selfies, tmp_path)
+    assert code != 0
+    assert client.calls == [] and not out.exists()
+
+
+@pytest.mark.parametrize(
+    "code,cls",
+    [
+        ("network", "infrastructure"),
+        ("timeout", "infrastructure"),
+        ("http_503", "infrastructure"),
+        ("http_429", "infrastructure"),
+        ("http_403", "content"),
+        ("error_src_face_too_small", "content"),
+        ("bad_download", "content"),
+    ],
+)
+def test_stop_class(selfies, tmp_path, code, cls):
+    class Failing(FakeClient):
+        def run(self, endpoint, payload):
+            if len(self.payloads) == 2:
+                raise YouCamError("boom", code=code, task_id="tZ")
+            return super().run(endpoint, payload)
+
+    client = Failing()
+    client.balances = [1000, 998]
+    rc, out = _run(client, selfies, tmp_path)
+    assert rc != 0
+    r = json.loads(out.read_text())
+    assert r["stop_class"] == cls and r["error"]["code"] == code
+
+
+def test_texture_thresholds_come_from_k1b(selfies, tmp_path, monkeypatch):
+    monkeypatch.setitem(k1b.THRESHOLDS, "texture_rel_tol", 1e-9)
+    code, out = _run(FakeClient(), selfies, tmp_path)
+    assert code == 0
+    r = json.loads(out.read_text())
+    assert r["criteria_pass"]["texture"] is False
+    monkeypatch.setitem(k1b.THRESHOLDS, "texture_rel_tol", 0.20)
+    monkeypatch.setitem(k1b.THRESHOLDS, "texture_min_fraction", 1.01)
+    code, out2 = _run(FakeClient(), selfies, tmp_path / "again")
+    assert json.loads(out2.read_text())["criteria_pass"]["texture"] is False

@@ -59,6 +59,14 @@ def inverse_gate_ok(de: float, limit: float) -> bool:
     return bool(de <= limit)
 
 
+def classify_stop(code: str | None) -> str:
+    """infrastructure (network, timeout, HTTP 5xx or 429) may be re-run once; all else is content."""
+    c = code or ""
+    if c in ("network", "timeout", "http_429") or (c.startswith("http_5") and len(c) == 8):
+        return "infrastructure"
+    return "content"
+
+
 def fit_g(usable: list[dict], skin) -> dict:
     """Least squares g per colorIntensity level (all coverages and palettes), then PAV over ci."""
     skin = np.asarray(skin, dtype=np.float64)
@@ -162,6 +170,15 @@ def _contact(path, renders_dir, a_renders, b_renders, input_a):
 def run_k1b(client, selfie_a, selfie_b, out, copies_dir, renders_dir, contact) -> int:
     selfie_a, selfie_b = Path(selfie_a), Path(selfie_b)
     copies_dir, renders_dir = Path(copies_dir), Path(renders_dir)
+    out = Path(out)
+    if out.exists():
+        print(f"K1b refused: results file already exists at {out}", file=sys.stderr)
+        return 1
+    if renders_dir.is_dir() and (
+        any(renders_dir.glob("A_*_ci*_cov*")) or any(renders_dir.glob("B_FFFFFF_a*"))
+    ):
+        print(f"K1b refused: {renders_dir} already contains K1b renders", file=sys.stderr)
+        return 1
     renders_dir.mkdir(parents=True, exist_ok=True)
     result: dict = {
         "selfie_a": selfie_a.name,
@@ -188,6 +205,7 @@ def run_k1b(client, selfie_a, selfie_b, out, copies_dir, renders_dir, contact) -
     def fail(code: str, message: str, task_id: str | None = None) -> int:
         result["error"] = {"code": code, "task_id": task_id, "message": message}
         result["k1b_pass"] = False
+        result["stop_class"] = classify_stop(code)
         if state["balance_before"] is not None:
             _record_balance_after(client, result, state["balance_before"])
         save()
@@ -305,7 +323,14 @@ def run_k1b(client, selfie_a, selfie_b, out, copies_dir, renders_dir, contact) -
 
     mono = check_monotonic(a_renders)
     tex_curves = {ci: {100: v} for ci, v in g.items()}
-    tex = check_texture(usable, tex_curves, ctx, min_a=THRESHOLDS["texture_min_g"])
+    tex = check_texture(
+        usable,
+        tex_curves,
+        ctx,
+        min_a=THRESHOLDS["texture_min_g"],
+        rel_tol=THRESHOLDS["texture_rel_tol"],
+        min_fraction=THRESHOLDS["texture_min_fraction"],
+    )
     for row in tex["rows"]:
         rec = next(r for r in a_renders if r["id"] == row["id"])
         rec["texture_predicted"], rec["texture_observed"] = row["predicted"], row["observed"]
@@ -324,9 +349,15 @@ def run_k1b(client, selfie_a, selfie_b, out, copies_dir, renders_dir, contact) -
         reasons["inverse"] = f"dE00 {gating['de00_to_target']} above limit"
     else:
         inverse_ok = True
+    all_usable = len(usable) == len(plan_a) and fit["n_fitted"] == len(plan_a)
+    if not all_usable:
+        reasons["r2"] = (
+            f"criterion 2 needs all {len(plan_a)} A renders usable, have {len(usable)} "
+            f"({fit['n_fitted']} fitted)"
+        )
     crit = {
         "monotonic": bool(mono["pass"]),
-        "r2": bool(fit["r2"] is not None and fit["r2"] >= THRESHOLDS["r2_min"]),
+        "r2": bool(all_usable and fit["r2"] is not None and fit["r2"] >= THRESHOLDS["r2_min"]),
         "capability": bool(100 in g and g[100] >= THRESHOLDS["capability_min"]),
         "inverse": inverse_ok,
         "texture": bool(tex["pass"]),
