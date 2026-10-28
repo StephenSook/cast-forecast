@@ -18,8 +18,12 @@ export const RULES: Readonly<Record<Action, Rule>> = Object.freeze({
   credits: Object.freeze({ perSession: Infinity, perIp: 30, windowMs: HOUR_MS }),
 });
 
+/**
+ * `busy: true` marks a refusal by the action's shared overflow bucket: the table was full of live buckets and the
+ * overflow had reached its limit (answer 429 busy with Retry-After). Without it, the caller's own limit refused it.
+ */
 export type Limiter = {
-  take(a: Action, sid: string | null, ip: string, now: number): { ok: true } | { ok: false; retryAfterS: number };
+  take(a: Action, sid: string | null, ip: string, now: number): { ok: true } | { ok: false; retryAfterS: number; busy?: true };
 };
 
 /** Most buckets one action's table holds. */
@@ -30,21 +34,30 @@ const MAX_IP_LENGTH = 64;
 
 /** Stamps of allowed takes, oldest first; the bucket's own limit; for an IP bucket, when it created session buckets. */
 type Bucket = { stamps: number[]; limit: number; mints: number[] };
-/** One action's buckets in recency order (a take moves its buckets to the back), and its shared overflow stamps. */
-type Table = { buckets: Map<string, Bucket>; overflow: number[] };
+/**
+ * One action's buckets in recency order (every take moves its buckets to the back), the shared overflow stamps, and
+ * `earliestExpiry`: no bucket can be fully expired before it. It stays a lower bound because stamps are only added
+ * later and a bucket created after a scan expires after every bucket that scan saw.
+ */
+type Table = { buckets: Map<string, Bucket>; overflow: number[]; earliestExpiry: number };
 
 const inWindow = (list: number[], now: number, windowMs: number) => list.filter((s) => now - s < windowMs);
 
-export function createLimiter(rules: typeof RULES = RULES, maxBuckets: number = MAX_BUCKETS): Limiter {
+/** `onScan` is called each time a full table is scanned for expired buckets (a test seam; never needed in routes). */
+export function createLimiter(
+  rules: typeof RULES = RULES,
+  maxBuckets: number = MAX_BUCKETS,
+  onScan?: (a: Action) => void,
+): Limiter {
   // One take can create two buckets, so a table must hold at least two.
   if (!Number.isInteger(maxBuckets) || maxBuckets < 2) throw new RangeError("maxBuckets must be an integer >= 2");
-  // A table per action, so a flood of one action never evicts another action's buckets.
+  // A table per action, so a flood of one action never fills another action's table.
   const tables = new Map<Action, Table>();
 
   function table(a: Action): Table {
     let t = tables.get(a);
     if (!t) {
-      t = { buckets: new Map(), overflow: [] };
+      t = { buckets: new Map(), overflow: [], earliestExpiry: Number.NEGATIVE_INFINITY };
       tables.set(a, t);
     }
     return t;
@@ -71,27 +84,23 @@ export function createLimiter(rules: typeof RULES = RULES, maxBuckets: number = 
   }
 
   /**
-   * Frees one slot when the table is at its cap, without touching `keep`. One pass (bounded by the cap) evicts
-   * every expired bucket; if that frees nothing it evicts the bucket with the fewest live stamps, the least
-   * recently used on ties, but never one at or above half its limit. False when every bucket is that busy.
+   * True when the table has a free slot. At the cap it never evicts a bucket with a live stamp: before
+   * `earliestExpiry` nothing can have expired, so it answers false in O(1); from then on one pass evicts the expired
+   * buckets and recomputes `earliestExpiry`. A bucket created earlier in this same take has no stamp yet and is kept.
    */
-  function makeRoom(t: Table, keep: ReadonlySet<string>, now: number, windowMs: number): boolean {
+  function makeRoom(a: Action, t: Table, now: number, windowMs: number): boolean {
     if (t.buckets.size < maxBuckets) return true;
-    let victim: string | undefined;
-    let fewest = Number.POSITIVE_INFINITY;
+    if (now < t.earliestExpiry) return false;
+    onScan?.(a);
+    let next = Number.POSITIVE_INFINITY;
     for (const [key, b] of t.buckets) {
-      if (keep.has(key)) continue;
-      const n = b.stamps.reduce((c, s) => (now - s < windowMs ? c + 1 : c), 0);
-      if (n === 0) t.buckets.delete(key);
-      else if (n * 2 < b.limit && n < fewest) {
-        fewest = n; // strict, so the earliest (least recently used) wins a tie
-        victim = key;
-      }
+      const newest = b.stamps.at(-1);
+      if (newest === undefined) continue;
+      if (now - newest >= windowMs) t.buckets.delete(key);
+      else next = Math.min(next, newest + windowMs);
     }
-    if (t.buckets.size < maxBuckets) return true;
-    if (victim === undefined) return false;
-    t.buckets.delete(victim);
-    return true;
+    t.earliestExpiry = next;
+    return t.buckets.size < maxBuckets;
   }
 
   /** Seconds until one more take fits, or 0 when it already fits. */
@@ -126,22 +135,22 @@ export function createLimiter(rules: typeof RULES = RULES, maxBuckets: number = 
       if (sidKey) touch(t, sidKey);
       if (retryAfterS > 0) return { ok: false, retryAfterS }; // a denied take records nothing
 
-      const keep = new Set([ipKey, ...(sidKey ? [sidKey] : [])]);
       let useOverflow = false;
       if (!ipB) {
-        if (makeRoom(t, keep, now, windowMs)) {
+        if (makeRoom(a, t, now, windowMs)) {
           ipB = { stamps: [], limit: perIp, mints: [] };
           t.buckets.set(ipKey, ipB);
         } else {
-          // Every bucket is busy: new addresses share one bucket with the IP limit. Never everyone refused.
+          // Full of live buckets: new addresses share one overflow bucket with the IP limit (degraded mode under a
+          // flood from many addresses). It is never evicted, and existing buckets are unaffected.
           t.overflow = inWindow(t.overflow, now, windowMs);
           const w = wait(t.overflow, perIp, now, windowMs);
-          if (w > 0) return { ok: false, retryAfterS: w };
+          if (w > 0) return { ok: false, retryAfterS: w, busy: true };
           useOverflow = true;
         }
       }
       // A new session bucket needs a real IP bucket under its mint cap and a free slot; otherwise the IP limit alone applies.
-      if (sidKey && !sidB && ipB && ipB.mints.length < MAX_SIDS_PER_IP && makeRoom(t, keep, now, windowMs)) {
+      if (sidKey && !sidB && ipB && ipB.mints.length < MAX_SIDS_PER_IP && makeRoom(a, t, now, windowMs)) {
         sidB = { stamps: [], limit: perSession, mints: [] };
         t.buckets.set(sidKey, sidB);
         stamp(ipB.mints, now);
