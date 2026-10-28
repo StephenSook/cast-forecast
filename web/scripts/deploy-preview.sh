@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Preview deploy from this Mac. Previews never get a YouCam key. Every gate is bare: no pipe on
-# any exit path, and every failure exits non-zero before anything is uploaded.
+# Preview deploy from this Mac. Previews never get a YouCam key: the script refuses when the preview
+# environment lists YOUCAM_API_KEY, and the release check needs /api/health youcam=false exactly.
+# Every gate is bare: no pipe on any exit path, and every failure exits non-zero before anything is
+# uploaded.
 # Exit codes: 0 ok, 1 refused or release failure, 4 release check blocked by Vercel Authentication.
 set -euo pipefail
 
@@ -51,6 +53,11 @@ if ! $V env ls preview --scope "$SCOPE" > "$tmp.env" 2>&1; then
 fi
 if ! python3 -I scripts/deploy_checks.py scan "$tmp.env"; then fail "SCAN_ENABLED must not be set."; fi
 
+# 3c. previews hold no YouCam key: the name alone in the preview listing refuses the deploy
+if ! python3 -I scripts/deploy_checks.py nokey "$tmp.env"; then
+  fail "YOUCAM_API_KEY must not be set for previews. Remove it from the preview environment."
+fi
+
 # 4. dry run: any value but empty or 0 stops here
 case "${DRY_RUN:-}" in
   ""|0) ;;
@@ -73,5 +80,6 @@ if $V inspect "$URL" --logs --scope "$SCOPE" > "$BUILD_LOG" 2>&1; then :; else e
 grep -i -E "node|pnpm" "$BUILD_LOG" || true
 echo "full build log: $BUILD_LOG"
 
-# 7. the release check, the last line printed (exit 4 when Vercel Authentication answers 401)
-python3 -I scripts/deploy_checks.py release "$URL" "$SHA" --allow-no-youcam
+# 7. the release check, the last line printed (exit 4 when Vercel Authentication answers 401);
+# health must say youcam=false, so a preview that holds an active key fails
+python3 -I scripts/deploy_checks.py release "$URL" "$SHA" --require-no-youcam

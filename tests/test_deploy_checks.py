@@ -97,13 +97,27 @@ def test_health_requires_release_node_key_and_secret():
     good = {"release": "abc", "youcam": True, "session": True, "node": "22.23.2"}
     assert dc.health_ok(good, "abc") == (True, "ok")
     assert dc.health_ok({**good, "youcam": False}, "abc") == (False, "youcam not configured")
-    assert dc.health_ok({**good, "youcam": False}, "abc", require_youcam=False) == (True, "ok")
+    assert dc.health_ok({**good, "youcam": False}, "abc", want_youcam=False) == (True, "ok")
     assert dc.health_ok({**good, "session": False}, "abc") == (
         False,
         "session secret not configured",
     )
     assert dc.health_ok({**good, "release": "abd"}, "abc") == (False, "release abd, want abc")
     assert dc.health_ok({**good, "node": "24.1.0"}, "abc") == (False, "node 24.1.0, want 22.x")
+
+
+def test_health_without_a_key_requires_youcam_exactly_false():
+    # Codex r1 finding C: a preview or a paused production deploy must not hold an active key.
+    good = {"release": "abc", "youcam": False, "session": True, "node": "22.23.2"}
+    assert dc.health_ok(good, "abc", want_youcam=False) == (True, "ok")
+    assert dc.health_ok({**good, "youcam": True}, "abc", want_youcam=False) == (
+        False,
+        "youcam is true on a deploy that must hold no key",
+    )
+    missing = {k: v for k, v in good.items() if k != "youcam"}
+    assert dc.health_ok(missing, "abc", want_youcam=False) == (False, "youcam is null, want false")
+    for odd in ("false", 0, None, []):
+        assert dc.health_ok({**good, "youcam": odd}, "abc", want_youcam=False)[0] is False, odd
 
 
 def test_evidence_needs_the_k1b_pass_row():
@@ -227,6 +241,40 @@ def test_main_scan_reads_the_listing_and_the_shell(tmp_path, monkeypatch):
     assert dc.main(["scan"]) == 2
 
 
+WITH_KEY = SOME_VARS + " YOUCAM_API_KEY                Encrypted   Preview        2d ago\n"
+
+
+def test_key_must_be_absent_from_a_keyless_target():
+    # Codex r1 finding C: values are not readable, so presence of the name alone fails.
+    assert dc.key_absent_ok(NO_VARS) == (True, "ok: YOUCAM_API_KEY is not set")
+    assert dc.key_absent_ok(SOME_VARS)[0]
+    assert dc.key_absent_ok(WITH_KEY) == (False, "YOUCAM_API_KEY is set in the target environment")
+    # A name that merely contains the key name is a different variable.
+    assert dc.key_absent_ok(SOME_VARS + " OLD_YOUCAM_API_KEY_X  Encrypted  Preview\n")[0]
+
+
+def test_key_check_on_a_failed_listing_is_not_a_pass():
+    for bad in (
+        "",
+        "Error: not logged in\n",
+        "No Environment Variables found for other/proj",
+        SOME_VARS.replace("cast-forecast-web", "cast-forecast-web-staging"),
+    ):
+        assert dc.key_absent_ok(bad)[0] is False, bad
+
+
+def test_main_nokey_exit_codes(tmp_path):
+    p = tmp_path / "env.txt"
+    p.write_text(NO_VARS)
+    assert dc.main(["nokey", str(p)]) == 0
+    p.write_text(WITH_KEY)
+    assert dc.main(["nokey", str(p)]) == 1
+    p.write_text("")
+    assert dc.main(["nokey", str(p)]) == 1
+    assert dc.main(["nokey", str(tmp_path / "missing.txt")]) == 1
+    assert dc.main(["nokey"]) == 2
+
+
 SHA = "abc1234"
 HEALTH = {"release": SHA, "youcam": True, "session": True, "node": "22.23.2"}
 PAGES = {
@@ -303,11 +351,19 @@ def test_release_stops_at_once_on_401(site):
     assert sleeps == []
 
 
-def test_release_requires_youcam_unless_allowed(site):
+def test_release_requires_youcam_true_live_and_false_without_a_key(site):
     base = site({"/api/health": [(200, {**HEALTH, "youcam": False})]})
     assert dc.release_check(base, SHA, attempts=1) == (False, "health: youcam not configured")
-    got = dc.release_check(base, SHA, require_youcam=False, attempts=1)
+    got = dc.release_check(base, SHA, want_youcam=False, attempts=1)
     assert got == (True, OK_LINE.replace("youcam=true", "youcam=false"))
+
+
+def test_release_without_a_key_fails_at_once_on_an_active_key(site):
+    # Codex r1 finding C: the release SHA already matched, so a retry cannot change the answer.
+    sleeps = []
+    got = dc.release_check(site(), SHA, want_youcam=False, sleep=sleeps.append)
+    assert got == (False, "health: youcam is true on a deploy that must hold no key")
+    assert sleeps == []
 
 
 def test_release_names_the_failing_inverse_check(site):
@@ -340,6 +396,14 @@ def test_main_release_and_serving(site, capsys):
 
 def test_main_release_exits_4_behind_vercel_authentication(site):
     assert dc.main(["release", site({"/": [(401, "")]}), SHA]) == 4
+
+
+def test_main_release_require_no_youcam_flag(site):
+    keyless = site({"/api/health": [(200, {**HEALTH, "youcam": False})]})
+    assert dc.main(["release", keyless, SHA, "--require-no-youcam"]) == 0
+    assert dc.main(["release", site(), SHA, "--require-no-youcam"]) == 1
+    # The old flag only relaxed the check; it is now an unknown option, so an old caller fails loudly.
+    assert dc.main(["release", keyless, SHA, "--allow-no-youcam"]) == 2
 
 
 # ---- the deploy scripts themselves, run against a throwaway repo with fake pnpm and gh ----
@@ -651,6 +715,40 @@ def test_prod_paused_allows_no_youcam(rig, site):
     assert "mode paused" in (rig.work / "web" / ".vercel" / "deploy-log.txt").read_text()
 
 
+PROD_KEY = SOME_VARS + " YOUCAM_API_KEY                Encrypted   Production     2d ago\n"
+
+
+def test_prod_paused_refuses_before_deploying_while_production_lists_the_key(rig, site):
+    # Codex r1 finding C: a paused deploy with the key still in production would serve it.
+    sha = rig.head()
+    pages = _pages(sha, **{"/api/health": [(200, {**HEALTH, "release": sha, "youcam": False})]})
+    base = _alias(rig, site(pages))
+    rig.env_ls.write_text(PROD_KEY)
+    code, out = rig.run("deploy-prod.sh", "--paused", PROD_URL=base)
+    assert code == 1 and "YOUCAM_API_KEY" in out and "deployment:" not in out, out
+    code, out = rig.run("deploy-prod.sh", "--paused", DRY_RUN="1")
+    assert code == 1 and "DRY_RUN=1" not in out, out
+    code, out = rig.run("deploy-prod.sh", "--paused", DRY_RUN="1", FAKE_ENV_FAIL="1")
+    assert code == 1 and "DRY_RUN=1" not in out, out
+    assert rig.deployed() == []
+
+
+def test_prod_live_deploy_still_accepts_the_key_in_its_listing(rig):
+    rig.env_ls.write_text(PROD_KEY)
+    code, out = rig.run("deploy-prod.sh", DRY_RUN="1")
+    assert code == 0, out
+    assert rig.deployed() == []
+
+
+def test_prod_paused_release_check_fails_when_the_deploy_reports_an_active_key(rig, site):
+    sha = rig.head()
+    base = _alias(rig, site(_pages(sha)))  # health says youcam=true
+    code, out = rig.run("deploy-prod.sh", "--paused", PROD_URL=base)
+    assert code == 1, out
+    assert "health: youcam is true on a deploy that must hold no key" in out
+    assert out.splitlines()[-1].startswith("Deployed, but the release check failed")
+
+
 def test_prod_alias_mismatch_is_exit_3_not_a_rollback_trigger(rig, site):
     rig.inspect_out.write_text("    Aliases     https://something-else.vercel.app\n")
     code, out = rig.run("deploy-prod.sh", PROD_URL=site(_pages(rig.head())))
@@ -720,14 +818,41 @@ def test_preview_refuses_red_ci_and_the_scan_flag(rig):
     assert rig.deployed() == []
 
 
+def _keyless(sha):
+    return _pages(sha, **{"/api/health": [(200, {**HEALTH, "release": sha, "youcam": False})]})
+
+
+def test_preview_refuses_before_deploying_when_the_preview_environment_lists_the_key(rig):
+    # Codex r1 finding C: presence of the name fails; a failed listing fails closed.
+    _track_branch(rig)
+    rig.env_ls.write_text(WITH_KEY)
+    code, out = rig.run("deploy-preview.sh")
+    assert code == 1 and "YOUCAM_API_KEY" in out and "deployment:" not in out, out
+    code, out = rig.run("deploy-preview.sh", DRY_RUN="1")
+    assert code == 1 and "DRY_RUN=1" not in out, out
+    rig.env_ls.write_text(NO_VARS)
+    code, out = rig.run("deploy-preview.sh", FAKE_ENV_FAIL="1")
+    assert code == 1 and "deployment:" not in out, out
+    assert rig.deployed() == []
+
+
+def test_preview_release_check_fails_when_the_deploy_reports_an_active_key(rig, site):
+    _track_branch(rig)
+    sha = rig.head()
+    rig.deploy_out.write_text(site(_pages(sha)) + "\n")  # health says youcam=true
+    code, out = rig.run("deploy-preview.sh")
+    assert code == 1, out
+    assert out.splitlines()[-1] == "health: youcam is true on a deploy that must hold no key"
+
+
 def test_preview_deploys_verifies_and_keeps_its_build_log(rig, site):
     _track_branch(rig)
     sha = rig.head()
-    rig.deploy_out.write_text(site(_pages(sha)) + "\n")
+    rig.deploy_out.write_text(site(_keyless(sha)) + "\n")
     rig.inspect_out.write_text("Node.js Version 22.x\npnpm 12.3.4\n")
     code, out = rig.run("deploy-preview.sh")
     assert code == 0, out
-    assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health")
+    assert out.splitlines()[-1].startswith(f"release {sha} ok: html, health (youcam=false")
     assert "Node.js Version 22.x" in out
     assert any(c.startswith("deploy ") and "--prod" not in c for c in rig.calls())
     log = rig.work / "web" / ".vercel" / "preview-build.log"

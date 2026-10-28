@@ -84,6 +84,14 @@ if ! $V env ls production --scope "$SCOPE" > "$tmp.env" 2>&1; then
 fi
 if ! python3 -I scripts/deploy_checks.py scan "$tmp.env"; then fail "SCAN_ENABLED must not be set."; fi
 
+# 3c. a paused deploy holds no YouCam key: refuse while production still lists one (presence alone
+# fails, and a failed listing already failed above)
+if [ "$PAUSED" = "1" ]; then
+  if ! python3 -I scripts/deploy_checks.py nokey "$tmp.env"; then
+    fail "YOUCAM_API_KEY is still set in production. Remove it first (README, pause steps)."
+  fi
+fi
+
 # 4. dry run: any value but empty or 0 stops here
 case "${DRY_RUN:-}" in
   ""|0) ;;
@@ -124,9 +132,9 @@ if [ "$rc" = "1" ]; then
 fi
 if [ "$rc" != "0" ]; then unverified "grep failed while reading the inspect output."; fi
 
-# 8. the release check
+# 8. the release check: a live deploy needs youcam=true, a paused one youcam=false exactly
 FLAG=""
-if [ "$PAUSED" = "1" ]; then FLAG="--allow-no-youcam"; fi
+if [ "$PAUSED" = "1" ]; then FLAG="--require-no-youcam"; fi
 rc=0
 python3 -I scripts/deploy_checks.py release "$PROD" "$SHA" $FLAG > "$tmp.release" || rc=$?
 cat "$tmp.release"
