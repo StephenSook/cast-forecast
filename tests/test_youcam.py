@@ -133,7 +133,7 @@ def test_429_then_success_and_balance_parse():
     assert fake.calls[0].headers["Authorization"] == f"Bearer {KEY}"
 
 
-# ---- fix round 1 ----
+# ---- transport and key handling ----
 
 
 class FakeConn:
