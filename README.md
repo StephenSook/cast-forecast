@@ -35,6 +35,18 @@ pytest -q
 - One test skips when the private selfie is absent (it needs a real face). Everything else runs anywhere.
 - The YouCam client is tested only through fake transports and connections. No test calls the YouCam API or needs a key.
 
+## Web app
+The Cast Forecast site lives in `web/` (Next.js). The UI uses a design system adapted from my HackGT 13 project Lullabuy, with its contrast and overflow defects fixed. Run these from `web/`:
+
+```
+pnpm install --frozen-lockfile
+pnpm dev
+pnpm test
+pnpm e2e
+```
+
+Try-on routes answer "paused" until the server holds a YouCam key; `/evidence` works without one. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm test:bundle`, which scans the built client JavaScript for key names and the YouCam host.
+
 ## Live runs
 These spend YouCam API units and need the key in the macOS Keychain under the service name `youcam-api-key`. Each run checks the balance before uploading anything and stops if it is under 200 units.
 
