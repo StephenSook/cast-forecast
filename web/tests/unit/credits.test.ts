@@ -45,3 +45,56 @@ test("spend before any read changes nothing and a custom TTL is honoured", async
   expect(await c.get(yc, NOW + 1000)).toBe(10);
   expect(balance).toHaveBeenCalledTimes(2);
 });
+
+// Task 5 carry 1: reserve before the run, refund on failure.
+test("reserve holds units at once and refund drops the hold (balance back to its prior value)", async () => {
+  const c = createBalanceCache(); const yc = { balance: vi.fn(async () => 879) } as unknown as YouCam;
+  const hold = await c.reserve(yc, NOW, 1, 100);
+  expect(hold).not.toBeNull();
+  expect(await c.get(yc, NOW)).toBe(878);
+  hold!.refund();
+  expect(await c.get(yc, NOW)).toBe(879);
+});
+test("keep turns the hold into a spend; keep and refund each act once", async () => {
+  const c = createBalanceCache(); const yc = { balance: vi.fn(async () => 879) } as unknown as YouCam;
+  const hold = (await c.reserve(yc, NOW, 20, 100))!;
+  hold.keep(); hold.keep(); hold.refund();
+  expect(await c.get(yc, NOW)).toBe(859);
+  const other = (await c.reserve(yc, NOW, 1, 100))!;
+  other.refund(); other.refund(); other.keep();
+  expect(await c.get(yc, NOW)).toBe(859);
+});
+test("reserve returns null and holds nothing when the units would cross the floor", async () => {
+  const c = createBalanceCache(); const yc = { balance: vi.fn(async () => 119) } as unknown as YouCam;
+  expect(await c.reserve(yc, NOW, 20, 100)).toBeNull();
+  expect(await c.get(yc, NOW)).toBe(119);
+  expect(await c.reserve(yc, NOW, 19, 100)).not.toBeNull();
+});
+test("concurrent reserves at the floor edge: only one holds", async () => {
+  let release: (n: number) => void = () => undefined;
+  const balance = vi.fn(() => new Promise<number>((r) => { release = r; }));
+  const c = createBalanceCache(); const yc = { balance } as unknown as YouCam;
+  const both = Promise.all([c.reserve(yc, NOW, 1, 100), c.reserve(yc, NOW, 1, 100)]);
+  release(101);
+  expect((await both).filter((h) => h !== null)).toHaveLength(1);
+  expect(balance).toHaveBeenCalledTimes(1);
+});
+test("a hold survives a cache refresh: refund after a refresh does not inflate the balance", async () => {
+  const balance = vi.fn().mockResolvedValueOnce(879).mockResolvedValueOnce(879);
+  const c = createBalanceCache(); const yc = { balance } as unknown as YouCam;
+  const hold = (await c.reserve(yc, NOW, 1, 100))!;
+  expect(await c.get(yc, NOW + 30_000)).toBe(878);                                       // fresh read, hold still subtracted
+  hold.refund();
+  expect(await c.get(yc, NOW + 30_000)).toBe(879);
+});
+test("a failed balance read rejects reserve and holds nothing", async () => {
+  const balance = vi.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce(500);
+  const c = createBalanceCache(); const yc = { balance } as unknown as YouCam;
+  await expect(c.reserve(yc, NOW, 1, 100)).rejects.toThrow("down");
+  expect(await c.get(yc, NOW)).toBe(500);
+});
+test("reserve refuses a non-positive or non-integer unit count", async () => {
+  const c = createBalanceCache(); const yc = { balance: vi.fn(async () => 879) } as unknown as YouCam;
+  for (const u of [0, -1, 1.5, Number.NaN]) await expect(c.reserve(yc, NOW, u, 100)).rejects.toThrow(RangeError);
+  expect(await c.get(yc, NOW)).toBe(879);
+});
