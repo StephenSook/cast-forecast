@@ -24,8 +24,9 @@ The inverse gate in this module fails on dE00 > 2.0, so a NaN distance would pas
 Blend model, in linear RGB on the pooled cheek patch: out = (1 - a) * skin + a * palette, with skin
 the cheek value of the input upload copy of A and a a non-decreasing function of coverage for each
 colorIntensity, shared by the three colors. Never retries a paid call; stops on the first error.
-Changed after the K1 run: the CLI refuses to overwrite an earlier results file or K1 renders.
-Nothing in the measurement or the criteria changed.
+Changed after the K1 run: for K1b, check_texture gained optional min_a (8fd3d1b), rel_tol and
+min_fraction (4b2b415) parameters whose defaults are K1's own thresholds; the CLI now refuses to
+overwrite an earlier results file or K1 renders. Nothing in K1's measurement or criteria changed.
 """
 
 from __future__ import annotations
