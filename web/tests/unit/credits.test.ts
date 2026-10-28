@@ -2,6 +2,7 @@ import { expect, test, vi } from "vitest";
 import { UNIT_COST, aboveFloor, createBalanceCache } from "@/server/credits";
 import type { YouCam } from "@/server/youcam";
 import { NOW } from "../helpers/constants";
+import { deferred } from "../helpers/deferred";
 
 test("aboveFloor is true when balance - cost >= floor", () =>
   expect([aboveFloor(101, 1, 100), aboveFloor(100, 1, 100), aboveFloor(120, 20, 100), aboveFloor(119, 20, 100)]).toEqual([true, false, true, false]));
@@ -97,4 +98,54 @@ test("reserve refuses a non-positive or non-integer unit count", async () => {
   const c = createBalanceCache(); const yc = { balance: vi.fn(async () => 879) } as unknown as YouCam;
   for (const u of [0, -1, 1.5, Number.NaN]) await expect(c.reserve(yc, NOW, u, 100)).rejects.toThrow(RangeError);
   expect(await c.get(yc, NOW)).toBe(879);
+});
+
+// Codex r1 finding B: a balance read that started before a spend must not erase that spend when it lands.
+test("a hold kept while a refresh is in flight stays spent when the stale read lands, so the floor still refuses", async () => {
+  const late = deferred<number>();
+  const balance = vi.fn().mockResolvedValueOnce(139).mockReturnValueOnce(late.promise);
+  const c = createBalanceCache(); const yc = { balance } as unknown as YouCam;
+  const hold = (await c.reserve(yc, NOW, 20, 100))!;                                      // 139 - 20 = 119, at or above 100
+  const refresh = c.get(yc, NOW + 30_000);                                                 // stale cache: a second read starts
+  hold.keep();                                                                             // the task is kept while it runs
+  late.resolve(139);                                                                       // that read saw the balance before the spend
+  expect(await refresh).toBe(119);
+  expect(await c.get(yc, NOW + 30_000)).toBe(119);
+  expect(await c.reserve(yc, NOW + 30_000, 20, 100)).toBeNull();                           // 119 - 20 = 99 would cross the floor
+  expect(balance).toHaveBeenCalledTimes(2);
+});
+test("spend while a refresh is in flight is subtracted from the value that lands", async () => {
+  const late = deferred<number>();
+  const balance = vi.fn().mockResolvedValueOnce(500).mockReturnValueOnce(late.promise);
+  const c = createBalanceCache(); const yc = { balance } as unknown as YouCam;
+  expect(await c.get(yc, NOW)).toBe(500);
+  const refresh = c.get(yc, NOW + 30_000);
+  c.spend(20);
+  late.resolve(500);
+  expect(await refresh).toBe(480);
+  expect(await c.get(yc, NOW + 30_000)).toBe(480);
+});
+test("a keep before a refresh starts, or after it lands, is counted once", async () => {
+  const late = deferred<number>();
+  const balance = vi.fn().mockResolvedValueOnce(500).mockReturnValueOnce(late.promise);
+  const c = createBalanceCache(); const yc = { balance } as unknown as YouCam;
+  (await c.reserve(yc, NOW, 20, 100))!.keep();                                             // before: the next read already reflects it
+  expect(await c.get(yc, NOW)).toBe(480);
+  const after = (await c.reserve(yc, NOW, 20, 100))!;
+  const refresh = c.get(yc, NOW + 30_000);
+  late.resolve(480);
+  expect(await refresh).toBe(460);                                                         // the open hold, not a spend
+  after.keep();                                                                            // after the read landed
+  expect(await c.get(yc, NOW + 30_000)).toBe(460);
+});
+test("concurrent callers sharing one in-flight read both see a spend made while it ran", async () => {
+  const late = deferred<number>();
+  const balance = vi.fn().mockReturnValueOnce(late.promise);
+  const c = createBalanceCache(); const yc = { balance } as unknown as YouCam;
+  const first = c.get(yc, NOW);
+  c.spend(5);                                                                              // no value yet, but the read is in flight
+  const second = c.get(yc, NOW);
+  late.resolve(50);
+  expect(await Promise.all([first, second])).toEqual([45, 45]);
+  expect(balance).toHaveBeenCalledTimes(1);
 });
