@@ -21,8 +21,9 @@ for (const p of ["/", "/compare", "/evidence"]) {
 }
 
 // The search field's label names the one control that reaches the labels that are not chips, so, like the chip names,
-// it is outside the budget; it is exactly "Find your sunscreen" and nothing else is.
-test("/ stays within 20 words besides the bottle names and the search label", async ({ page }) => {
+// it is outside the budget; it is exactly "Find your sunscreen" and nothing else is. The sample face button is the one
+// way to try the page without a selfie, so it is outside the budget too, and is exactly "Use a sample face".
+test("/ stays within 20 words besides the bottle names, the search label and the sample face button", async ({ page }) => {
   await page.goto("/");
   const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
   const chips = page.locator("main button[aria-pressed]");
@@ -30,7 +31,10 @@ test("/ stays within 20 words besides the bottle names and the search label", as
   const chipWords = (await chips.allInnerTexts()).reduce((n, t) => n + words(t), 0);
   const label = page.locator("main label", { hasText: "Find your sunscreen" });
   await expect(label).toHaveText("Find your sunscreen");
-  expect(words(await page.locator("main").innerText()) - chipWords - words("Find your sunscreen")).toBeLessThanOrEqual(20);
+  const sample = page.locator("main button", { hasText: "sample" });
+  await expect(sample).toHaveText("Use a sample face");
+  const outside = words("Find your sunscreen") + words("Use a sample face");
+  expect(words(await page.locator("main").innerText()) - chipWords - outside).toBeLessThanOrEqual(20);
 });
 
 test("hand line and h1 do not overlap", async ({ page }) => {

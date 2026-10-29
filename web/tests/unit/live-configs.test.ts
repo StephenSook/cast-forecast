@@ -14,8 +14,16 @@ test("each suite has its own include set and script", () => {
   expect(includeOf("vitest.config.ts")).toEqual(["tests/unit/**/*.test.ts", "tests/ui/**/*.test.tsx"]);
   expect(includeOf("vitest.live.config.ts")).toEqual(["tests/live/**/*.test.ts"]);
   expect(includeOf("vitest.live-task.config.ts")).toEqual(["tests/live-task/**/*.test.ts"]);
+  expect(includeOf("vitest.record.config.ts")).toEqual(["tests/record/**/*.test.ts"]);
   expect(pkg.scripts["test:live"]).toBe("vitest run --config vitest.live.config.ts");
   expect(pkg.scripts["test:live:task"]).toBe("vitest run --config vitest.live-task.config.ts");
+  expect(pkg.scripts["record:sample"]).toBe("vitest run --config vitest.record.config.ts");
+});
+// The sample recorder spends about 50 units, so it is one file, in its own folder, reached only by its own script.
+test("the sample recorder is the only file under tests/record and no other script runs it", () => {
+  expect(walk("tests/record", [".ts"])).toEqual(["tests/record/sample.record.test.ts"]);
+  const runners = Object.entries(pkg.scripts).filter(([, cmd]) => cmd.includes("vitest.record.config.ts"));
+  expect(runners.map(([name]) => name)).toEqual(["record:sample"]);
 });
 test("nothing under tests/live starts a task; the one paid check is under tests/live-task", () => {
   const free = walk("tests/live", [".ts"]);

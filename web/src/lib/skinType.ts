@@ -6,6 +6,11 @@ export function isFitzpatrick(v: unknown): v is Fitzpatrick {
   return typeof v === "string" && (FITZPATRICK as readonly string[]).includes(v);
 }
 
+/** A tone as the swatches name it: "L* 55", or "Deeper" for skin past the study's range. */
+export function toneWord(t: number | "deeper"): string {
+  return t === "deeper" ? "Deeper" : `L* ${t}`;
+}
+
 /**
  * The tone suggested for each type: a starting point the shopper confirms or changes, never a measurement. A type
  * describes how skin burns and tans, not its colour, so each is paired in order with an ITA° colour class (very light,
