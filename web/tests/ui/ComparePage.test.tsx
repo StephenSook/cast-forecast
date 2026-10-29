@@ -14,7 +14,7 @@ import Compare from "@/app/compare/page";
 test("mixed units show the Data unavailable card and no unit sentence", () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   render(<Compare />);
-  expect(screen.getByText(/Data unavailable: measured whitening by bottle/)).toBeInTheDocument();
-  expect(screen.queryByText(/Measured whitening, in/)).toBeNull();
-  expect(screen.queryByRole("list", { name: "Measured whitening by bottle" })).toBeNull();
+  expect(screen.getByText(/Data unavailable: predicted whitening by bottle/)).toBeInTheDocument();
+  expect(screen.queryByText(/Predicted whitening on skin of L\* 55, in/)).toBeNull();
+  expect(screen.queryByRole("list", { name: "Predicted whitening by bottle" })).toBeNull();
 });

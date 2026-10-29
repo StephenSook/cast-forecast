@@ -28,7 +28,7 @@ test("routes answer 503 not_configured without a key", async () => {            
   const { deps, ff } = testDeps({ env: { youcamKey: null, toneEnabled: true } });
   const responses = [
     await makeUploadHandler(deps)(jpegPost(fakeJpeg(640, 480))),
-    await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"]))),
+    await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone: 55 }, cookieFor(["file-1"]))),
     await makeToneHandler(deps)(jsonPost("/api/tone", { fileId: "file-1" }, cookieFor(["file-1"]))),
     await makeCreditsHandler(deps)(get("/api/credits"))];
   for (const res of responses) { expect(res.status).toBe(503); expect((await res.json()).error.code).toBe("not_configured"); }
@@ -38,7 +38,7 @@ test("upload, render and tone answer 503 not_configured without a session secret
   const { deps, ff } = testDeps({ env: { sessionSecret: null, toneEnabled: true } });
   const responses = [
     await makeUploadHandler(deps)(jpegPost(fakeJpeg(640, 480))),
-    await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" })),
+    await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone: 55 })),
     await makeToneHandler(deps)(jsonPost("/api/tone", { fileId: "file-1" }))];
   for (const res of responses) { expect(res.status).toBe(503); expect((await res.json()).error.code).toBe("not_configured"); }
   expect(ff.calls).toEqual([]);

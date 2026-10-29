@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { compareRows, measuredLine } from "@/lib/compare";
+import { compareRows, evidenceLine } from "@/lib/compare";
 import { testEntry } from "../helpers/entries";
 
 test("an empty catalogue gives no rows and no problem", () => {
@@ -21,7 +21,10 @@ test("mixed units are a problem, because one axis cannot honestly hold both", ()
   expect(r.problem).toMatch(/mixed units/);
 });
 
-test("the measured line is singular for one photo", () => {
-  expect(measuredLine(testEntry({ evidence: { csvRowId: "r", measuredAt: "2026-10-27", photos: 1 } }))).toBe("Range 1.9 to 2.9 L*, from 1 photo measured 2026-10-27.");
-  expect(measuredLine(testEntry())).toBe("Range 1.9 to 2.9 L*, from 3 photos measured 2026-10-27.");
+test("the evidence line names the label, the reference skin and the miss range, all read from the entry", () => {
+  expect(evidenceLine(testEntry())).toBe(
+    "Predicted from the label's 20% zinc oxide (FDA label of 2026-10-27) for skin of L* 55. Range 1.9 to 2.9 L*, the model's typical miss on a product it was not fitted on.",
+  );
+  const other = testEntry({ evidence: { source: "fda-label", setId: "00000000-0000-4000-8000-000000000002", labelEffective: "2025-02-13", zincOxidePct: 21.6 } });
+  expect(evidenceLine(other)).toContain("21.6% zinc oxide (FDA label of 2025-02-13)");
 });

@@ -9,7 +9,7 @@ import { cookieFor, get, jsonPost, testDeps } from "../helpers/routes";
 
 const okRender = { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }),
   [POLL_VTO]: jsonReply(200, { data: { task_status: "success", results: { url: "https://out.example/r.png" } } }) };
-const renderReq = (cookie = cookieFor(["file-1"])) => jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookie);
+const renderReq = (cookie = cookieFor(["file-1"])) => jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone: 55 }, cookie);
 
 test("credits returns balance, floor and aboveFloor", async () => {
   const { deps } = testDeps({ balance: 879 });

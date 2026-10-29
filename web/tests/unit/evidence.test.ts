@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { cellParts, CURVE_Y_MAX, curveLabel, curvePoints, evidenceSteps, evidenceTiles, factLine, MEASUREMENTS_CSV_URL, originFrom } from "@/lib/evidence";
+import { cellParts, CURVE_Y_MAX, curveLabel, curvePoints, DATA_URL, evidenceSteps, evidenceTiles, factLine, originFrom } from "@/lib/evidence";
 import { K1B } from "@/lib/gates";
 
 test("tiles read the recorded K1b numbers", () => {
@@ -20,14 +20,15 @@ test("the render count and the dE00 bar are read from the summary, never hardcod
   expect(evidenceTiles({ ...K1B, g100: 0.5, unitsSpent: 7, r2: 0.9, inverseGatingDe00: 0.25 }).map((t) => t.value)).toEqual(["0.900", "0.25", "0.500", "7"]);
 });
 
-test("steps print the curl and link no CSV until one is published", () => {
-  const steps = evidenceSteps("https://x.test", 0);
-  expect(steps.map((s) => s.title)).toEqual(["Read the gates", "Check the render mapping", "Measurements", "Read the code"]);
+test("steps print the curl and link the study table and the labels", () => {
+  const steps = evidenceSteps("https://x.test", 8);
+  expect(steps.map((s) => s.title)).toEqual(["Read the gates", "Check the render mapping", "The data", "Read the code"]);
   expect(steps[1].code).toBe("curl -s https://x.test/api/gates");
-  expect(steps[2].href).toBeUndefined();
+  expect(steps[2].href).toBe(DATA_URL);
+  expect(steps[2].body).toContain("each of the 8 bottles");
+  expect(DATA_URL).toBe("https://github.com/StephenSook/cast-forecast/tree/main/data");
   expect(steps[0].href).toContain("/docs/gates/README.md");
   expect(steps[3].href).toBe("https://github.com/StephenSook/cast-forecast");
-  expect(MEASUREMENTS_CSV_URL).toBeNull();
 });
 
 // docs/gates/gate1-results.md discloses that Gate 1's first rows were printed before its rule, so "written before its data" is false.
@@ -38,7 +39,7 @@ test("step 1 does not claim every rule preceded its data", () => {
 });
 
 test("the fact line carries the counts and the 7 character release", () => {
-  expect(factLine(0, 4, "63868ece36982b8a")).toBe("Bottles measured: 0. Gates on record: 4. Release 63868ec.");
+  expect(factLine(0, 4, "63868ece36982b8a")).toBe("Bottles: 0. Gates on record: 4. Release 63868ec.");
 });
 
 test("the curve points and its label come from the K1b fit", () => {

@@ -46,7 +46,7 @@ test("render: a non-YouCam throw from the task start is 502, keeps its unit, and
   const log = logged();
   const t = testDeps({ catalogue: [testEntry()], balance: 879 });
   const deps = () => ({ ...t.deps(), youcam: (key: string) => ({ ...t.deps().youcam(key), run: async () => { throw leaky(); } }) });
-  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"])));
+  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone: 55 }, cookieFor(["file-1"])));
   expect(res.status).toBe(502);
   expectNameOnly(log.lines(), "render", "TypeError");
   expect((await (await makeCreditsHandler(t.deps)(get("/api/credits"))).json()).balance).toBe(878);
@@ -63,7 +63,7 @@ test("render: a YouCamError from the task start refunds only when it carries a 4
   for (const [thrown, want] of cases) {
     const t = testDeps({ catalogue: [testEntry()], balance: 879 });
     const deps = () => ({ ...t.deps(), youcam: (key: string) => ({ ...t.deps().youcam(key), run: async () => { throw thrown; } }) });
-    expect((await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"])))).status).not.toBe(200);
+    expect((await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone: 55 }, cookieFor(["file-1"])))).status).not.toBe(200);
     expect((await (await makeCreditsHandler(t.deps)(get("/api/credits"))).json()).balance, thrown.code).toBe(want);
   }
 });
@@ -71,7 +71,7 @@ test("render: a non-YouCam throw from the poll, after YouCam accepted the task, 
   const log = logged();
   const t = testDeps({ catalogue: [testEntry()], balance: 879, routes: { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }) } });
   const deps = () => ({ ...t.deps(), youcam: (key: string) => ({ ...t.deps().youcam(key), poll: async () => { throw leaky(); } }) });
-  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"])));
+  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone: 55 }, cookieFor(["file-1"])));
   expect(res.status).toBe(502);
   expectNameOnly(log.lines(), "render", "TypeError");
   expect((await (await makeCreditsHandler(t.deps)(get("/api/credits"))).json()).balance).toBe(878);
@@ -88,7 +88,7 @@ test("an expected YouCam failure (a face error) is answered and not logged", asy
   const log = logged();
   const { deps } = testDeps({ catalogue: [testEntry()], balance: 879, routes: { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }),
     [POLL_VTO]: jsonReply(200, { data: { task_status: "error", error: "error_face_angle_invalid" } }) } });
-  expect((await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"])))).status).toBe(422);
+  expect((await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone: 55 }, cookieFor(["file-1"])))).status).toBe(422);
   expect(log.spy).not.toHaveBeenCalled();
 });
 

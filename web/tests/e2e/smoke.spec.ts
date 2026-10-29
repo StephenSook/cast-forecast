@@ -19,9 +19,13 @@ for (const p of ["/", "/compare", "/evidence"]) {
   });
 }
 
-test("/ stays within 20 words on an empty catalogue", async ({ page }) => {         // expected 18
+test("/ stays within 20 words besides the bottle names", async ({ page }) => {
   await page.goto("/");
-  expect((await page.locator("main").innerText()).split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(20);
+  const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
+  const chips = page.locator("main button[aria-pressed]");
+  expect(await chips.count()).toBeGreaterThanOrEqual(5);
+  const chipWords = (await chips.allInnerTexts()).reduce((n, t) => n + words(t), 0);
+  expect(words(await page.locator("main").innerText()) - chipWords).toBeLessThanOrEqual(20);
 });
 
 test("hand line and h1 do not overlap", async ({ page }) => {
@@ -76,10 +80,12 @@ test("/api/gates recomputes the K1b plan", async ({ page }) => {
   expect(g.k1b.inverseCheck.every((c: { match: boolean }) => c.match)).toBe(true);
 });
 
-// Added for the empty catalogue and the phone path.
-test("/compare shows the empty line, and every chart label renders at 12 px or more", async ({ page }) => {
+// Added for the catalogue and the phone path.
+test("/compare draws one bar per bottle, and every chart label renders at 12 px or more", async ({ page }) => {
   await page.goto("/compare");
-  await expect(page.getByRole("main").getByText("No bottles measured yet.")).toBeVisible();
+  const bars = page.getByRole("list", { name: "Predicted whitening by bottle" });
+  await expect(bars).toBeVisible();
+  expect(await bars.getByRole("listitem").count()).toBeGreaterThanOrEqual(5);
   await page.goto("/evidence");
   const sizes = await page.locator("[data-chart-label]").evaluateAll((els) => els.map((e) => parseFloat(getComputedStyle(e).fontSize)));
   expect(sizes.length).toBe(2);

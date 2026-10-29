@@ -1,0 +1,102 @@
+{
+  "source": "openFDA drug label API (DailyMed SPL)",
+  "retrieved": "2026-10-29",
+  "bottles": [
+    {
+      "id": "cetaphil-sheer-mineral-face",
+      "name": "Cetaphil Sheer Mineral",
+      "brand": "Cetaphil",
+      "label_name": "Cetaphil Sheer Mineral Face Liquid Sunscreen SPF 50",
+      "manufacturer": "Galderma Laboratories, L.P.",
+      "upc": null,
+      "set_id": "0d09b812-b3ca-4214-bed7-7e21ee3288b7",
+      "label_effective": "20231114",
+      "active_ingredient_text": "Active Ingredients Zinc Oxide 12%",
+      "zinc_oxide_pct": 12.0
+    },
+    {
+      "id": "babo-sheer-zinc",
+      "name": "Babo Sheer Zinc",
+      "brand": "Babo Botanicals",
+      "label_name": "Babo Botanicals Sheer Zinc Mineral Sunscreen SPF30",
+      "manufacturer": "Babo Botanicals, Inc.",
+      "upc": null,
+      "set_id": "08f0436b-85b6-5099-e063-6294a90a4c2e",
+      "label_effective": "20251009",
+      "active_ingredient_text": "Active ingredient Zinc Oxide 16.0%",
+      "zinc_oxide_pct": 16.0
+    },
+    {
+      "id": "supergoop-mineral-sheer-stick",
+      "name": "Supergoop Mineral Stick",
+      "brand": "Supergoop",
+      "label_name": "Mineral Sheer Stick",
+      "manufacturer": "Supergoop, LLC",
+      "upc": "0816218029890",
+      "set_id": "0beed72e-51df-d15a-e063-6394a90af559",
+      "label_effective": "20251217",
+      "active_ingredient_text": "Active Ingredients: Zinc Oxide 16.0%...Sunscreen",
+      "zinc_oxide_pct": 16.0
+    },
+    {
+      "id": "badger-face-mineral",
+      "name": "Badger Face Mineral",
+      "brand": "Badger",
+      "label_name": "Badger SPF 30 Face Mineral Sunscreen",
+      "manufacturer": "W.S. Badger Company, Inc.",
+      "upc": "0634084471724",
+      "set_id": "14a9b605-f1f0-00e5-e063-6394a90a5a51",
+      "label_effective": "20260331",
+      "active_ingredient_text": "Active Ingredient Uncoated Zinc Oxide 18.75%",
+      "zinc_oxide_pct": 18.75
+    },
+    {
+      "id": "hello-bello-mineral",
+      "name": "Hello Bello Mineral",
+      "brand": "Hello Bello",
+      "label_name": "Mineral Sunscreen SPF 50",
+      "manufacturer": "Hello Bello",
+      "upc": null,
+      "set_id": "01cc205b-a345-262a-e063-6394a90a955c",
+      "label_effective": "20250108",
+      "active_ingredient_text": "Active Ingredients Zinc Oxide 20.0%",
+      "zinc_oxide_pct": 20.0
+    },
+    {
+      "id": "neutrogena-sheer-zinc",
+      "name": "Neutrogena Sheer Zinc",
+      "brand": "Neutrogena",
+      "label_name": "Neutrogena Sheer Zinc Mineral Sunscreen Broad Spectrum SPF 50",
+      "manufacturer": "Kenvue Brands LLC",
+      "upc": "0086800110804",
+      "set_id": "525f7bae-44b8-44e4-93ea-32995eca2566",
+      "label_effective": "20250213",
+      "active_ingredient_text": "Active ingredient Zinc Oxide (21.6%)",
+      "zinc_oxide_pct": 21.6
+    },
+    {
+      "id": "eltamd-uv-aox-mist",
+      "name": "EltaMD UV AOX Mist",
+      "brand": "EltaMD",
+      "label_name": "EltaMD UV AOX Mist",
+      "manufacturer": "CP Skin Health Group, Inc",
+      "upc": null,
+      "set_id": "1062efb1-a638-4323-88f8-f2f98a5b996e",
+      "label_effective": "20231109",
+      "active_ingredient_text": "Active Ingredient Zinc Oxide 14.0% Sunscreen",
+      "zinc_oxide_pct": 14.0
+    },
+    {
+      "id": "coppertone-pure-and-simple",
+      "name": "Coppertone Pure and Simple",
+      "brand": "Coppertone",
+      "label_name": "Coppertone Pure and Simple Sunscreen SPF 50",
+      "manufacturer": "Beiersdorf Inc",
+      "upc": "0072140028831",
+      "set_id": "081484f8-58f5-f2a4-e063-6394a90a3379",
+      "label_effective": "20251231",
+      "active_ingredient_text": "Active ingredient Zinc Oxide 24.08%",
+      "zinc_oxide_pct": 24.08
+    }
+  ]
+}

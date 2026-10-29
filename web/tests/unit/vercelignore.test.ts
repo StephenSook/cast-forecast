@@ -71,7 +71,7 @@ test("no uploaded, type-checked file imports anything the Vercel upload leaves o
 
 test("the ignore reader follows gitignore rules on the real .vercelignore", () => {
   expect(ignored("tests/fixtures/plain-640x480.jpg", RULES)).toBe(true);
-  expect(ignored("tests/contracts/catalogue-from-python.json", RULES)).toBe(false);
+  expect(ignored("src/data/bottles.json", RULES)).toBe(false);
   expect(ignored("node_modules/zod/index.js", RULES)).toBe(true);
   expect(ignored("src/x/a.tsbuildinfo", RULES)).toBe(true);
   expect(ignored(".env.local", RULES)).toBe(true);
@@ -83,19 +83,17 @@ test("the ignore reader follows gitignore rules on the real .vercelignore", () =
 
 // Codex review of PR #7: comment-separated imports, the @/ alias and a glob rule all slipped past the first guard.
 test("planted imports in every form are caught, including under a glob rule", () => {
-  const withGlob = [...RULES, ...parseIgnore("tests/contracts/*.json")];
+  const withGlob = [...RULES, ...parseIgnore("src/data/*.json")];
   const file = join(ROOT, "tests/unit/planted.ts");
   const planted = [
-    'import a from /* c */ "../contracts/catalogue-from-python.json";',
-    'const b = await import/* c */("../contracts/catalogue-from-python.json");',
-    'import c from "@/../tests/contracts/catalogue-from-python.json";',
+    'import a from /* c */ "../../src/data/bottles.json";',
+    'const b = await import/* c */("../../src/data/bottles.json");',
+    'import c from "@/data/bottles.json";',
   ].join("\n");
   expect(violationsIn(file, planted, withGlob)).toHaveLength(3);
   expect(violationsIn(file, planted, RULES)).toEqual([]);
-  const routes = join(ROOT, "tests/unit/routes.render.test.ts");
-  expect(violationsIn(routes, readFileSync(routes, "utf8"), withGlob)).toEqual([
-    "tests/unit/routes.render.test.ts -> ../contracts/catalogue-from-python.json",
-  ]);
+  const catalogue = join(ROOT, "src/lib/catalogue.ts");
+  expect(violationsIn(catalogue, readFileSync(catalogue, "utf8"), withGlob)).toEqual(["src/lib/catalogue.ts -> @/data/bottles.json"]);
 });
 
 test("an import from outside web/ is caught: only web/ is uploaded", () => {

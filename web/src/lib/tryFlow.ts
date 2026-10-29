@@ -12,6 +12,8 @@ export type TryState = {
   image: PreparedImage | null;
   fileId: string | null;
   bottleId: string | null;
+  /** The L* of the skin tone picked, "deeper" for skin past the study's range (no prediction), or null before a pick. */
+  tone: number | "deeper" | null;
   result: RenderResult | null;
   code: CfErrorCode | null;
   message: string | null;
@@ -20,6 +22,7 @@ export type TryState = {
 
 export type TryEvent =
   | { type: "PHOTO_READY"; image: PreparedImage }
+  | { type: "TONE"; tone: number | "deeper" }
   | { type: "PICK"; bottleId: string }
   | { type: "UPLOADED"; fileId: string }
   | { type: "RENDERED"; result: RenderResult }
@@ -29,12 +32,17 @@ export type TryEvent =
 export const EXPIRED_LINE = "That render expired. Pick the bottle again.";
 
 export function initialTryState(bottleId: string | null = null): TryState {
-  return { phase: "empty", image: null, fileId: null, bottleId, result: null, code: null, message: null, expired: false };
+  return { phase: "empty", image: null, fileId: null, bottleId, tone: null, result: null, code: null, message: null, expired: false };
 }
 
-/** A bottle can be picked once there is a photo and nothing is in flight. */
+/** Nothing is in flight. */
+function settled(s: TryState): boolean {
+  return s.phase === "empty" || s.phase === "ready" || s.phase === "result" || s.phase === "error";
+}
+
+/** A bottle can be picked once there is a photo and a tone with a prediction, and nothing is in flight. */
 export function canPick(s: TryState): boolean {
-  return s.image !== null && (s.phase === "ready" || s.phase === "result" || s.phase === "error");
+  return s.image !== null && typeof s.tone === "number" && s.phase !== "empty" && settled(s);
 }
 
 /**
@@ -45,6 +53,10 @@ export function tryReducer(s: TryState, e: TryEvent): TryState {
   switch (e.type) {
     case "PHOTO_READY":
       return { ...s, phase: "ready", image: e.image, fileId: null, result: null, code: null, message: null, expired: false };
+    case "TONE":
+      // A shown render belongs to the old tone, so it goes; the uploaded file and any line about the photo stay.
+      if (!settled(s)) return s;
+      return s.phase === "result" ? { ...s, tone: e.tone, phase: "ready", result: null } : { ...s, tone: e.tone };
     case "PICK":
       if (!canPick(s)) return s;
       return { ...s, phase: s.fileId === null ? "uploading" : "rendering", bottleId: e.bottleId, code: null, message: null, expired: false };

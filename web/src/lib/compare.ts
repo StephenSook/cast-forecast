@@ -1,10 +1,10 @@
 import type { Bottle } from "@/lib/catalogue";
 import type { BarRow } from "@/ui/Bars";
 
-/** The line under a bottle's number, read from its entry; one photo is singular. */
-export function measuredLine(b: Bottle): string {
+/** The line under a bottle's number, read from its entry: where the prediction comes from and how far it can miss. */
+export function evidenceLine(b: Bottle): string {
   const { whitening: w, evidence: e } = b;
-  return `Range ${w.low.toFixed(1)} to ${w.high.toFixed(1)} ${w.unit}, from ${e.photos} ${e.photos === 1 ? "photo" : "photos"} measured ${e.measuredAt}.`;
+  return `Predicted from the label's ${e.zincOxidePct}% zinc oxide (FDA label of ${e.labelEffective}) for skin of L* 55. Range ${w.low.toFixed(1)} to ${w.high.toFixed(1)} ${w.unit}, the model's typical miss on a product it was not fitted on.`;
 }
 
 /** The /compare bar rows, read from the catalogue entries. One axis means one unit, so mixed units are a problem. */
