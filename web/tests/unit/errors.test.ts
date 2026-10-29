@@ -12,7 +12,8 @@ test.each([
   ["error_face_position_invalid", 422, "face_position"],              // makeup_vto.yaml:1279
   ["error_face_position_out_of_boundary", 422, "face_position"],      // makeup_vto.yaml:1285
   ["error_face_position_too_small", 422, "face_too_small"],           // makeup_vto.yaml:1282
-  ["error_below_min_image_size", 422, "too_small"],                   // makeup_vto.yaml:1273
+  ["error_insufficient_lighting", 422, "lighting"],                   // ai_fitzpatrick_skin_type.yaml:208
+  ["error_below_min_image_size", 422, "too_small"],                  // makeup_vto.yaml:1273
   ["error_exceed_max_image_size", 413, "too_large"],                  // makeup_vto.yaml:1276
   ["exceed_max_filesize", 413, "too_large"],                          // makeup_vto.yaml:1460
   ["error_decode_image", 415, "unsupported_image"],                   // makeup_vto.yaml:1463
@@ -64,6 +65,7 @@ test("the message table is exactly the plan's copy", () => expect(MESSAGES).toEq
   face_position: "Fit your whole face in the frame. No render was made.",
   face_angle: "Face the camera straight on. No render was made.",
   face_too_small: "Move closer. No render was made.",
+  lighting: "Find brighter light. No render was made.",
   rate_limited: "Too many tries. Wait a minute.",
   busy: "Busy right now. Try again in 30 seconds.",
   credits_low: "Try-on is paused. Evidence is open.",

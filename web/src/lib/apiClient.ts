@@ -1,8 +1,9 @@
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
-import type { RenderResult } from "@/lib/types";
+import { isFitzpatrick } from "@/lib/skinType";
+import type { RenderResult, SkinTypeResult } from "@/lib/types";
 
 /**
- * Client deadlines, each above its route's maxDuration (upload 60 s, render 120 s), so the browser never gives up
+ * Client deadlines, each above its route's maxDuration (upload 60 s, render and skin type 120 s), so the browser never gives up
  * on a request the server is still working on and could still charge for. They only end a connection that hung.
  */
 export const UPLOAD_TIMEOUT_MS = 70_000;
@@ -88,6 +89,17 @@ function isRenderResult(v: unknown): v is RenderResult {
     Number.isFinite(v.predictedBlend) &&
     Number.isFinite(v.expiresAt)
   );
+}
+
+/** YouCam's Fitzpatrick skin type for an uploaded selfie. */
+export async function readSkinType(fileId: string, f: typeof fetch = fetch): Promise<SkinTypeResult> {
+  const body = await post(
+    "/api/skin-type",
+    { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId }), signal: timeoutSignal(RENDER_TIMEOUT_MS) },
+    f,
+  );
+  if (!isRecord(body) || !isFitzpatrick(body.fitzpatrick)) throw new ApiFailure("upstream");
+  return { fitzpatrick: body.fitzpatrick };
 }
 
 /** Renders the bottle's cast on an uploaded selfie. */

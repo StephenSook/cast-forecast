@@ -11,8 +11,12 @@ export const PUT_TIMEOUT_MS = 30_000;
 export const POLL_INTERVAL_MS = 2000;
 const DEFAULT_POLL_TIMEOUT_MS = 50_000;
 
-export type TaskEndpoint = "task/makeup-vto" | "task/skin-tone-analysis";
-const ENDPOINTS: ReadonlySet<string> = new Set<TaskEndpoint>(["task/makeup-vto", "task/skin-tone-analysis"]);
+export type TaskEndpoint = "task/makeup-vto" | "task/skin-tone-analysis" | "task/fitzpatrick-scale-analyzer";
+const ENDPOINTS: ReadonlySet<string> = new Set<TaskEndpoint>([
+  "task/makeup-vto",
+  "task/skin-tone-analysis",
+  "task/fitzpatrick-scale-analyzer",
+]);
 
 // A vendor code is a short identifier. Anything else (a sentence, control characters) is not trusted as a code.
 const CODE_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;

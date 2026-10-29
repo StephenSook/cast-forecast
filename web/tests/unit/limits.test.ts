@@ -40,6 +40,7 @@ test("the rule table", () => expect(RULES).toEqual({
   upload: { perSession: 6, perIp: 20, windowMs: 3_600_000 },
   render: { perSession: 20, perIp: 60, windowMs: 3_600_000 },
   tone: { perSession: 2, perIp: 6, windowMs: 3_600_000 },
+  skinType: { perSession: 3, perIp: 9, windowMs: 3_600_000 },
   credits: { perSession: Infinity, perIp: 30, windowMs: 3_600_000 },
 }));
 test("a session denial records nothing against the IP", () => {

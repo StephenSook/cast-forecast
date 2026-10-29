@@ -2,7 +2,8 @@ import "server-only";
 import type { YouCam } from "@/server/youcam";
 
 /** YouCam units per task. The app counts them as spent once YouCam accepts the task (routes/common.ts paidTask). */
-export const UNIT_COST = { render: 1, tone: 20 } as const;
+// skinType: AI Fitzpatrick Skin Type Analysis V1.0, 10 units (reference__ai_fitzpatrick_skin_type.md, Unit Consumption).
+export const UNIT_COST = { render: 1, tone: 20, skinType: 10 } as const;
 
 /** True when paying `cost` still leaves at least `floor` units. A non-finite balance is never above. */
 export function aboveFloor(balance: number, cost: number, floor: number): boolean {

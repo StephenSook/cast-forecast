@@ -1,6 +1,6 @@
 import "server-only";
 
-export type Action = "upload" | "render" | "tone" | "credits";
+export type Action = "upload" | "render" | "tone" | "skinType" | "credits";
 
 type Rule = Readonly<{ perSession: number; perIp: number; windowMs: number }>;
 
@@ -20,6 +20,7 @@ export const RULES: Readonly<Record<Action, Rule>> = Object.freeze({
   upload: Object.freeze({ perSession: 6, perIp: 20, windowMs: HOUR_MS }),
   render: Object.freeze({ perSession: 20, perIp: 60, windowMs: HOUR_MS }),
   tone: Object.freeze({ perSession: 2, perIp: 6, windowMs: HOUR_MS }),
+  skinType: Object.freeze({ perSession: 3, perIp: 9, windowMs: HOUR_MS }),
   credits: Object.freeze({ perSession: Infinity, perIp: 30, windowMs: HOUR_MS }),
 });
 

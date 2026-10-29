@@ -10,6 +10,7 @@ export type CfErrorCode =
   | "face_position"
   | "face_angle"
   | "face_too_small"
+  | "lighting"
   | "rate_limited"
   | "busy"
   | "credits_low"
@@ -28,6 +29,7 @@ export const MESSAGES: Record<CfErrorCode, string> = {
   face_position: "Fit your whole face in the frame. No render was made.",
   face_angle: "Face the camera straight on. No render was made.",
   face_too_small: "Move closer. No render was made.",
+  lighting: "Find brighter light. No render was made.",
   rate_limited: "Too many tries. Wait a minute.",
   busy: "Busy right now. Try again in 30 seconds.",
   credits_low: "Try-on is paused. Evidence is open.",

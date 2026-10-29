@@ -7,7 +7,7 @@ import type { Bottle } from "@/lib/catalogue";
 import { ImageError, type PreparedImage } from "@/lib/image";
 import { MESSAGES } from "@/lib/messages";
 import { EXPIRED_LINE } from "@/lib/tryFlow";
-import { TryFlow } from "@/ui/TryFlow";
+import { DEEPER_LINE, TryFlow, suggestedLine } from "@/ui/TryFlow";
 import { expectNoAxeViolations } from "../axe";
 import { NOW } from "../helpers/constants";
 import { deferred } from "../helpers/deferred";
@@ -21,9 +21,10 @@ afterEach(() => {
 const image = { blob: new Blob(["x"], { type: "image/jpeg" }), width: 640, height: 480, url: "blob:a" };
 const result = { imageUrl: "https://out.example/r.png", bottleId: "test-a", colorIntensity: 49, predictedBlend: 0.1697, expiresAt: NOW + 6_900_000 };
 const bottles = [testEntry(), testEntry({ id: "test-b", name: "Test entry B" })];
-function setup(o: { bottles?: readonly Bottle[]; initialBottleId?: string | null; upload?: Mock; render?: Mock; prepare?: (f: File) => Promise<PreparedImage>; user?: ReturnType<typeof userEvent.setup> } = {}) {
+function setup(o: { bottles?: readonly Bottle[]; initialBottleId?: string | null; upload?: Mock; render?: Mock; readSkinType?: Mock; prepare?: (f: File) => Promise<PreparedImage>; user?: ReturnType<typeof userEvent.setup> } = {}) {
   const api = { upload: o.upload ?? vi.fn(async () => ({ fileId: "file-1" })),
-    render: o.render ?? vi.fn(async (_f: string, b: string) => ({ ...result, bottleId: b })) };
+    render: o.render ?? vi.fn(async (_f: string, b: string) => ({ ...result, bottleId: b })),
+    readSkinType: o.readSkinType ?? vi.fn(async () => ({ fitzpatrick: "IV" as const })) };
   const user = o.user ?? userEvent.setup();
   const view = render(<TryFlow bottles={o.bottles ?? bottles} initialBottleId={o.initialBottleId} api={api} prepare={o.prepare ?? (async () => image)} />);
   // A photo, then the middle tone, since no bottle can be picked without a tone.
@@ -343,4 +344,50 @@ test("has no axe violations with a result and with an error, and with no bottles
   const empty = setup({ bottles: [] });
   await empty.addPhoto();
   await expectNoAxeViolations(empty.container);
+});
+
+const SUGGEST = "Suggest my tone";
+const photoOnly = async (user: ReturnType<typeof userEvent.setup>) =>
+  user.upload(screen.getByTestId("upload-input"), new File(["x"], "a.jpg", { type: "image/jpeg" }));
+test("suggest reads the skin type once, picks its tone, and the bottle reuses the uploaded file", async () => {
+  const { api, user, chip, container } = setup();
+  expect(screen.getByRole("button", { name: SUGGEST })).toBeDisabled();
+  await photoOnly(user);
+  await user.click(screen.getByRole("button", { name: SUGGEST }));
+  expect(await screen.findByText(suggestedLine("IV"))).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Skin L* 55" })).toHaveAttribute("aria-pressed", "true");
+  expect(api.readSkinType).toHaveBeenCalledWith("file-1");
+  await expectNoAxeViolations(container);
+  await user.click(chip("Test entry A"));
+  await waitFor(() => expect(api.render).toHaveBeenCalledWith("file-1", "test-a", 55));
+  expect(api.upload).toHaveBeenCalledTimes(1);
+});
+test("a double tap on suggest reads once", async () => {
+  const gate = deferred<{ fitzpatrick: "II" }>();
+  const { api, user } = setup({ readSkinType: vi.fn(() => gate.promise) });
+  await photoOnly(user);
+  await user.click(screen.getByRole("button", { name: SUGGEST }));
+  await user.click(screen.getByRole("button", { name: SUGGEST }));
+  gate.resolve({ fitzpatrick: "II" });
+  expect(await screen.findByText(suggestedLine("II"))).toBeInTheDocument();
+  expect(api.readSkinType).toHaveBeenCalledTimes(1); expect(api.upload).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Skin L* 65" })).toHaveAttribute("aria-pressed", "true");
+});
+test("type VI suggests Deeper, says there is no prediction, and leaves the bottles off", async () => {
+  const { user, chip } = setup({ readSkinType: vi.fn(async () => ({ fitzpatrick: "VI" as const })) });
+  await photoOnly(user);
+  await user.click(screen.getByRole("button", { name: SUGGEST }));
+  expect(await screen.findByText(DEEPER_LINE)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Deeper" })).toHaveAttribute("aria-pressed", "true");
+  expect(chip("Test entry A")).toBeDisabled();
+});
+test("a failed read shows its line and the shopper can still pick a tone and a bottle", async () => {
+  const { api, user, chip } = setup({ readSkinType: vi.fn(async () => { throw new ApiFailure("lighting"); }) });
+  await photoOnly(user);
+  await user.click(screen.getByRole("button", { name: SUGGEST }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(MESSAGES.lighting);
+  await user.click(screen.getByRole("button", { name: "Skin L* 50" }));
+  await user.click(chip("Test entry A"));
+  await waitFor(() => expect(api.render).toHaveBeenCalledWith("file-1", "test-a", 50));
+  expect(api.upload).toHaveBeenCalledTimes(1);
 });
