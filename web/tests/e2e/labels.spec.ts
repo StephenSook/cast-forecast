@@ -57,3 +57,36 @@ test("/api/labels answers full entries for a query and refuses a blank one", asy
   expect(body.bottles.map((b: { id: string }) => b.id)).toContain(FOUND.id);
   expect((await request.get("/api/labels?q=")).status()).toBe(400);
 });
+
+test("/compare lists every label least cast first, searches, and changes tone", async ({ page }) => {
+  await page.goto("/compare");
+  const rows = page.getByRole("list", { name: "Predicted whitening by bottle" }).getByRole("listitem");
+  await expect(rows).toHaveCount(25);
+  await expect(page.getByText(/^Page 1 of \d+$/)).toBeVisible();
+  await page.getByRole("searchbox", { name: "Find your sunscreen" }).fill("blue lizard");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page).toHaveURL(/\/compare\?tone=55&q=blue\+lizard$/);
+  const n = await rows.count();
+  expect(n).toBeGreaterThanOrEqual(3);
+  for (const t of await rows.allInnerTexts()) expect(t).toMatch(/Blue Lizard/);
+  await page.getByRole("link", { name: "Skin L* 45" }).click();
+  await expect(page).toHaveURL(/tone=45/);
+  await expect(page.getByText(/^Predicted whitening on skin of L\* 45/)).toBeVisible();
+  await rows.first().getByRole("link").click();
+  await expect(page).toHaveURL(/\/bottle\/blue-lizard-/);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("a label that is not a chip has its own bottle page, on the tone asked for", async ({ page }) => {
+  expect((await page.goto(`/bottle/${FOUND.id}?tone=45`))!.status()).toBe(200);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(FOUND.name);
+  await expect(page.getByText(/for skin of L\* 45\./)).toBeVisible();
+  await expect(page.getByRole("link", { name: /Read the FDA label/ })).toHaveAttribute("href", /dailymed\.nlm\.nih\.gov.*setid=3368f1cb-/);
+  await expect(page.getByRole("link", { name: "Try it on me" })).toHaveAttribute("href", `/?bottle=${FOUND.id}&tone=45`);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
+  // Its "Try it on me" opens the Try page with that label as a picked chip and the tone picked.
+  await page.getByRole("link", { name: "Try it on me" }).click();
+  await expect(page.getByRole("button", { name: FOUND.name })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Skin L* 45" })).toHaveAttribute("aria-pressed", "true");
+});
