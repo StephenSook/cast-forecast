@@ -131,6 +131,14 @@ test("a PNG whose chunks are whole but whose image data is short is refused", ()
   expect(pngIntact(withHeight(ok, 33))).toBeNull();
 });
 
+test("a PNG with every CRC correct but an undefined row filter does not decode and is refused", async () => {
+  for (const filter of [0, 1, 2, 3, 4]) expect(pngIntact(makePng(24, 32, undefined, filter)), `filter ${filter}`).toEqual({ width: 24, height: 32 });
+  const bad = makePng(24, 32, undefined, 255);
+  expect(pngIntact(bad)).toBeNull();
+  const { run } = setup({ download: async () => bad });
+  await expect(run()).rejects.toThrow("render for test-a at L* 55 is a damaged PNG");
+});
+
 /** The PNG with IHDR's height rewritten and its CRC recomputed, so only the image data disagrees. */
 function withHeight(png: Uint8Array, h: number): Uint8Array {
   const out = Buffer.from(png);
