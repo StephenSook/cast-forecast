@@ -85,6 +85,14 @@ test("a refused render throws, and the earlier recording stays exactly as it was
   expect(readFileSync(dir.manifestPath, "utf8")).toBe("old manifest");
 });
 
+test("spending elsewhere on the account stops the run before the next paid call", async () => {
+  // Before the run, before the read and before the first render the balance covers what is left; then another spender
+  // takes it to 600, which cannot pay the last render (1 unit) and stay at the 600 floor. A cached balance would not see it.
+  const { ff, run } = setup({ balances: [1000, 1000, 1000, 600] });
+  await expect(run()).rejects.toThrow("stopped: 600 units cannot cover the 1 left in this run and stay at or above 600");
+  expect(ff.taskStarts()).toBe(2);
+});
+
 test("a run that would end under the floor starts no task at all", async () => {
   const { ff, run } = setup({ balances: [611] }); // 12 units needed: 611 - 12 = 599
   await expect(run()).rejects.toThrow(/^stopped: 611 units cannot cover the 12/);

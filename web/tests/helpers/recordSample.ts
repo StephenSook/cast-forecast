@@ -24,14 +24,16 @@ function imageKind(b: Uint8Array): "jpg" | "png" | null {
 /**
  * Records the sample face's skin type read and one render per bottle and tone, through the upload, skin-type and render
  * route handlers themselves (`deps` are the routes' own; the recorder passes production's with the real YouCam
- * client). It starts no task unless the account's balance covers the whole run and stays at or above `floor`. Any
- * refusal, unusable answer or failed download throws, and nothing has been written: the caller publishes only a
- * complete recording (publishSample). Errors name a bottle, a tone, a status or an error code, never a key, file id,
- * task id or URL.
+ * client). Before each paid call it reads the account's live balance and stops unless that balance still covers every
+ * paid call left in the run and stays at or above `floor`: spending elsewhere on the account (production, another run)
+ * is seen at the next call instead of being hidden by a cached balance. What another spender takes between that read
+ * and the task start is not seen; the account balance is the hard stop for that window. Any refusal, unusable answer
+ * or failed download throws, and nothing has been written: the caller publishes only a complete recording
+ * (publishSample). Errors name a bottle, a tone, a status or an error code, never a key, file id, task id or URL.
  */
 export async function recordSample(o: {
   deps: () => RouteDeps;
-  /** The account's balance (a free call). */
+  /** The account's live balance, read fresh on every call (a free call). */
   balance: () => Promise<number>;
   download: (url: string) => Promise<Uint8Array>;
   face: Uint8Array;
@@ -48,10 +50,14 @@ export async function recordSample(o: {
   if (!size) throw new Error("the sample face has no readable size");
 
   const pairs = o.bottles.flatMap((b) => o.tones.map((tone) => ({ bottle: b, tone })));
-  const cost = UNIT_COST.skinType + pairs.length * UNIT_COST.render;
-  const before = await o.balance();
-  if (!(before - cost >= o.floor)) throw new Error(`stopped: ${before} units cannot cover the ${cost} left in this run and stay at or above ${o.floor}`);
-  log(`units before: ${before}; this run needs at most ${cost}; floor ${o.floor}`);
+  let remaining = UNIT_COST.skinType + pairs.length * UNIT_COST.render;
+  const guard = async (): Promise<number> => {
+    const live = await o.balance();
+    if (!(live - remaining >= o.floor)) throw new Error(`stopped: ${live} units cannot cover the ${remaining} left in this run and stay at or above ${o.floor}`);
+    return live;
+  };
+  const before = await guard();
+  log(`units before: ${before}; this run needs at most ${remaining}; floor ${o.floor}`);
 
   const upload = makeUploadHandler(o.deps);
   const skinType = makeSkinTypeHandler(o.deps);
@@ -70,8 +76,10 @@ export async function recordSample(o: {
   }
 
   const read = await session();
+  await guard();
   const skinRes = await skinType(post("/api/skin-type", { fileId: read.fileId }, read.cookie));
   const skin = (await skinRes.json()) as { fitzpatrick?: unknown };
+  remaining -= UNIT_COST.skinType;
   if (skinRes.status !== 200 || !isFitzpatrick(skin.fitzpatrick)) throw new Error(`skin type refused: ${String(codeOf(skin))}`);
   log(`skin type read: Fitzpatrick ${skin.fitzpatrick}`);
 
@@ -81,8 +89,10 @@ export async function recordSample(o: {
   for (const b of o.bottles) {
     const s = await session();
     for (const tone of o.tones) {
+      await guard();
       const res = await render(post("/api/render", { fileId: s.fileId, bottleId: b.id, tone }, s.cookie));
       const out = (await res.json()) as { imageUrl?: unknown; colorIntensity?: unknown; predictedBlend?: unknown };
+      remaining -= UNIT_COST.render;
       const { imageUrl, colorIntensity, predictedBlend } = out;
       if (res.status !== 200 || typeof imageUrl !== "string" || typeof colorIntensity !== "number" || typeof predictedBlend !== "number") {
         throw new Error(`render refused for ${b.id} at L* ${tone}: ${String(codeOf(out))}`);
