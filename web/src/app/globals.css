@@ -148,6 +148,11 @@ input:focus-visible,
   outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
+/* A visually hidden radio shows its keyboard focus on the swatch after it (/scan). */
+.swatch-radio:focus-visible + span {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
 /* After .btn:focus-visible on purpose: same specificity, so source order makes amber win on ink. */
 .bg-ink :focus-visible,
 .on-ink :focus-visible {
