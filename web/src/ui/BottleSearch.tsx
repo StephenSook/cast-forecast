@@ -51,9 +51,12 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
 
   const q = query.trim();
   const searchable = foldText(q) !== "";
-  const results = searchable && answer ? answer.bottles : [];
+  // Only the answer to what the field says now: while a newer query is pending, an older answer's bottles are not
+  // options at all, so no key or tap can pick one (a pick starts a paid render).
+  const current = searchable && answer?.query === q ? answer : null;
+  const results = current ? current.bottles : [];
   // The panel (list and status line) shows once there is something to say about this query.
-  const shown = open && q !== "" && (!searchable || results.length > 0 || failed || answer?.query === q);
+  const shown = open && q !== "" && (!searchable || failed || current !== null);
   // What a screen reader is told is open: the list itself, only when it has options.
   const listed = shown && results.length > 0;
   const choose = (b: Bottle) => {
@@ -89,11 +92,11 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
       ? "No bottle by that name."
       : failed
         ? "Search is not answering. Try again."
-        : !answer || answer.total === 0
+        : !current || current.total === 0
           ? "No bottle by that name."
-          : answer.total > results.length
-            ? `${results.length} of ${answer.total}. Keep typing to narrow it.`
-            : `${answer.total} found.`;
+          : current.total > results.length
+            ? `${results.length} of ${current.total}. Keep typing to narrow it.`
+            : `${current.total} found.`;
 
   return (
     <div data-testid="bottle-search" className="grid gap-2 max-w-[34rem]">
@@ -116,6 +119,7 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
         onChange={(e) => {
           setQuery(e.target.value);
           setFailed(false); // a failure speaks for the query that failed, not the next one
+          setActive(-1); // an active option belonged to the old text
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}

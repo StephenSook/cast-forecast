@@ -76,6 +76,34 @@ test("an older answer that arrives late never replaces a newer one", async () =>
   expect(screen.queryByRole("option", { name: /Test entry A/ })).toBeNull();
 });
 
+// Codex review of PR #19: results for "old", ArrowDown, then the text changes while the new request is pending:
+// Enter picked the old bottle (and the Try page then starts a paid render).
+test("an option from an older query can never be picked while the new query is pending", async () => {
+  const pending = deferred<{ total: number; bottles: typeof a[] }>();
+  const search = vi.fn((q: string) => (q === "old" ? Promise.resolve({ total: 1, bottles: [a] }) : pending.promise));
+  const { onSelect, user, box } = setup(search);
+  await user.type(box, "old");
+  await screen.findByRole("option", { name: /Test entry A/ });
+  await user.keyboard("{ArrowDown}");
+  expect(box).toHaveAttribute("aria-activedescendant");
+  await user.type(box, " brand");
+  await waitFor(() => expect(search).toHaveBeenCalledWith("old brand", expect.anything()));
+  // The old answer's bottles are no longer options, nothing is active, and Enter picks nothing.
+  expect(screen.queryByRole("option")).toBeNull();
+  expect(box).not.toHaveAttribute("aria-activedescendant");
+  expect(box).toHaveAttribute("aria-expanded", "false");
+  await user.keyboard("{ArrowDown}{Enter}");
+  expect(onSelect).not.toHaveBeenCalled();
+  // Once the new answer lands, its options appear with none active, so Enter still picks nothing until chosen.
+  pending.resolve({ total: 1, bottles: [b] });
+  await screen.findByRole("option", { name: /Test entry B/ });
+  expect(box).not.toHaveAttribute("aria-activedescendant");
+  await user.keyboard("{Enter}");
+  expect(onSelect).not.toHaveBeenCalled();
+  await user.keyboard("{ArrowDown}{Enter}");
+  expect(onSelect).toHaveBeenCalledWith(b);
+});
+
 test("no match says so in one line, and the field does not claim an open list", async () => {
   const { user, box } = setup(vi.fn(async () => ({ total: 0, bottles: [] })));
   await user.type(box, "zzz");

@@ -6,18 +6,19 @@ import { ApiFailure } from "@/lib/apiClient";
 import { MESSAGES } from "@/lib/messages";
 import { TryFlow } from "@/ui/TryFlow";
 import { NOW } from "../helpers/constants";
+import { deferred } from "../helpers/deferred";
 import { testEntry } from "../helpers/entries";
 
 const image = { blob: new Blob(["x"], { type: "image/jpeg" }), width: 640, height: 480, url: "blob:a" };
 const chips = [testEntry(), testEntry({ id: "test-b", name: "Test entry B" })];
 const found = testEntry({ id: "test-found", name: "Test entry found", brand: "Search brand" });
 
-function setup(o: { render?: Mock; initialBottle?: typeof found; initialTone?: number } = {}) {
+function setup(o: { render?: Mock; search?: Mock; initialBottle?: typeof found; initialTone?: number } = {}) {
   const api = {
     upload: vi.fn(async () => ({ fileId: "file-1" })),
     render: o.render ?? vi.fn(async (_f: string, b: string) => ({ imageUrl: "https://out.example/r.png", bottleId: b, colorIntensity: 49, predictedBlend: 0.17, expiresAt: NOW + 6_900_000 })),
     readSkinType: vi.fn(async () => ({ fitzpatrick: "IV" as const })),
-    search: vi.fn(async () => ({ total: 1, bottles: [found] })),
+    search: o.search ?? vi.fn(async () => ({ total: 1, bottles: [found] })),
   };
   const user = userEvent.setup();
   render(<TryFlow bottles={chips} api={api} prepare={async () => image} initialBottle={o.initialBottle} initialTone={o.initialTone} />);
@@ -54,6 +55,25 @@ test("a result picked before the photo is marked picked and sends nothing, then 
   await addPhoto();
   await user.click(chip);
   await waitFor(() => expect(api.render).toHaveBeenCalledWith("file-1", "test-found", 55));
+});
+
+// Codex review of PR #19: an option left over from the previous query was picked by Enter and started a paid render.
+test("Enter while a newer search is pending starts no upload and no render", async () => {
+  const pending = deferred<{ total: number; bottles: (typeof found)[] }>();
+  const search = vi.fn((q: string) => (q === "found" ? Promise.resolve({ total: 1, bottles: [found] }) : pending.promise));
+  const { api, user, addPhoto } = setup({ search });
+  await addPhoto();
+  const box = screen.getByRole("combobox", { name: "Find your sunscreen" });
+  await user.type(box, "found");
+  await screen.findByRole("option", { name: /Test entry found/ });
+  await user.keyboard("{ArrowDown}");
+  await user.type(box, " other");
+  await waitFor(() => expect(search).toHaveBeenCalledWith("found other", expect.anything()));
+  await user.keyboard("{Enter}");
+  await new Promise((r) => setTimeout(r, 50));
+  expect(api.upload).not.toHaveBeenCalled();
+  expect(api.render).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Test entry found" })).toBeNull(); // nothing joined the chips
 });
 
 test("a search result gets the same refusals as a chip", async () => {
