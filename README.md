@@ -1,22 +1,48 @@
-# Cast Forecast gate harness
+# Cast Forecast
 
-## What this is
-The gate harness behind Cast Forecast. It tests, on one consenting person's selfies, two things the product would depend on:
+See a mineral sunscreen's white cast on your own selfie before you buy it.
 
-- K2: whether YouCam's skin tone analysis is a usable measurement of the colour in a photo.
-- K1 and K1b: whether YouCam's Makeup VTO foundation effect can render a sunscreen-like white film on a face.
+Why: in a 2024 dermatology survey, 25% of skin of color respondents named white cast as a barrier to sunscreen (7% of non-Hispanic White respondents), and 41% named finding suitable products ([Wang et al., J Drugs Dermatol 2024](https://pubmed.ncbi.nlm.nih.gov/38834222/)). Today you find out after you buy the bottle.
 
-Each gate has a pass rule written down before its data existed, and every result is published whichever way it landed. Gate 1 is a separate held-out test on published study data, with no YouCam calls.
+**Try it:** https://cast-forecast-web.vercel.app · **Evidence:** https://cast-forecast-web.vercel.app/evidence
 
-## Status
-- Gate 1: FAIL. A film model did not beat the label's zinc percentage at predicting on-skin whitening.
-- K2: FAIL. The skin colour input comes from our own cheek measurement; the YouCam tone value is kept only as a cross-check.
+## How it works
+1. Take a selfie or upload one.
+2. Pick the swatch closest to your skin, or tap **Suggest my tone**: YouCam's AI Fitzpatrick Skin Type Analysis reads the selfie, and the app preselects the swatch it maps that type to. It is a suggestion; you can change it.
+3. Tap a bottle. YouCam Makeup VTO renders that bottle's predicted cast on your face. Drag the slider to compare before and after.
+
+## Where each number comes from
+- **The bottle:** its zinc oxide percentage, read from its FDA label on DailyMed. Eight zinc-only sunscreens, each pinned by label set id in [`data/bottles/fda_labels.json`](data/bottles/fda_labels.json). A label is used only when its listed active ingredient is exactly zinc oxide and its text gives one plain percentage.
+- **The prediction:** a label-percent model fitted here to the raw data of a 2025 PLOS ONE study, using that study's white-cast normalization, dL* / (100 − L* before): `dL* = (a + c × ZnO%) × (100 − L* before)`. The study published the normalization; the straight line in zinc percent and its fit are this project's. In a strict held-out test (Gate 1) it missed by 1.61 L* on average (1.80 on the study's darker skin tones). Each result shows a ±2.35 L* band, the test's error on the study's one differently formulated product, because retail bottles are formulated differently too. CI recomputes the 1.61 from the committed table, [`data/plos2025/cells.csv`](data/plos2025/cells.csv).
+- **The picture:** a white foundation layer at the whole colorIntensity whose lightening, on the curve fitted to 16 K1b renders of one person (R² 0.98, checked with 3 more; PASS 5 of 5), comes closest to the prediction. Calculated on that curve, every bottle and tone lands within 0.16 L*; that is a mismatch under the fitted curve, not a measurement of each render.
+
+## YouCam APIs
+| API | Category | Used for |
+|---|---|---|
+| File upload | | every request below |
+| Makeup VTO (foundation) | Beauty | the render |
+| AI Fitzpatrick Skin Type Analysis | Skin | Suggest my tone |
+| AI Skin Tone Analysis | Skin | tested in Gate K2, which it failed as a colour measurement; not used by the app |
+
+## What it does not do
+- Nothing here was measured on a bottle in person. Gate 2 (cards and a forearm) was written down and never run, so every number is a prediction from the label.
+- The study measured skin down to about L* 44. Picking Deeper gets no prediction and a line that says why. The app does not measure the selfie's L*: the tone is the shopper's choice (or the suggestion), so a numeric tone picked for deeper skin would still get that tone's prediction.
+- It shows appearance only. It says nothing about sun protection.
+
+## Gates
+Each gate has a pass rule written before its data existed, and every result stays published.
+
+- Gate 1: FAIL for the film model; the label-percent model above won and is what the app uses.
+- K2: FAIL. YouCam's skin tone value is repeatable but does not track the photo's colour (15.1 dE00 from the measured cheek), so the shopper picks a tone instead.
 - K1: FAIL on 4 of 5 criteria, with coverage as the dose.
-- K1b: PASS 5 of 5, with colorIntensity as the dose.
+- K1b: PASS 5 of 5, with colorIntensity as the dose. This curve maps each prediction to a render.
+- Gate 2: not run.
 
-Rules, results and timing for each gate: [docs/gates/README.md](docs/gates/README.md).
+Rules, results and timing: [docs/gates/README.md](docs/gates/README.md).
 
-## Run the tests (no API key needed)
+## For developers
+
+### Run the tests (no API key needed)
 Python 3.12. The same steps run in CI (`.github/workflows/ci.yml`).
 
 ```
@@ -32,10 +58,10 @@ pytest -q
 - `requirements.lock` pins every package with hashes, including ruff, so lint and format results match CI. It is generated from `requirements.in` with `uv pip compile` (the command is in the file header).
 - `scripts/fetch_models.py` downloads the MediaPipe face landmarker model into `models/` and checks it against a pinned SHA-256.
 - On Linux, MediaPipe also needs `sudo apt-get install -y libegl1 libgles2`.
-- One test skips when the private selfie is absent (it needs a real face). Everything else runs anywhere.
+- Two tests need private files that are never committed, and skip without them, as in CI: one needs the selfie (a real face), and `tests/test_no_private_ids.py`, the scan of tracked files for real YouCam file and task ids, needs the run records in `recon/gate/`. That scan is a local check. The published-results checks, which do run in CI, look for id-shaped values but cannot match the real ids. Everything else runs anywhere.
 - The YouCam client is tested only through fake transports and connections. No test calls the YouCam API or needs a key.
 
-## Web app
+### Web app
 The Cast Forecast site lives in `web/` (Next.js). The UI uses a design system adapted from my HackGT 13 project Lullabuy, with its contrast and overflow defects fixed. Run these from `web/`:
 
 ```
@@ -48,16 +74,16 @@ pnpm e2e
 
 `pnpm e2e` serves the last `pnpm build` with `next start`, so build first. It also runs the deploy release check (`web/scripts/deploy_checks.py`, needs `python3`) against that server; if you build with `NEXT_PUBLIC_RELEASE_SHA` set, run `pnpm e2e` with the same value.
 
-Try-on routes answer "paused" until the server holds a YouCam key; `/evidence` works without one. `/api/tone` (a 20-unit skin tone analysis that no page calls) answers 404 unless the server sets `TONE_ENABLED=1`, which is for local runs only: the deploy scripts refuse it, like `SCAN_ENABLED`. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm test:bundle`, which scans the built client JavaScript for key names and the YouCam host.
+Try-on routes (`/api/upload`, `/api/render`, `/api/skin-type`) answer "paused" until the server holds a YouCam key; `/evidence` works without one. `/api/tone` (a 20-unit skin tone analysis that no page calls) answers 404 unless the server sets `TONE_ENABLED=1`, which is for local runs only: the deploy scripts refuse it, like `SCAN_ENABLED`. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm test:bundle`, which scans the built client JavaScript for key names and the YouCam host.
 
-Privacy (web app): the selfie leaves the browser only when a bottle is tapped. The server then removes EXIF (GPS included), XMP, IPTC, embedded thumbnails and comments, keeps the colour profile, and sends that copy to YouCam to render. The app stores no photo. Result links are YouCam's and last about 2 hours (the page treats one as expired 5 minutes early), as does the session cookie.
+Privacy (web app): the selfie leaves the browser only when you tap a bottle or Suggest my tone. The server then removes EXIF (GPS included), XMP, IPTC, embedded thumbnails and comments, keeps the colour profile, and sends that copy to YouCam to render or read the skin type. The app stores no photo. Result links are YouCam's and last about 2 hours, as does the session cookie; a render that no longer loads is shown as expired.
 
-### Limits
+#### Limits
 - The credit floor (`CREDIT_FLOOR`, default 100 units) and the per-session and per-IP request limits are per server instance and best effort. Each instance keeps its own cached balance, unit holds and request counts in memory; instances do not share them, and a cold start forgets the counts.
-- Near the floor, instances running at the same time can each admit a task on the balance they last read, so the account can end up below the floor by about one task per instance (1 unit for a render, 20 for a tone analysis).
+- Each instance checks the floor against its own balance, cached for up to 30 seconds, minus its own holds. Instances running at the same time can each spend the whole margin they last read, so the account can fall below the floor by up to that margin per instance (a render costs 1 unit, a skin-type read 10, a tone analysis 20).
 - The YouCam account balance is the hard stop: with too few units YouCam refuses the task (`CreditInsufficiency`, answered as `credits_low`).
 
-## Deploy
+### Deploy
 Deploys run from this Mac with the Vercel CLI (project `cast-forecast-web`, scope `ssookra-7703s-projects`). There is no deploy token, no deploy job in CI and no Git integration, so a push never deploys. Vercel Git integration: none (checked 2026-10-28, CLI).
 
 Vercel environment variables, exactly these:
@@ -103,7 +129,7 @@ Owner setup in the Vercel dashboard (not scripted): set Deployment Protection so
 
 Re-linking: `web/.gitignore` already holds `.vercel` and `.env*.local`, so `vercel link` does not create or change any tracked file. It does write `web/.env.local` (a Vercel OIDC token). That file is gitignored and listed in `.vercelignore`, is never committed, and should be deleted after linking. Link once; the deploy scripts never link.
 
-## Live runs
+### Live runs
 These spend YouCam API units and need the key in the macOS Keychain under the service name `youcam-api-key`. Each run checks the balance before uploading anything and stops if it is under 200 units.
 
 | Run | Command | Units |
@@ -112,17 +138,24 @@ These spend YouCam API units and need the key in the macOS Keychain under the se
 | K1 | `python -m castforecast.k1_render --selfie A --check B` | 42 |
 | K1b | `python -m castforecast.k1b_render --selfie A --check B` | 19 |
 
-Inputs are read from `private_inputs/selfies/` and results are written to `recon/gate/`; both folders are gitignored, as are the upload copies and renders under `private_inputs/`. A run refuses to start if its results file already exists, so no run can overwrite an earlier one. `scripts/publish_results.py` writes the sanitized copy that goes into `docs/gates/`.
+Inputs are read from `private_inputs/selfies/` and results are written to `recon/gate/`; both folders are gitignored, as are the upload copies and renders under `private_inputs/`. A run refuses to start if its results file already exists when it starts. That check and the final write are separate steps, so never start two runs of the same gate at once: both could pass the check and the second would replace the first. `scripts/publish_results.py` writes the sanitized copy that goes into `docs/gates/`.
 
-## Privacy (gate harness)
+The web app's live checks run in a browser against a deployed site and never in CI: a real try-on (1 unit) and a real skin-type read (10 units).
+
+```
+cd web
+BASE_URL=https://cast-forecast-web.vercel.app LIVE_SELFIE=/path/to/selfie.jpg pnpm e2e:live --project desktop
+```
+
+### Privacy (gate harness)
 The web app has its own privacy line, under Web app.
 
 - Only metadata-free sRGB copies are uploaded. The copy is rebuilt from pixels, so no EXIF, GPS or ICC data survives. For Makeup VTO (K1, K1b) the copies are also resized to fit width < 1920 and height < 1080.
 - Selfies, upload copies and renders never enter the repository.
 - Published JSON has no file ids, task ids, URLs, local paths or original photo sizes; `tests/test_published_results.py` checks this on every test run.
 
-## Limits
+### Limits (gate harness)
 One person, one lighting condition, and only the colour and texture of a cheek patch. The render tests are about the renderer, not about any sunscreen. Gate 1 uses one study's data (13 volunteers, 6 formulations).
 
-## License
-Code: MIT (see `LICENSE`). The MediaPipe face landmarker model is Apache-2.0 and is downloaded at test time, not stored here. The Gate 1 study data is downloaded from Mendeley Data by `analysis/gate1/fetch_data.py` and is not redistributed.
+### License
+Code: MIT (see `LICENSE`). The MediaPipe face landmarker model is Apache-2.0 and is downloaded at test time, not stored here. The Gate 1 study's spreadsheets are downloaded from Mendeley Data by `analysis/gate1/fetch_data.py` and are not redistributed; the derived table `data/plos2025/cells.csv` is committed under the study data's CC BY 4.0 license, credited in [`data/plos2025/README.md`](data/plos2025/README.md).

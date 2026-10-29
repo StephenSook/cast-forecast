@@ -10,7 +10,7 @@ const HOUR_MS = 3_600_000;
  * Sliding one-hour windows per session and per IP. Frozen.
  * The limiter is in memory, per instance and best-effort (controller ruling 2): instances do not share counts
  * and a cold start forgets them. Behind it is the YouCam credit floor (credits.ts), which is also per instance and
- * best effort: near the floor, concurrent instances can each overshoot it by about one task. The YouCam account
+ * best effort: concurrent instances can each spend the margin above it that they last read. The YouCam account
  * balance is the hard stop.
  * Under a distributed flood larger than the table cap within one window, newcomers in saturated overflow shards get
  * 429 busy with Retry-After; existing buckets are unaffected; the per-instance credit floor, then the account
