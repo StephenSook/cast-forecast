@@ -14,6 +14,7 @@ import {
   RATE_LIMITED,
   SERVER_INFO,
   SUPPORTED_VERSIONS,
+  acceptsJson,
   decodeHeaderValue,
   makeMcpHandler,
 } from "@/server/routes/mcp";
@@ -304,6 +305,16 @@ test("content type and Accept are checked before the body", async () => {
   expect((await send(rpc("ping"), { "Content-Type": "application/json; charset=utf-8" })).status).toBe(200);
   for (const accept of ["text/event-stream", "text/html", "application/json;q=0"]) await rpcErrorOf(await send(rpc("ping"), { Accept: accept }), 406, -32600);
   for (const accept of ["application/json, text/event-stream", "*/*", "application/*", ""]) expect((await send(rpc("ping"), { Accept: accept })).status).toBe(200);
+});
+
+// Codex review: a q=0 on application/json was overridden by a wildcard. RFC 9110 12.5.1: the most specific range wins.
+test("Accept: JSON's quality comes from the most specific range that matches it", () => {
+  for (const no of ["application/json;q=0, */*;q=1", "*/*, application/json; q=0", "application/*;q=0, */*", "text/event-stream", "application/json;q=", "application/xml"]) {
+    expect(acceptsJson(no), no).toBe(false);
+  }
+  for (const yes of [null, "", "*/*", "application/json;q=0.1, */*;q=0", "application/*;q=0, application/json", "text/html;q=0, */*;q=0.5", "Application/JSON"]) {
+    expect(acceptsJson(yes), String(yes)).toBe(true);
+  }
 });
 
 // Codex review: the allowed origin came from Host and X-Forwarded-Host, which the caller controls.

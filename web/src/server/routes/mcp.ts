@@ -91,14 +91,25 @@ function originAllowed(req: Request): boolean {
   }
 }
 
-/** False only for an Accept header that rules JSON out; a missing one, or curl's default, accepts it. */
-function acceptsJson(accept: string | null): boolean {
+/**
+ * False only for an Accept header that rules JSON out; a missing one, or curl's default, accepts it. JSON's quality is
+ * that of the most specific range that matches it (RFC 9110 12.5.1): a q=0 on application/json beats any wildcard.
+ */
+export function acceptsJson(accept: string | null): boolean {
   if (accept === null || accept.trim() === "") return true;
-  return accept.split(",").some((part) => {
+  let rank = 0;
+  let quality = 0;
+  for (const part of accept.split(",")) {
     const [range, ...params] = part.split(";").map((s) => s.trim().toLowerCase());
-    if (params.some((p) => /^q=0(\.0{0,3})?$/.test(p))) return false;
-    return range === "application/json" || range === "application/*" || range === "*/*";
-  });
+    const r = range === "application/json" ? 3 : range === "application/*" ? 2 : range === "*/*" ? 1 : 0;
+    if (r === 0 || r < rank) continue;
+    const q = params.find((p) => p.startsWith("q="));
+    const value = q === undefined ? 1 : Number(q.slice(2));
+    const v = Number.isFinite(value) ? value : 1;
+    quality = r > rank ? v : Math.max(quality, v);
+    rank = r;
+  }
+  return quality > 0;
 }
 
 /** An Mcp-Name value with the spec's =?base64?...?= sentinel decoded, or null when the header is absent or malformed. */
