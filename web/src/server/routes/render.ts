@@ -48,7 +48,7 @@ export function makeRenderHandler(deps: () => RouteDeps): (req: Request) => Prom
     // A tone the bottle does not list has no prediction (skin outside the study is never extrapolated). A render the K1b
     // curve cannot reach would show a weaker cast than predicted, and one that misses its own prediction by more than
     // RENDER_MAX_ERROR_L would show the wrong cast: all refused like an unknown bottle, before any YouCam call.
-    const bottle = findBottle(body.bottleId, d.catalogue);
+    const bottle = findBottle(body.bottleId, d.labels);
     const render = bottle ? (toneOf(bottle, body.tone)?.render ?? null) : null;
     const target = render && render.errorL <= RENDER_MAX_ERROR_L ? colorIntensityForBlend(render.blend) : null;
     if (!bottle || !render || !target?.reachable) return errorResponse("unknown_bottle", 404);

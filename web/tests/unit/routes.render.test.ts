@@ -199,7 +199,8 @@ test("every label in the full catalogue renders on every tone within the bound, 
 });
 test("a label found by search, not a chip, renders through the same route and checks", async () => {
   const found = LABELS.find((b) => !b.featured && b.id === "blue-lizard-sheer-sunscreen-3368f1cb")!;
-  const { deps, ff } = testDeps({ catalogue: LABELS, balance: 879, routes: okRender });
+  // The chips are the featured list; the render route checks the bottle against every label.
+  const { deps, ff } = testDeps({ catalogue: CATALOGUE, labels: LABELS, balance: 879, routes: okRender });
   const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: found.id, tone: 45 }, cookieFor(["file-1"])));
   expect(res.status).toBe(200);
   const render = found.tones.find((t) => t.lStar === 45)!.render!;
@@ -207,8 +208,9 @@ test("a label found by search, not a chip, renders through the same route and ch
   expect(JSON.parse(ff.calls.find((c) => c.url.endsWith("/task/makeup-vto"))!.body as string)).toEqual(makeupVtoPayload("file-1", render.paletteHex, intensity));
   expect(await res.json()).toMatchObject({ bottleId: found.id, colorIntensity: intensity });
 });
-test("the shipped render route reads the full catalogue", () => {
-  expect(defaultDeps().catalogue).toBe(LABELS);
+test("the shipped render route reads every label; the MCP tools keep the featured list", () => {
+  expect(defaultDeps().labels).toBe(LABELS);
+  expect(defaultDeps().catalogue).toBe(CATALOGUE);
 });
 test("carry 4: an unknown bottle id makes zero fetch calls", async () => {
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });

@@ -3,6 +3,7 @@
 import { type KeyboardEvent, useEffect, useId, useState } from "react";
 import type { SearchAnswer } from "@/lib/apiClient";
 import type { Bottle } from "@/lib/catalogue";
+import { foldText } from "@/lib/search";
 
 /** Wait after the last keystroke before asking the server. */
 export const SEARCH_DEBOUNCE_MS = 150;
@@ -26,7 +27,8 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
 
   useEffect(() => {
     const q = query.trim();
-    if (!q) return;
+    // Nothing a name could match ("&", "++"): the server would refuse it, so it is never sent.
+    if (!foldText(q)) return;
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
       search(q, ctrl.signal).then(
@@ -47,8 +49,13 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
     };
   }, [query, search]);
 
-  const results = query.trim() && answer ? answer.bottles : [];
-  const shown = open && query.trim() !== "" && (results.length > 0 || failed || answer?.query === query.trim());
+  const q = query.trim();
+  const searchable = foldText(q) !== "";
+  const results = searchable && answer ? answer.bottles : [];
+  // The panel (list and status line) shows once there is something to say about this query.
+  const shown = open && q !== "" && (!searchable || results.length > 0 || failed || answer?.query === q);
+  // What a screen reader is told is open: the list itself, only when it has options.
+  const listed = shown && results.length > 0;
   const choose = (b: Bottle) => {
     setOpen(false);
     setQuery("");
@@ -65,7 +72,7 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
       const step = e.key === "ArrowDown" ? 1 : -1;
       setActive((i) => (i + step + results.length) % results.length);
     } else if (e.key === "Enter") {
-      if (shown && active >= 0 && results[active]) {
+      if (listed && active >= 0 && results[active]) {
         e.preventDefault();
         choose(results[active]);
       }
@@ -78,13 +85,15 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
 
   const status = !shown
     ? ""
-    : failed
-      ? "Search is not answering. Try again."
-      : !answer || answer.total === 0
-        ? "No bottle by that name."
-        : answer.total > results.length
-          ? `${results.length} of ${answer.total}. Keep typing to narrow it.`
-          : `${answer.total} found.`;
+    : !searchable
+      ? "No bottle by that name."
+      : failed
+        ? "Search is not answering. Try again."
+        : !answer || answer.total === 0
+          ? "No bottle by that name."
+          : answer.total > results.length
+            ? `${results.length} of ${answer.total}. Keep typing to narrow it.`
+            : `${answer.total} found.`;
 
   return (
     <div data-testid="bottle-search" className="grid gap-2 max-w-[34rem]">
@@ -95,10 +104,10 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
         id={id}
         type="search"
         role="combobox"
-        aria-expanded={shown}
+        aria-expanded={listed}
         aria-controls={listId}
         aria-autocomplete="list"
-        aria-activedescendant={shown && active >= 0 ? `${listId}-${active}` : undefined}
+        aria-activedescendant={listed && active >= 0 ? `${listId}-${active}` : undefined}
         autoComplete="off"
         spellCheck={false}
         maxLength={60}
@@ -106,6 +115,7 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
+          setFailed(false); // a failure speaks for the query that failed, not the next one
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
@@ -117,7 +127,7 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
         id={listId}
         role="listbox"
         aria-label="Sunscreens"
-        hidden={!shown || results.length === 0}
+        hidden={!listed}
         // In the flow, not floating: the section card clips what overflows it, and on a phone the field sits near its end.
         className="max-h-80 overflow-y-auto rounded-3xl border-2 border-ink bg-paper p-2 shadow-[0_4px_0_var(--ink)]"
       >

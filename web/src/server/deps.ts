@@ -1,5 +1,5 @@
 import "server-only";
-import type { Bottle } from "@/lib/catalogue";
+import { type Bottle, CATALOGUE } from "@/lib/catalogue";
 import { type BalanceCache, createBalanceCache } from "@/server/credits";
 import { type ServerEnv, readServerEnv } from "@/server/env";
 import { LABELS } from "@/server/labels";
@@ -11,7 +11,10 @@ export type RouteDeps = {
   env: ServerEnv;
   youcam: (key: string) => YouCam;
   limiter: Limiter;
+  /** The featured bottles (the chips): what the MCP tools list and predict. */
   catalogue: readonly Bottle[];
+  /** Every kept FDA label: what the render route accepts, so a bottle found by search renders like a chip. */
+  labels: readonly Bottle[];
   balance: BalanceCache;
   now: () => number;
 };
@@ -27,8 +30,10 @@ export function defaultDeps(): RouteDeps {
     env: readServerEnv(),
     youcam: (key) => createYouCam({ key }),
     limiter,
-    // Every kept label, so a bottle found by search renders through the same checks as a chip.
-    catalogue: LABELS,
+    // The MCP tools keep the featured list they shipped with (a reply listing every label would be about 250 KB);
+    // widening them is a separate decision.
+    catalogue: CATALOGUE,
+    labels: LABELS,
     balance,
     now: () => Date.now(),
   };

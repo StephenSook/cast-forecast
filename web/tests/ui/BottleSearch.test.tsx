@@ -76,17 +76,38 @@ test("an older answer that arrives late never replaces a newer one", async () =>
   expect(screen.queryByRole("option", { name: /Test entry A/ })).toBeNull();
 });
 
-test("no match and a failed search each say so in one line", async () => {
+test("no match says so in one line, and the field does not claim an open list", async () => {
   const { user, box } = setup(vi.fn(async () => ({ total: 0, bottles: [] })));
   await user.type(box, "zzz");
   expect(await screen.findByText("No bottle by that name.")).toBeInTheDocument();
   expect(screen.queryByRole("option")).toBeNull();
+  expect(box).toHaveAttribute("aria-expanded", "false");
+  expect(box).not.toHaveAttribute("aria-activedescendant");
 });
 
-test("a failed search says the search is not answering", async () => {
-  const { user, box } = setup(vi.fn(async () => { throw new Error("down"); }));
+test("a query with nothing a name could match is never sent, and reads as no match", async () => {
+  const search = vi.fn(async () => ({ total: 1, bottles: [a] }));
+  const { user, box } = setup(search);
+  await user.type(box, "&&");
+  expect(await screen.findByText("No bottle by that name.")).toBeInTheDocument();
+  await new Promise((r) => setTimeout(r, 300)); // past the debounce
+  expect(search).not.toHaveBeenCalled();
+  expect(box).toHaveAttribute("aria-expanded", "false");
+});
+
+test("a failed search says the search is not answering, until the next keystroke", async () => {
+  const search = vi.fn(async (q: string) => {
+    if (q === "zzz") throw new Error("down");
+    return { total: 1, bottles: [a] };
+  });
+  const { user, box } = setup(search);
   await user.type(box, "zzz");
   expect(await screen.findByText("Search is not answering. Try again.")).toBeInTheDocument();
+  expect(box).toHaveAttribute("aria-expanded", "false");
+  await user.clear(box);
+  await user.type(box, "test");
+  expect(await screen.findByRole("option", { name: /Test entry A/ })).toBeInTheDocument();
+  expect(screen.queryByText("Search is not answering. Try again.")).toBeNull();
 });
 
 test("more results than shown says how many there are", async () => {

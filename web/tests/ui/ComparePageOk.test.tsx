@@ -54,6 +54,11 @@ test("a name that does not lead with its brand gets the brand once", async () =>
   expect(rows()[0]).toHaveTextContent("Test entry 07, Lonely brand");
 });
 
+test("a query with nothing to match lists every bottle and does not say it matched", async () => {
+  await page({ q: "%%" });
+  expect(screen.getByText(/^Predicted whitening on skin of L\* 55, in L\*, from 30 FDA labels\. Least cast first\.$/)).toBeInTheDocument();
+});
+
 test("no match says so; a page past the end shows the last page; an unknown tone is L* 55", async () => {
   await page({ q: "zzz" });
   expect(screen.getByText("No bottle by that name.")).toBeInTheDocument();

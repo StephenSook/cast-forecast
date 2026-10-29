@@ -21,6 +21,8 @@ const DEFAULT_IP = "203.0.113.1";
 export function testDeps(o: {
   env?: Partial<ServerEnv>;
   catalogue?: readonly Bottle[];
+  /** What the render route accepts; the catalogue unless given. */
+  labels?: readonly Bottle[];
   routes?: Record<string, Reply | Reply[]>;
   balance?: number;
 } = {}): { deps: () => RouteDeps; ff: ReturnType<typeof fakeFetch>; clock: { now: number } } {
@@ -32,9 +34,10 @@ export function testDeps(o: {
   const balance = createBalanceCache();
   const env = testEnv(o.env);
   const catalogue = o.catalogue ?? [];
+  const labels = o.labels ?? catalogue;
   const youcam = (key: string) =>
     createYouCam({ key, fetch: ff.fetch, sleep: async (ms) => { clock.now += ms; }, now: () => clock.now });
-  return { deps: () => ({ env, youcam, limiter, catalogue, balance, now: () => clock.now }), ff, clock };
+  return { deps: () => ({ env, youcam, limiter, catalogue, labels, balance, now: () => clock.now }), ff, clock };
 }
 
 /** A Cookie header value for a fresh session holding `files`, signed with SECRET at NOW. */

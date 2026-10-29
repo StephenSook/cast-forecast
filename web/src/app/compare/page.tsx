@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { TONES, whiteningDomain } from "@/lib/catalogue";
 import { comparePage } from "@/lib/compare";
+import { foldText } from "@/lib/search";
 import { LABELS } from "@/server/labels";
 import { Bars, barsProblem } from "@/ui/Bars";
 import { ChartGuard } from "@/ui/DataUnavailable";
@@ -27,6 +28,8 @@ export default async function Compare({ searchParams }: PageProps<"/compare">) {
   const sp = await searchParams;
   const tone = TONES.find((t) => String(t.lStar) === one(sp.tone))?.lStar ?? DEFAULT_TONE;
   const q = one(sp.q).trim().slice(0, 60);
+  // comparePage lists everything for a query with nothing to match ("%%"), so the sentence must not say "matching".
+  const searched = foldText(q) !== "";
   const r = comparePage(LABELS, tone, q, Number(one(sp.page)));
   const domain = whiteningDomain(LABELS);
   const chartProblem = r.problem ?? barsProblem(r.rows, domain);
@@ -71,7 +74,7 @@ export default async function Compare({ searchParams }: PageProps<"/compare">) {
             <div>
               {r.unit && !chartProblem && (
                 <p className="mb-3 font-bold">
-                  Predicted whitening on skin of L* {tone}, in {r.unit}, from {r.total} FDA labels{q ? " matching your search" : ""}. Least cast first.
+                  Predicted whitening on skin of L* {tone}, in {r.unit}, from {r.total} FDA labels{searched ? " matching your search" : ""}. Least cast first.
                 </p>
               )}
               <ChartGuard problem={chartProblem} what="predicted whitening by bottle">
