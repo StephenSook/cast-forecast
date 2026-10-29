@@ -58,7 +58,7 @@ pytest -q
 - `requirements.lock` pins every package with hashes, including ruff, so lint and format results match CI. It is generated from `requirements.in` with `uv pip compile` (the command is in the file header).
 - `scripts/fetch_models.py` downloads the MediaPipe face landmarker model into `models/` and checks it against a pinned SHA-256.
 - On Linux, MediaPipe also needs `sudo apt-get install -y libegl1 libgles2`.
-- One test skips when the private selfie is absent (it needs a real face). Everything else runs anywhere.
+- Two tests need private files that are never committed, and skip without them, as in CI: one needs the selfie (a real face), and `tests/test_no_private_ids.py`, the scan of tracked files for real YouCam file and task ids, needs the run records in `recon/gate/`. That scan is a local check. The published-results checks, which do run in CI, look for id-shaped values but cannot match the real ids. Everything else runs anywhere.
 - The YouCam client is tested only through fake transports and connections. No test calls the YouCam API or needs a key.
 
 ### Web app
@@ -138,7 +138,7 @@ These spend YouCam API units and need the key in the macOS Keychain under the se
 | K1 | `python -m castforecast.k1_render --selfie A --check B` | 42 |
 | K1b | `python -m castforecast.k1b_render --selfie A --check B` | 19 |
 
-Inputs are read from `private_inputs/selfies/` and results are written to `recon/gate/`; both folders are gitignored, as are the upload copies and renders under `private_inputs/`. A run refuses to start if its results file already exists, so no run can overwrite an earlier one. `scripts/publish_results.py` writes the sanitized copy that goes into `docs/gates/`.
+Inputs are read from `private_inputs/selfies/` and results are written to `recon/gate/`; both folders are gitignored, as are the upload copies and renders under `private_inputs/`. A run refuses to start if its results file already exists when it starts. That check and the final write are separate steps, so never start two runs of the same gate at once: both could pass the check and the second would replace the first. `scripts/publish_results.py` writes the sanitized copy that goes into `docs/gates/`.
 
 The web app's live checks run in a browser against a deployed site and never in CI: a real try-on (1 unit) and a real skin-type read (10 units).
 
