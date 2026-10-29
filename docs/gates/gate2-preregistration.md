@@ -74,3 +74,6 @@ These rules replace the lines they name. Everything else above stands.
 
 ## Amendment 4 (2026-10-28, 14:46 EDT, after the fourth adversarial review, still before any Gate 2 photo)
 8. Acceptance sequence (makes rule 6 exact; it does not change the bounds). Per channel, in this order: (a) reject if the raw R < -0.02, R > 1, or T^2 < -0.02; (b) set R = max(R, 0) and T = sqrt(max(T^2, 0)), so a slightly negative T^2 gives an opaque channel (T = 0); (c) reject if R + T > 1.03, using these clamped values; (d) if R + T > 1, set T = 1 - R. A raw solve with T^2 between -0.02 and 0 is therefore accepted as opaque, never rejected. This case is in the tests before any photo is analysed.
+
+## Status (2026-10-29): not run
+No Gate 2 photo was ever taken. On 2026-10-28 the builder decided not to run the in-person session (black and white cards, forearm squares), so Gate 2 has no data and no verdict, and no claim on the site rests on it. The analysis code written for it stays in the repository (castforecast/raw.py, regions.py, dots.py, measure.py, film.py, gate2.py), reviewed but never run on Gate 2 data. The catalogue instead predicts each bottle's whitening from its FDA label's zinc oxide percentage with the label model Gate 1 tested (castforecast/label_model.py), and states that model's error.
