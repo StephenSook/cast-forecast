@@ -1,0 +1,46 @@
+name: prod-watch
+# Once a day, the judged site is checked the way the deploy checks it: it serves main's commit, its health says the
+# YouCam key and session secret are set, the evidence page shows K1b PASS, the gates recompute, and the balance has
+# room for judges' try-ons. A red run emails the repo owner. It retires itself after judging (winners about Nov 24).
+on:
+  schedule:
+    - cron: "17 13 * * *" # 09:17 ET; an offset minute, since GitHub delays schedules on the hour
+  workflow_dispatch:
+concurrency:
+  group: prod-watch
+  cancel-in-progress: false
+permissions:
+  contents: read
+env:
+  PROD: https://cast-forecast-web.vercel.app
+  RETIRE_AFTER: "20261130"
+  HEADROOM: "100" # units above the credit floor: ten skin-type reads, or a hundred renders
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15 # the release check's worst case is 6 attempts of 4 pages at 20 s plus 10 s pauses, about 9 min
+    steps:
+      - id: live
+        run: |
+          if [ "$(date -u +%Y%m%d)" -gt "$RETIRE_AFTER" ]; then
+            echo "Judging is over: this watch has retired. Delete .github/workflows/prod-watch.yml."
+            echo "on=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          fi
+      # A dispatch from another branch or tag would compare production with that ref's commit, not main's.
+      - if: steps.live.outputs.on == 'true'
+        name: Run on main only
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "This watch compares production with main; run it on main, not $GITHUB_REF."
+            exit 1
+          fi
+      - if: steps.live.outputs.on == 'true'
+        uses: actions/checkout@v7
+      - if: steps.live.outputs.on == 'true'
+        name: Production serves main and passes the release check
+        run: python3 -I web/scripts/deploy_checks.py release "$PROD" "$GITHUB_SHA"
+      - if: steps.live.outputs.on == 'true'
+        name: The balance has room for judges
+        run: python3 -I web/scripts/deploy_checks.py credits "$PROD" "$HEADROOM"

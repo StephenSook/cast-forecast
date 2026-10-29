@@ -1280,3 +1280,44 @@ def test_preview_exit_4_names_the_next_step(rig, site):
     rig.deploy_out.write_text(site(_keyless(sha)) + "\n")
     code, out = rig.run("deploy-preview.sh")
     assert code == 0 and out.splitlines()[-1].startswith(f"release {sha} ok:"), out
+
+
+def test_credits_needs_a_whole_balance_with_headroom_above_the_floor():
+    assert dc.credits_ok({"balance": 846, "floor": 100, "aboveFloor": True}, 100) == (
+        True,
+        "credits ok: 846 units, 746 above the floor",
+    )
+    assert dc.credits_ok({"balance": 199, "floor": 100}, 100)[0] is False
+    assert dc.credits_ok({"balance": 200, "floor": 100}, 100)[0] is True
+    for bad in [
+        None,
+        [],
+        {},
+        {"balance": "846", "floor": 100},
+        {"balance": 846.5, "floor": 100},
+        {"balance": True, "floor": 0},
+        {"balance": 846},
+        {"balance": 0, "floor": -100},  # Codex PR 11: a negative floor let an empty account pass
+        {"balance": -5, "floor": 0},
+    ]:
+        assert dc.credits_ok(bad, 100) == (False, "credits answer has no whole balance and floor")
+    for headroom in (-1, True, 1.5):
+        with pytest.raises(ValueError):
+            dc.credits_ok({"balance": 846, "floor": 100}, headroom)
+
+
+def test_main_credits_reads_the_route_and_fails_on_anything_but_200(monkeypatch, capsys):
+    answers = {}
+    monkeypatch.setattr(dc, "_get", lambda url: answers[url])
+    url = "https://cf.test/api/credits"
+    answers[url] = (200, json.dumps({"balance": 846, "floor": 100}))
+    assert dc.main(["credits", "https://cf.test/", "100"]) == 0
+    answers[url] = (200, json.dumps({"balance": 150, "floor": 100}))
+    assert dc.main(["credits", "https://cf.test", "100"]) == 1
+    answers[url] = (503, "")
+    assert dc.main(["credits", "https://cf.test", "100"]) == 1
+    answers[url] = (0, "unreachable")
+    assert dc.main(["credits", "https://cf.test", "100"]) == 1
+    assert dc.main(["credits", "https://cf.test", "lots"]) == 2
+    assert dc.main(["credits", "https://cf.test", "-100"]) == 2
+    assert "credits unreadable (status 0)" in capsys.readouterr().out
