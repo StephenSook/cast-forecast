@@ -15,6 +15,7 @@ import {
 import { checkUploadImage, jpegSize, stripMetadata } from "@/server/jpeg";
 import { LABELS } from "@/server/labels";
 import { findCopyViolations } from "../helpers/copyGuard";
+import { pngIntact } from "../helpers/png";
 
 const face = new Uint8Array(readFileSync("public/sample/face.jpg"));
 const key = (bottleId: string, tone: number) => `${bottleId}@${tone}`;
@@ -52,14 +53,14 @@ test("each recording used the colorIntensity the live route sends for that bottl
   }
 });
 
-test("every recording is an image file that exists, and no file in the renders folder is unlisted", () => {
+test("every recording is a whole image file that exists, and no file in the renders folder is unlisted", () => {
   const files = readdirSync("public/sample/renders").sort();
   expect(files).toEqual(SAMPLE.renders.map((r) => r.src.replace("/sample/renders/", "")).sort());
   for (const r of SAMPLE.renders) {
-    const b = readFileSync(`public${r.src}`);
-    const png = b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    const jpg = b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
-    expect(r.src.endsWith(".png") ? png : jpg, r.src).toBe(true);
+    const b = new Uint8Array(readFileSync(`public${r.src}`));
+    // A PNG must check out chunk by chunk and inflate to its full image; a JPEG must walk to its end marker.
+    const whole = r.src.endsWith(".png") ? pngIntact(b) !== null : stripMetadata(b) !== null;
+    expect(whole, r.src).toBe(true);
     expect(b.length, r.src).toBeGreaterThan(50_000);
   }
 });

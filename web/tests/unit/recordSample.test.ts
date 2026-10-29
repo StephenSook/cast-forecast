@@ -1,17 +1,19 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { crc32 } from "node:zlib";
 import { afterAll, expect, test } from "vitest";
 import { POLL_SKIN_TYPE, POLL_VTO, PUT, REGISTER, RUN_SKIN_TYPE, RUN_VTO, registerReply } from "../helpers/constants";
 import { testEntry } from "../helpers/entries";
 import { jsonReply } from "../helpers/fakeFetch";
+import { makePng, pngIntact } from "../helpers/png";
 import { type SampleRecording, publishSample, recordSample } from "../helpers/recordSample";
 import { testDeps } from "../helpers/routes";
 
 // The sample recorder, offline: the real route handlers over a scripted YouCam, so a refusal, a failed download and
 // spending elsewhere on the account can be injected without a key or a unit.
 const face = new Uint8Array(readFileSync("public/sample/face.jpg"));
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const PNG = makePng(24, 32);
 const vtoOk = jsonReply(200, { data: { task_status: "success", results: { url: "https://out.example/r.png" } } });
 const routes = (poll: Response | Response[] = vtoOk) => ({
   [REGISTER]: registerReply("file-1"),
@@ -108,6 +110,34 @@ test("a download that is not an image throws, naming the bottle and tone but no 
   expect(err?.message).toBe("render for test-a at L* 55 is neither JPEG nor PNG");
   for (const secret of ["file-1", "t1", "out.example"]) expect(err?.message).not.toContain(secret);
 });
+
+test("a truncated PNG download is refused even though it still starts like a PNG", async () => {
+  // A real recorded render cut to 60 000 bytes: the signature and IHDR are intact, an IDAT chunk runs past the end.
+  const real = new Uint8Array(readFileSync("public/sample/renders/cetaphil-sheer-mineral-face-55.png"));
+  const cut = real.subarray(0, 60_000);
+  expect(pngIntact(real)).toEqual({ width: 696, height: 1080 }); // the check passes a whole render: not vacuous
+  expect(pngIntact(cut)).toBeNull();
+  const { run } = setup({ download: async () => cut });
+  await expect(run()).rejects.toThrow("render for test-a at L* 55 is a damaged PNG");
+});
+
+test("a PNG whose chunks are whole but whose image data is short is refused", () => {
+  const ok = makePng(24, 32);
+  expect(pngIntact(ok)).toEqual({ width: 24, height: 32 });
+  const flipped = new Uint8Array(ok);
+  flipped[44] ^= 0xff; // inside IDAT's data (IHDR ends at 33, IDAT's data starts at 41): its CRC no longer matches
+  expect(pngIntact(flipped)).toBeNull();
+  // Declares 33 rows but carries data for 32, with every CRC correct.
+  expect(pngIntact(withHeight(ok, 33))).toBeNull();
+});
+
+/** The PNG with IHDR's height rewritten and its CRC recomputed, so only the image data disagrees. */
+function withHeight(png: Uint8Array, h: number): Uint8Array {
+  const out = Buffer.from(png);
+  out.writeUInt32BE(h, 8 + 8 + 4);
+  out.writeUInt32BE(crc32(out.subarray(8 + 4, 8 + 8 + 13)), 8 + 8 + 13);
+  return new Uint8Array(out);
+}
 
 test("publishing writes every render, then the manifest, and removes renders the manifest no longer lists", async () => {
   const { run } = setup();

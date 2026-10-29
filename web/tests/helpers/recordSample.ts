@@ -9,6 +9,7 @@ import { jpegSize, stripMetadata } from "@/server/jpeg";
 import { makeRenderHandler } from "@/server/routes/render";
 import { makeSkinTypeHandler } from "@/server/routes/skinType";
 import { makeUploadHandler } from "@/server/routes/upload";
+import { pngIntact } from "./png";
 
 const ORIGIN = "http://record.local";
 
@@ -100,10 +101,11 @@ export async function recordSample(o: {
       const raw = await o.download(imageUrl);
       const kind = imageKind(raw);
       if (!kind) throw new Error(`render for ${b.id} at L* ${tone} is neither JPEG nor PNG`);
-      // A JPEG goes through the upload route's own allowlist strip, which keeps the image data and drops every other
-      // segment. A PNG is kept as returned.
-      const bytes = kind === "jpg" ? stripMetadata(raw) : raw;
-      if (!bytes) throw new Error(`render for ${b.id} at L* ${tone} did not survive the metadata strip`);
+      // A JPEG goes through the upload route's own allowlist strip, which walks every scan to the end marker and keeps
+      // only the image data, so a truncated one fails it. A PNG is kept as returned once every chunk checks out and its
+      // image data inflates to the full image (pngIntact), so a truncated or corrupted download is never recorded.
+      const bytes = kind === "jpg" ? stripMetadata(raw) : pngIntact(raw) ? raw : null;
+      if (!bytes) throw new Error(`render for ${b.id} at L* ${tone} is a damaged ${kind === "jpg" ? "JPEG" : "PNG"}`);
       const src = `/sample/renders/${b.id}-${tone}.${kind}`;
       files.set(src, bytes);
       renders.push({ bottleId: b.id, tone, colorIntensity, predictedBlend, src, recordedOn: o.recordedOn });
