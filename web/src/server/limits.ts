@@ -1,6 +1,6 @@
 import "server-only";
 
-export type Action = "upload" | "render" | "tone" | "skinType" | "credits";
+export type Action = "upload" | "render" | "tone" | "skinType" | "credits" | "mcp";
 
 type Rule = Readonly<{ perSession: number; perIp: number; windowMs: number }>;
 
@@ -22,6 +22,9 @@ export const RULES: Readonly<Record<Action, Rule>> = Object.freeze({
   tone: Object.freeze({ perSession: 2, perIp: 6, windowMs: HOUR_MS }),
   skinType: Object.freeze({ perSession: 3, perIp: 9, windowMs: HOUR_MS }),
   credits: Object.freeze({ perSession: Infinity, perIp: 30, windowMs: HOUR_MS }),
+  // The MCP endpoint is pure compute (no YouCam call, no cookie), so only the IP is counted. 120 an hour keeps a full
+  // table of IP buckets to about a million stamps.
+  mcp: Object.freeze({ perSession: Infinity, perIp: 120, windowMs: HOUR_MS }),
 });
 
 /**
