@@ -34,6 +34,11 @@ export function evidenceSteps(base: string, bottles: number): JudgeStep[] {
       cta: "docs/gates on GitHub",
       external: true,
     },
+    {
+      title: "Check the prediction",
+      body: "Refits the label model from the study table and recomputes Gate 1's held-out error.",
+      code: `curl -s ${base}/api/label-model`,
+    },
     { title: "Check the render mapping", body: "Recomputes the K1b inverse from the published curve.", code: `curl -s ${base}/api/gates` },
     data,
     {

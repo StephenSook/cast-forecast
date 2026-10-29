@@ -41,12 +41,21 @@ test("evidence lists K1b as PASS and prints the curl", async ({ page }) => {
   await page.goto("/evidence");
   await expect(page.getByRole("row", { name: /K1b/ })).toContainText("PASS");
   await expect(page.locator("code", { hasText: "/api/gates" })).toHaveText(/^curl -s https?:\/\/\S+\/api\/gates$/);
+  await expect(page.locator("code", { hasText: "/api/label-model" })).toHaveText(/^curl -s https?:\/\/\S+\/api\/label-model$/);
+});
+
+test("/api/label-model recomputes Gate 1's held-out error", async ({ request }) => {
+  const res = await request.get("/api/label-model");
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  expect(body.heldOut.cells).toBe(65); expect(body.heldOut.maeL).toBeCloseTo(1.61, 2);
+  expect(body.heldOut.benchmark.maeL).toBeCloseTo(2.35, 2);
 });
 
 test("evidence step cards never clip at 390", async ({ page }) => {
   await page.goto("/evidence");
   const items = await page.locator("ol > li").all();
-  expect(items).toHaveLength(4);
+  expect(items).toHaveLength(5);
   for (const li of items) expect(await li.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
 });
 
