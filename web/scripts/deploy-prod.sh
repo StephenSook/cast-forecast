@@ -3,7 +3,8 @@
 # DRY_RUN=<anything but empty or 0> stops after the gates.
 # Exit codes: 0 ok. 1 refused before deploying, or the release check read a mismatched response
 # after it (rollback steps in the README). 2 bad arguments. 3 the production alias does not point
-# at the new deployment (never a rollback trigger). 4 deployed or maybe deployed but UNVERIFIED:
+# at the new deployment, or another public address (PROD_EXTRA_URLS) does not serve the release that
+# passed (never a rollback trigger). 4 deployed or maybe deployed but UNVERIFIED:
 # the deploy step failed oddly or did not report a production target, the release check could not
 # reach the site, was redirected or hit a checker error, or Vercel Authentication blocked it (a 401
 # or a redirect to its login). Never roll back on 4.
@@ -30,6 +31,14 @@ PROD="${PROD_URL:-https://cast-forecast-web.vercel.app}"
 PROD="${PROD%/}"
 ALIAS="${PROD#https://}"
 ALIAS="${ALIAS#http://}"
+# Other public addresses of the same project, checked after the release check passes. The default applies
+# only to the real production alias, so a PROD_URL override (a test, a fixture site) never reaches the live
+# site. cast-forecast.vercel.app was added to the project on 2026-10-29 and is the address the README links.
+if [ -z "${PROD_URL:-}" ]; then
+  EXTRA="${PROD_EXTRA_URLS-https://cast-forecast.vercel.app}"
+else
+  EXTRA="${PROD_EXTRA_URLS:-}"
+fi
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 LOG=.vercel/deploy-log.txt
 tmp=$(mktemp)
@@ -157,7 +166,19 @@ if [ "$PAUSED" = "1" ]; then FLAG="--require-no-youcam"; fi
 rc=0
 python3 -I scripts/deploy_checks.py release "$PROD" "$SHA" $FLAG > "$tmp.release" || rc=$?
 cat "$tmp.release"
-if [ "$rc" = "0" ]; then exit 0; fi
+if [ "$rc" = "0" ]; then
+  # 9. every other public address serves the release that just passed
+  for extra in $EXTRA; do
+    erc=0
+    python3 -I scripts/deploy_checks.py release "${extra%/}" "$SHA" $FLAG > "$tmp.extra" || erc=$?
+    cat "$tmp.extra"
+    if [ "$erc" != "0" ]; then
+      echo "$PROD passed, but $extra did not. Not a release failure: do not roll back. That address is misassigned or unreachable: check the Vercel project's domains, then run the release check on it by hand."
+      exit 3
+    fi
+  done
+  exit 0
+fi
 # Only exit 1 from the checker is a verified bad release. 4 (or anything unexpected) verified nothing.
 if [ "$rc" != "1" ]; then
   auth=0
