@@ -257,7 +257,9 @@ test("an unknown tool and a malformed tools/call are protocol errors (-32602)", 
 // checked with the site's own copy guard, and none may repeat the planted text.
 test("no reply repeats what the caller sent", async () => {
   const send = server();
-  const planted = `${String.fromCharCode(0x2014)}SPF 50 protects${String.fromCharCode(0x201d)}`;
+  // The copy guard has no rule for curly quotes (Codex review, round 2): all four are planted and checked one by one.
+  const curly = [0x2018, 0x2019, 0x201c, 0x201d].map((c) => String.fromCharCode(c));
+  const planted = `${String.fromCharCode(0x2014)}SPF 50 protects${curly.join("")}`;
   const replies = [
     await send(call("predict_cast", { bottle_id: planted, skin_lightness: 55 })),
     await send(call("predict_cast", { bottle_id: CATALOGUE[0].id, skin_lightness: 55, [planted]: 1 })),
@@ -270,12 +272,14 @@ test("no reply repeats what the caller sent", async () => {
     await send(rpc("tools/call", { name: "predict_cast", arguments: {}, _meta: META }), modernHeaders("tools/call", "SPF")),
   ];
   expect(replies).toHaveLength(9);
+  expect(new Set(curly).size).toBe(4);
   for (const res of replies) {
     const b = await answer(res);
     const text = b.error ? b.error.message : b.result!.content.map((c) => c.text).join(" ");
     expect(text.length).toBeGreaterThan(5);
     expect(text, text).not.toContain("SPF");
     expect(findCopyViolations(text, "reply"), text).toEqual([]);
+    for (const q of curly) expect(text.includes(q), text).toBe(false);
   }
 });
 
