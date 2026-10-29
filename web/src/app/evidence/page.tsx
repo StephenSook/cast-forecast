@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { CATALOGUE } from "@/lib/catalogue";
-import { CURVE_Y_MAX, curveLabel, curvePoints, evidenceSteps, evidenceTiles, factLine, originFrom } from "@/lib/evidence";
+import { RENDER_MAX_ERROR_L } from "@/lib/catalogue";
+import { CURVE_Y_MAX, curveLabel, curvePoints, evidenceSteps, evidenceTiles, factLine, leftOutLine, originFrom } from "@/lib/evidence";
 import { K1B, loadGates } from "@/lib/gates";
 import { RELEASE } from "@/lib/release";
+import { LABELS, LEFT_OUT } from "@/server/labels";
 import { CurveChart, curveProblem } from "@/ui/CurveChart";
 import { ChartGuard } from "@/ui/DataUnavailable";
 import { GateTable } from "@/ui/GateTable";
@@ -23,7 +24,8 @@ export default async function Evidence() {
     <section className="section-card bg-sand px-5 sm:px-12 pt-28 pb-16">
       <p className="hand text-3xl text-teal -rotate-2">no login, no key, every number sourced</p>
       <h1 className="display mt-9 text-[clamp(2.6rem,6vw,5.6rem)]">Evidence</h1>
-      <p className="mt-4 font-bold">{factLine(CATALOGUE.length, gates.length, RELEASE)}</p>
+      <p className="mt-4 font-bold">{factLine(LABELS.length, gates.length, RELEASE)}</p>
+      <p className="mt-2 max-w-3xl text-sm font-bold">{leftOutLine(LEFT_OUT, RENDER_MAX_ERROR_L)}</p>
 
       <div className="mt-8 grid grid-cols-[minmax(0,1fr)] sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {evidenceTiles(K1B).map((t, i) => (
@@ -40,7 +42,7 @@ export default async function Evidence() {
       <GateTable gates={gates} />
 
       <div className="mt-10">
-        <JudgeSteps steps={evidenceSteps(origin, CATALOGUE.length)} />
+        <JudgeSteps steps={evidenceSteps(origin, LABELS.length)} />
       </div>
 
       <p className="mt-8 max-w-3xl text-sm font-bold">

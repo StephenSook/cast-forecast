@@ -143,7 +143,13 @@ body {
 /* Every link and button gets a visible focus outline: the focus blue on light surfaces, amber on ink. */
 a:focus-visible,
 button:focus-visible,
+input:focus-visible,
 [role=button]:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+/* A visually hidden radio shows its keyboard focus on the swatch after it (/scan). */
+.swatch-radio:focus-visible + span {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
 }

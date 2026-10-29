@@ -2,7 +2,10 @@ import { expect, test, vi } from "vitest";
 import * as mcpRoute from "@/app/api/mcp/route";
 import { type Bottle, CATALOGUE, RETAIL_ERROR_L, type Whitening, labelUrl } from "@/lib/catalogue";
 import { LIGHTNESS_RANGE, ZINC_RANGE } from "@/lib/labelModel";
+import { searchEntries } from "@/lib/search";
+import { LABELS } from "@/server/labels";
 import { RULES } from "@/server/limits";
+import { SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX, SEARCH_QUERY_MAX, callTool } from "@/server/mcpTools";
 import { labelModelPayload } from "@/server/routes/labelModel";
 import {
   LEGACY_VERSIONS,
@@ -31,16 +34,25 @@ type Schema = { type: string; additionalProperties: boolean; required?: string[]
 /** The fields these tests read from any result; each test reads only the ones its method answers. */
 type Result = {
   tools: { name: string; description: string; inputSchema: Schema; annotations: object }[];
-  structuredContent: { bottles: { labelUrl: string }[]; whitening: Whitening; bottle: unknown } & Record<string, unknown>;
+  structuredContent: {
+    bottles: { labelUrl: string }[];
+    whitening: Whitening;
+    bottle: unknown;
+    total: number;
+    labels: { id: string; name: string; brand: string; zincOxidePct: number; labelUrl: string }[];
+  } & Record<string, unknown>;
   content: { type: string; text: string }[];
   isError?: boolean;
   [key: string]: unknown;
 };
 type Body = { jsonrpc: string; id?: string | number | null; result?: Result; error?: { code: number; message: string; data?: unknown } };
 
-/** A handler over the shipped catalogue, a fresh limiter and a fake clock. `send` POSTs one body (a string as is). */
-function server(catalogue: readonly Bottle[] = CATALOGUE) {
-  const { deps } = testDeps({ catalogue });
+/**
+ * A handler over the shipped catalogue (the featured list, and every label), a fresh limiter and a fake clock. `send`
+ * POSTs one body (a string as is).
+ */
+function server(catalogue: readonly Bottle[] = CATALOGUE, labels: readonly Bottle[] = LABELS) {
+  const { deps } = testDeps({ catalogue, labels });
   const handler = makeMcpHandler(deps);
   return (body: unknown, headers: Headers = {}) =>
     handler(new Request(ENDPOINT, { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body), headers: { "Content-Type": "application/json", ...headers } }));
@@ -109,16 +121,23 @@ test("ping answers an empty result, and no session id is ever minted or echoed",
   expect(await answer(res)).toEqual({ jsonrpc: "2.0", id: 7, result: {} });
 });
 
-test("tools/list names the three tools, each with an object input schema that takes nothing else", async () => {
+test("tools/list names the four tools, each with an object input schema that takes nothing else", async () => {
   const r = await tool(await server()(rpc("tools/list")));
-  expect(r.tools.map((t: { name: string }) => t.name)).toEqual(["list_bottles", "predict_cast", "held_out_error"]);
+  expect(r.tools.map((t: { name: string }) => t.name)).toEqual(["list_bottles", "search_labels", "predict_cast", "held_out_error"]);
   for (const t of r.tools) {
     expect(t.inputSchema.type).toBe("object");
     expect(t.inputSchema.additionalProperties).toBe(false);
     expect(t.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
     expect(t.description.length).toBeGreaterThan(20);
   }
-  const predict = r.tools[1].inputSchema;
+  const byName = (n: string) => r.tools.find((t) => t.name === n)!;
+  // list_bottles says it is the featured list and how many labels search reaches, counted from the data.
+  expect(byName("list_bottles").description).toContain(`featured bottles (the site's chips; use search_labels for all ${LABELS.length} FDA labels)`);
+  const search = byName("search_labels").inputSchema as Schema & { properties: Record<string, Record<string, unknown>> };
+  expect(search.required).toEqual(["query"]);
+  expect([search.properties.query.minLength, search.properties.query.maxLength]).toEqual([1, SEARCH_QUERY_MAX]);
+  expect([search.properties.limit.minimum, search.properties.limit.maximum, search.properties.limit.default]).toEqual([1, SEARCH_LIMIT_MAX, SEARCH_LIMIT_DEFAULT]);
+  const predict = byName("predict_cast").inputSchema;
   expect(predict.required).toEqual(["skin_lightness"]);
   expect([predict.properties.zinc_oxide_pct.minimum, predict.properties.zinc_oxide_pct.maximum]).toEqual([...ZINC_RANGE]);
   expect([predict.properties.skin_lightness.minimum, predict.properties.skin_lightness.maximum]).toEqual([...LIGHTNESS_RANGE]);
@@ -153,6 +172,85 @@ test("predict_cast answers exactly the catalogue's published whitening, for ever
     expect(mid.structuredContent.whitening).toEqual(b.whitening);
   }
   expect(checked).toBeGreaterThanOrEqual(40);
+});
+
+// A label only search reaches (not a chip): predict_cast resolves it from the same server-side labels the site uses.
+const FOUND = LABELS.find((b) => !b.featured && b.id === "blue-lizard-sheer-sunscreen-3368f1cb")!;
+
+test("predict_cast on a label that is not featured answers that label's published whitening on every tone", async () => {
+  expect(FOUND).toBeDefined();
+  expect(CATALOGUE.some((b) => b.id === FOUND.id)).toBe(false);
+  const send = server();
+  for (const t of FOUND.tones) {
+    const r = await tool(await send(call("predict_cast", { bottle_id: FOUND.id, skin_lightness: t.lStar })));
+    expect(r.isError).toBeUndefined();
+    expect(r.structuredContent.whitening, `L* ${t.lStar}`).toEqual(t.whitening);
+    expect(r.structuredContent).toMatchObject({ bottle: { id: FOUND.id, name: FOUND.name, brand: FOUND.brand }, zincOxidePct: FOUND.evidence.zincOxidePct });
+  }
+  // Every label on every tone, through the tool function the endpoint calls.
+  let checked = 0;
+  for (const b of LABELS) {
+    for (const t of b.tones) {
+      const r = callTool("predict_cast", { bottle_id: b.id, skin_lightness: t.lStar }, { featured: CATALOGUE, labels: LABELS })!;
+      expect(r.structuredContent?.whitening, `${b.id} L* ${t.lStar}`).toEqual(t.whitening);
+      checked++;
+    }
+  }
+  expect(checked).toBe(LABELS.length * 5);
+});
+
+test("predict_cast refuses a label id the server does not hold, with the same refusal as any unknown id", async () => {
+  const r = await tool(await server(CATALOGUE, CATALOGUE)(call("predict_cast", { bottle_id: FOUND.id, skin_lightness: 55 })));
+  expect(r.isError).toBe(true);
+  expect(r.content[0].text).toBe("No prediction: no bottle has that bottle_id. Call list_bottles or search_labels for the ids.");
+});
+
+test("search_labels finds labels by brand or name with the site's search, in a small page", async () => {
+  const send = server();
+  const r = await tool(await send(call("search_labels", { query: "blue lizard" })));
+  expect(r.isError).toBeUndefined();
+  const s = r.structuredContent;
+  const want = searchEntries(LABELS, "blue lizard", SEARCH_LIMIT_DEFAULT);
+  expect(s.total).toBe(want.total);
+  expect(s.total).toBeGreaterThanOrEqual(3);
+  expect(s.labels).toEqual(want.items.map((b) => ({ id: b.id, name: b.name, brand: b.brand, zincOxidePct: b.evidence.zincOxidePct, labelUrl: labelUrl(b) })));
+  expect(s.labels.map((l) => l.id)).toContain(FOUND.id);
+  expect(r.content[0].text).toBe(`${s.labels.length} of ${s.total} matching labels. Pass an id to predict_cast as bottle_id.`);
+  expect(JSON.parse(r.content[1].text)).toEqual(r.structuredContent);
+  // The default page is 10, the largest 20, and even the largest reply stays small.
+  const wide = await tool(await send(call("search_labels", { query: "mineral", limit: SEARCH_LIMIT_MAX })));
+  expect(wide.structuredContent.labels).toHaveLength(SEARCH_LIMIT_MAX);
+  expect(JSON.stringify(wide).length).toBeLessThan(16_000);
+  const byDefault = await tool(await send(call("search_labels", { query: "mineral" })));
+  expect(byDefault.structuredContent.labels).toHaveLength(SEARCH_LIMIT_DEFAULT);
+  const byNull = await tool(await send(call("search_labels", { query: "mineral", limit: null })));
+  expect(byNull.structuredContent.labels).toHaveLength(SEARCH_LIMIT_DEFAULT);
+  const none = await tool(await send(call("search_labels", { query: "zzzz" })));
+  expect(none.isError).toBeUndefined();
+  expect(none.structuredContent).toEqual({ total: 0, labels: [] });
+  expect(none.content[0].text).toBe("No label matches. Try a brand or fewer words.");
+});
+
+test("search_labels refuses, as a tool error the model can read, everything it cannot search", async () => {
+  const send = server();
+  const cases: [unknown, string][] = [
+    [{}, `search_labels needs query, a string of 1 to ${SEARCH_QUERY_MAX} characters.`],
+    [{ query: "" }, `search_labels needs query, a string of 1 to ${SEARCH_QUERY_MAX} characters.`],
+    [{ query: "x".repeat(SEARCH_QUERY_MAX + 1) }, `search_labels needs query, a string of 1 to ${SEARCH_QUERY_MAX} characters.`],
+    [{ query: 7 }, `search_labels needs query, a string of 1 to ${SEARCH_QUERY_MAX} characters.`],
+    [{ query: "%%" }, "query needs a letter or a digit."],
+    [{ query: "mineral", limit: 0 }, `limit must be a whole number from 1 to ${SEARCH_LIMIT_MAX}.`],
+    [{ query: "mineral", limit: SEARCH_LIMIT_MAX + 1 }, `limit must be a whole number from 1 to ${SEARCH_LIMIT_MAX}.`],
+    [{ query: "mineral", limit: 2.5 }, `limit must be a whole number from 1 to ${SEARCH_LIMIT_MAX}.`],
+    [{ query: "mineral", limit: "5" }, `limit must be a whole number from 1 to ${SEARCH_LIMIT_MAX}.`],
+    [{ query: "mineral", page: 2 }, "search_labels takes only query and limit."],
+  ];
+  for (const [args, text] of cases) {
+    const r = await tool(await send(call("search_labels", args)));
+    expect(r.isError, JSON.stringify(args)).toBe(true);
+    expect(r.structuredContent).toBeUndefined();
+    expect(r.content).toEqual([{ type: "text", text }]);
+  }
 });
 
 test("predict_cast from a label percent equals the same bottle by id, and the band is the retail error", async () => {
@@ -246,7 +344,7 @@ test("held_out_error is the /api/label-model payload; the no-argument tools refu
 
 test("an unknown tool and a malformed tools/call are protocol errors (-32602)", async () => {
   const send = server();
-  expect((await rpcErrorOf(await send(call("predict_tan", {})), 200, -32602)).error!.message).toBe("Unknown tool. The tools are list_bottles, predict_cast, held_out_error.");
+  expect((await rpcErrorOf(await send(call("predict_tan", {})), 200, -32602)).error!.message).toBe("Unknown tool. The tools are list_bottles, search_labels, predict_cast, held_out_error.");
   await rpcErrorOf(await send(rpc("tools/call", { arguments: {} })), 200, -32602);
   await rpcErrorOf(await send(rpc("tools/call", { name: 5 })), 200, -32602);
   for (const args of [[], "x", null, 3]) await rpcErrorOf(await send(call("predict_cast", args)), 200, -32602);
@@ -265,6 +363,7 @@ test("no reply repeats what the caller sent", async () => {
     await send(call("predict_cast", { bottle_id: planted, skin_lightness: 55 })),
     await send(call("predict_cast", { bottle_id: CATALOGUE[0].id, skin_lightness: 55, [planted]: 1 })),
     await send(call("list_bottles", { [planted]: 1 })),
+    await send(call("search_labels", { query: planted })),
     await send(call(planted, {})),
     await send(rpc(planted)),
     await send(rpc("SPF", { _meta: META }), modernHeaders("SPF")), // a header value cannot carry the dash, so ASCII
@@ -272,7 +371,7 @@ test("no reply repeats what the caller sent", async () => {
     await send(rpc("tools/list", { _meta: META }), { ...modernHeaders("tools/list"), "Mcp-Method": "SPF" }),
     await send(rpc("tools/call", { name: "predict_cast", arguments: {}, _meta: META }), modernHeaders("tools/call", "SPF")),
   ];
-  expect(replies).toHaveLength(9);
+  expect(replies).toHaveLength(10);
   expect(new Set(curly).size).toBe(4);
   for (const res of replies) {
     const b = await answer(res);
@@ -484,7 +583,7 @@ test("the server's own error codes are outside the reserved JSON-RPC range", () 
 // Protocol versions.
 test("under the handshake, MCP-Protocol-Version must name a version it serves", async () => {
   const send = server();
-  for (const v of LEGACY_VERSIONS) expect((await tool(await send(rpc("tools/list"), { "MCP-Protocol-Version": v }))).tools).toHaveLength(3);
+  for (const v of LEGACY_VERSIONS) expect((await tool(await send(rpc("tools/list"), { "MCP-Protocol-Version": v }))).tools).toHaveLength(4);
   const b = await rpcErrorOf(await send(rpc("tools/list"), { "MCP-Protocol-Version": "1999-01-01" }), 400, -32022);
   expect(b.error!.data).toEqual({ supported: [...SUPPORTED_VERSIONS], requested: "1999-01-01" });
   // The current version needs its body metadata.
@@ -515,7 +614,7 @@ test("2026-07-28: server/discover, tools/list and tools/call carry resultType, t
   });
   const list = await tool(await send(rpc("tools/list", { _meta: META }), modernHeaders("tools/list")));
   expect(list).toMatchObject({ resultType: "complete", ttlMs: LIST_TTL_MS, cacheScope: "public", _meta: serverMeta });
-  expect(list.tools).toHaveLength(3);
+  expect(list.tools).toHaveLength(4);
   const b = CATALOGUE[1];
   const r = await tool(await send(rpc("tools/call", { name: "predict_cast", arguments: { bottle_id: b.id, skin_lightness: 45 }, _meta: META }), modernHeaders("tools/call", "predict_cast")));
   expect(r).toMatchObject({ resultType: "complete", _meta: serverMeta });

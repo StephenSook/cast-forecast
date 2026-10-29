@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
-import { ApiFailure, RENDER_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, readSkinType, renderBottle, uploadSelfie } from "@/lib/apiClient";
+import { ApiFailure, RENDER_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, readSkinType, renderBottle, searchLabels, uploadSelfie } from "@/lib/apiClient";
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
+import { testEntry } from "../helpers/entries";
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
@@ -130,4 +131,19 @@ test("readSkinType posts JSON fileId and returns only a type from I to VI", asyn
     await expect(readSkinType("file-1", vi.fn(async () => json(200, body)))).rejects.toMatchObject({ code: "upstream" });
   }
   await expect(readSkinType("file-1", vi.fn(async () => json(422, { error: { code: "lighting", message: "x" } })))).rejects.toMatchObject({ code: "lighting" });
+});
+
+test("searchLabels GETs /api/labels with the query and returns validated entries", async () => {
+  const entry = testEntry();
+  const f = vi.fn(async () => json(200, { total: 1, bottles: [entry] }));
+  const signal = new AbortController().signal;
+  expect(await searchLabels("babo zinc", signal, f)).toEqual({ total: 1, bottles: [entry] });
+  expect(f).toHaveBeenCalledWith("/api/labels?q=babo+zinc", { signal, credentials: "same-origin" });
+});
+test("searchLabels turns a bad answer, an error code or a dropped connection into ApiFailure", async () => {
+  for (const body of [{ total: 1 }, { total: 1, bottles: [{ id: "x" }] }, null]) {
+    await expect(searchLabels("q", undefined, vi.fn(async () => json(200, body)))).rejects.toMatchObject({ code: "upstream" });
+  }
+  await expect(searchLabels("q", undefined, vi.fn(async () => json(400, { error: { code: "bad_request", message: "x" } })))).rejects.toMatchObject({ code: "bad_request" });
+  await expect(searchLabels("q", undefined, vi.fn(async () => { throw new TypeError("offline"); }))).rejects.toBeInstanceOf(ApiFailure);
 });

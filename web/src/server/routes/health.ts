@@ -12,7 +12,7 @@ export function makeHealthHandler(deps: () => RouteDeps): (req: Request) => Prom
       release: RELEASE,
       youcam: d.env.youcamKey !== null,
       session: d.env.sessionSecret !== null,
-      bottles: d.catalogue.length,
+      bottles: d.labels.length, // every label the site predicts, as /evidence counts them
       gates: loadGates().length,
       node: process.versions.node,
     });

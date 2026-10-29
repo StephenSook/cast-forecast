@@ -1,4 +1,7 @@
-export type BarRow = { label: string; value: number; low?: number; high?: number };
+import Link from "next/link";
+
+/** One bar. With `href`, the label links there (on /compare, to the bottle's page). */
+export type BarRow = { label: string; value: number; low?: number; high?: number; href?: string };
 
 /**
  * Where a row sits on the shared domain, in percent of the track, each clamped to 0..100.
@@ -46,7 +49,13 @@ export function Bars({ rows, domain, format, ariaLabel }: {
         const interval = r.low !== undefined && r.high !== undefined ? ([r.low, r.high] as const) : null;
         return (
           <li key={`${i}-${r.label}`} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
-            <span className="text-sm font-bold min-w-0 break-words">{r.label}</span>
+            {r.href ? (
+              <Link href={r.href} className="text-sm font-bold min-w-0 break-words underline decoration-2 underline-offset-4 decoration-amber">
+                {r.label}
+              </Link>
+            ) : (
+              <span className="text-sm font-bold min-w-0 break-words">{r.label}</span>
+            )}
             <span className="relative h-7 rounded-full border-2 border-ink bg-paper overflow-hidden col-span-2 order-last sm:col-span-1 sm:order-none" aria-hidden="true">
               <span data-bar-fill className="absolute inset-y-0 bg-amber" style={{ left: `${g.start}%`, width: `${g.end - g.start}%` }} />
               <span className="absolute inset-y-0 w-[3px] bg-ink" style={{ left: `calc(${g.mark}% - 1.5px)` }} />

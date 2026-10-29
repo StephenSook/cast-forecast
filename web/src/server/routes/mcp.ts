@@ -340,7 +340,7 @@ function common(id: Id, era: Era, method: string, params: Json, d: RouteDeps): R
   if (args !== undefined && !isObject(args)) {
     return rpcError(200, id, INVALID_PARAMS, "Invalid arguments: params.arguments must be an object.");
   }
-  const out: ToolResult | null = callTool(name, args ?? {}, d.catalogue);
+  const out: ToolResult | null = callTool(name, args ?? {}, { featured: d.catalogue, labels: d.labels });
   if (out === null) return rpcError(200, id, INVALID_PARAMS, `Unknown tool. The tools are ${TOOL_NAMES}.`);
   return rpcResult(id, era, out);
 }

@@ -9,12 +9,12 @@ Why: in a 2024 dermatology survey, 25% of skin of color respondents named white 
 ## How it works
 1. Take a selfie or upload one.
 2. Pick the swatch closest to your skin, or tap **Suggest my tone**: YouCam's AI Fitzpatrick Skin Type Analysis reads the selfie, and the app preselects the swatch it maps that type to. It is a suggestion; you can change it.
-3. Tap a bottle. YouCam Makeup VTO renders that bottle's predicted cast on your face. Drag the slider to compare before and after.
+3. Tap a bottle, or find yours by name. YouCam Makeup VTO renders that bottle's predicted cast on your face. Drag the slider to compare before and after.
 
 ## Where each number comes from
-- **The bottle:** its zinc oxide percentage, read from its FDA label on DailyMed. Eight zinc-only sunscreens, each pinned by label set id in [`data/bottles/fda_labels.json`](data/bottles/fda_labels.json). A label is used only when its listed active ingredient is exactly zinc oxide and its text gives one plain percentage.
+- **The bottle:** its zinc oxide percentage, read from its FDA label on DailyMed. Every zinc-only sunscreen label on openFDA that the model can speak for, each pinned by label set id in [`data/bottles/fda_labels.json`](data/bottles/fda_labels.json), with every label left out and why ([`data/bottles/README.md`](data/bottles/README.md)): tinted, powder and lip products are not predicted, and neither is a label with too little zinc for the model to predict any cast (below about 6.3 percent the straight-line fit would show a darkening, an artifact of the fit). A label is used only when its listed active ingredient is exactly zinc oxide and its text gives one plain percentage.
 - **The prediction:** a label-percent model fitted here to the raw data of a 2025 PLOS ONE study, using that study's white-cast normalization, dL* / (100 − L* before): `dL* = (a + c × ZnO%) × (100 − L* before)`. The study published the normalization; the straight line in zinc percent and its fit are this project's. In a strict held-out test (Gate 1) it missed by 1.61 L* on average (1.80 on the study's darker skin tones). Each result shows a ±2.35 L* band, the test's error on the study's one differently formulated product, because retail bottles are formulated differently too. CI recomputes the 1.61 from the committed table, [`data/plos2025/cells.csv`](data/plos2025/cells.csv).
-- **The picture:** a white foundation layer at the whole colorIntensity whose lightening, on the curve fitted to 16 K1b renders of one person (R² 0.98, checked with 3 more; PASS 5 of 5), comes closest to the prediction. Calculated on that curve, every bottle and tone lands within 0.16 L*; that is a mismatch under the fitted curve, not a measurement of each render.
+- **The picture:** a white foundation layer at the whole colorIntensity whose lightening, on the curve fitted to 16 K1b renders of one person (R² 0.98, checked with 3 more; PASS 5 of 5), comes closest to the prediction. Calculated on that curve, every bottle and tone lands within 0.18 L*; that is a mismatch under the fitted curve, not a measurement of each render.
 
 ## YouCam APIs
 | API | Category | Used for |

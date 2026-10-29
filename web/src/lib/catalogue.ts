@@ -33,6 +33,10 @@ export const BottleSchema = z.object({
   name: z.string().min(1).max(80),
   brand: z.string().min(1).max(60),
   upc: z.string().regex(/^\d{8,14}$/).nullable(),
+  /** Every barcode openFDA lists for the label (and for labels deduplicated into it); `upc` is set only when there is one. */
+  upcs: z.array(z.string().regex(/^\d{8,14}$/)).optional(),
+  /** One of the eight bottles the site shipped first, shown as chips; the rest are found by search. */
+  featured: z.boolean().optional(),
   filter: z.enum(["mineral", "chemical"]),
   tinted: z.boolean(),
   /** The middle tone's prediction, where one number per bottle is shown. */

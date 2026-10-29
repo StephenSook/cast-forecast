@@ -1,14 +1,19 @@
 import "server-only";
 import { type Bottle, RETAIL_ERROR_L, TONES, type Whitening, findBottle, formatValue, labelUrl } from "@/lib/catalogue";
 import { LIGHTNESS_RANGE, ZINC_RANGE, predictInStudy } from "@/lib/labelModel";
+import { foldText, searchEntries } from "@/lib/search";
+import { LABELS } from "@/server/labels";
 import { type LabelModelPayload, labelModelPayload } from "@/server/routes/labelModel";
 
 /**
- * The tools the MCP endpoint (routes/mcp.ts) serves. All three are pure compute over the shipped catalogue and the
+ * The tools the MCP endpoint (routes/mcp.ts) serves. All four are pure compute over the shipped catalogue and the
  * label model the site itself uses: no YouCam call, no key, no cost. Argument problems come back as tool results with
  * isError (the spec's tool execution errors, which a model can read and correct); only an unknown tool is a protocol
  * error, and that is the caller's job (callTool answers null).
  */
+
+/** What the tools read: the featured bottles (list_bottles) and every kept FDA label (search_labels, predict_cast). */
+export type ToolData = { featured: readonly Bottle[]; labels: readonly Bottle[] };
 
 export type TextBlock = { type: "text"; text: string };
 export type ToolResult = { content: TextBlock[]; structuredContent?: Record<string, unknown>; isError?: true };
@@ -29,17 +34,46 @@ const STUDY = `${Z_LO} to ${Z_HI}% zinc oxide, skin L* ${L_LO.toFixed(1)} to ${L
 
 export const INSTRUCTIONS =
   "Cast Forecast predicts how white a zinc oxide sunscreen looks on skin, as a CIELAB L* change, from the zinc oxide " +
-  "percent on its FDA label. Call list_bottles for bottle ids, then predict_cast with a bottle_id and the skin's L*. " +
-  "Predictions describe appearance only.";
+  "percent on its FDA label. Call search_labels (any FDA label, by brand or name) or list_bottles (the featured " +
+  "bottles) for bottle ids, then predict_cast with a bottle_id and the skin's L*. Predictions describe appearance only.";
+
+/** search_labels limits: a query fits a brand and a product name; a page stays small. */
+export const SEARCH_QUERY_MAX = 60;
+export const SEARCH_LIMIT_MAX = 20;
+export const SEARCH_LIMIT_DEFAULT = 10;
 
 export const TOOLS: readonly ToolDef[] = [
   {
     name: "list_bottles",
-    title: "List bottles",
+    title: "List featured bottles",
     description:
-      "Every bottle in the Cast Forecast catalogue: id, name, brand and the evidence behind its prediction (the zinc " +
-      "oxide percent on its FDA label, the label's DailyMed set id and effective date), with a link to the label.",
+      `The featured bottles (the site's chips; use search_labels for all ${LABELS.length} FDA labels): id, name, brand ` +
+      "and the evidence behind each prediction (the zinc oxide percent on its FDA label, the label's DailyMed set id " +
+      "and effective date), with a link to the label.",
     inputSchema: NO_ARGUMENTS,
+    annotations: ANNOTATIONS,
+  },
+  {
+    name: "search_labels",
+    title: "Search FDA labels",
+    description:
+      `Finds FDA sunscreen labels by brand or product name among all ${LABELS.length} the site predicts (every word ` +
+      "must start a word of the name or brand), best first: id, name, brand, zinc oxide percent and a link to the label.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1, maxLength: SEARCH_QUERY_MAX, description: "Brand or product name words." },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: SEARCH_LIMIT_MAX,
+          default: SEARCH_LIMIT_DEFAULT,
+          description: `How many labels to return, ${SEARCH_LIMIT_DEFAULT} unless given.`,
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
     annotations: ANNOTATIONS,
   },
   {
@@ -47,12 +81,12 @@ export const TOOLS: readonly ToolDef[] = [
     title: "Predict the white cast",
     description:
       "Predicted lightening of skin under a zinc oxide sunscreen (CIELAB L* change, dL*), with its band, from the zinc " +
-      "oxide percent on the label. Give bottle_id (from list_bottles) or zinc_oxide_pct, not both, and skin_lightness. " +
-      `No prediction outside the study (${STUDY}): the model is never extrapolated. Appearance only.`,
+      "oxide percent on the label. Give bottle_id (from search_labels or list_bottles) or zinc_oxide_pct, not both, and " +
+      `skin_lightness. No prediction outside the study (${STUDY}): the model is never extrapolated. Appearance only.`,
     inputSchema: {
       type: "object",
       properties: {
-        bottle_id: { type: "string", description: "A bottle id from list_bottles. Give this or zinc_oxide_pct." },
+        bottle_id: { type: "string", description: "A bottle id from search_labels or list_bottles. Give this or zinc_oxide_pct." },
         zinc_oxide_pct: {
           type: "number",
           minimum: Z_LO,
@@ -110,13 +144,34 @@ function whitening(value: number): Whitening {
 
 const signed = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
 
-function listBottles(args: Record<string, unknown>, catalogue: readonly Bottle[]): ToolResult {
+function listBottles(args: Record<string, unknown>, featured: readonly Bottle[]): ToolResult {
   if (hasUnknown(args, [])) return refused("list_bottles takes no arguments.");
-  const bottles = catalogue.map((b) => ({ id: b.id, name: b.name, brand: b.brand, evidence: b.evidence, labelUrl: labelUrl(b) }));
-  return done(`${bottles.length} bottles. Pass an id to predict_cast as bottle_id.`, { bottles });
+  const bottles = featured.map((b) => ({ id: b.id, name: b.name, brand: b.brand, evidence: b.evidence, labelUrl: labelUrl(b) }));
+  return done(`${bottles.length} featured bottles. Pass an id to predict_cast as bottle_id; search_labels finds the rest.`, { bottles });
 }
 
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** The same search as GET /api/labels (lib/search.ts), with a small page. The reply never repeats the query. */
+function searchLabels(args: Record<string, unknown>, labels: readonly Bottle[]): ToolResult {
+  if (hasUnknown(args, ["query", "limit"])) return refused("search_labels takes only query and limit.");
+  const query = args.query;
+  if (typeof query !== "string" || query.length < 1 || query.length > SEARCH_QUERY_MAX) {
+    return refused(`search_labels needs query, a string of 1 to ${SEARCH_QUERY_MAX} characters.`);
+  }
+  if (!foldText(query)) return refused("query needs a letter or a digit.");
+  const limit = args.limit ?? SEARCH_LIMIT_DEFAULT; // a null reads as not given, as in predict_cast
+  if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > SEARCH_LIMIT_MAX) {
+    return refused(`limit must be a whole number from 1 to ${SEARCH_LIMIT_MAX}.`);
+  }
+  const { total, items } = searchEntries(labels, query, limit as number);
+  const found = items.map((b) => ({ id: b.id, name: b.name, brand: b.brand, zincOxidePct: b.evidence.zincOxidePct, labelUrl: labelUrl(b) }));
+  const sentence =
+    total === 0
+      ? "No label matches. Try a brand or fewer words."
+      : `${found.length} of ${total} matching labels. Pass an id to predict_cast as bottle_id.`;
+  return done(sentence, { total, labels: found });
+}
 
 function predictCast(args: Record<string, unknown>, catalogue: readonly Bottle[]): ToolResult {
   const no = (why: string) => refused(`No prediction: ${why}`);
@@ -137,7 +192,7 @@ function predictCast(args: Record<string, unknown>, catalogue: readonly Bottle[]
     const id = args.bottle_id;
     if (typeof id !== "string") return no("bottle_id must be a string.");
     bottle = findBottle(id, catalogue);
-    if (!bottle) return no("no bottle has that bottle_id. Call list_bottles for the ids.");
+    if (!bottle) return no("no bottle has that bottle_id. Call list_bottles or search_labels for the ids.");
     zinc = bottle.evidence.zincOxidePct;
   } else {
     const pct = args.zinc_oxide_pct;
@@ -173,13 +228,18 @@ function heldOutError(args: Record<string, unknown>): ToolResult {
   );
 }
 
-/** Runs one tool, or answers null for a name no tool has. `args` is the call's arguments object ({} when absent). */
-export function callTool(name: string, args: Record<string, unknown>, catalogue: readonly Bottle[]): ToolResult | null {
+/**
+ * Runs one tool, or answers null for a name no tool has. `args` is the call's arguments object ({} when absent).
+ * list_bottles lists the featured bottles; search_labels and predict_cast take any kept label, as the site does.
+ */
+export function callTool(name: string, args: Record<string, unknown>, data: ToolData): ToolResult | null {
   switch (name) {
     case "list_bottles":
-      return listBottles(args, catalogue);
+      return listBottles(args, data.featured);
+    case "search_labels":
+      return searchLabels(args, data.labels);
     case "predict_cast":
-      return predictCast(args, catalogue);
+      return predictCast(args, data.labels);
     case "held_out_error":
       return heldOutError(args);
     default:

@@ -134,3 +134,15 @@ test("a suggestion drops a shown render, a new photo forgets the type, and a sta
   const failed = tryReducer(reading, { type: "FAILED", code: "lighting" });
   expect(failed).toMatchObject({ phase: "error", code: "lighting", tone: 55 }); expect(canPick(failed)).toBe(true);
 });
+test("SELECT marks a bottle picked only while no render can start, and never while one is in flight", () => {
+  const empty = initialTryState();
+  expect(tryReducer(empty, { type: "SELECT", bottleId: "test-b" })).toMatchObject({ phase: "empty", bottleId: "test-b" });
+  expect(tryReducer(ready, { type: "SELECT", bottleId: "test-b" })).toBe(ready); // a render can start: that is a PICK
+  const up = tryReducer(ready, { type: "PICK", bottleId: "test-a" });
+  expect(tryReducer(up, { type: "SELECT", bottleId: "test-b" })).toBe(up);
+});
+test("a preselected tone (a bottle page's Try it on me) is kept from the start", () => {
+  const s = initialTryState("test-a", 45);
+  expect(s).toMatchObject({ tone: 45, bottleId: "test-a" });
+  expect(canPick(tryReducer(s, { type: "PHOTO_READY", image }))).toBe(true);
+});

@@ -335,8 +335,9 @@ def test_each_bottle_needs_its_own_asin():
 
 
 def test_the_pinned_predictions_are_the_catalogue_at_l55():
+    # The eight pinned bottles are the data file's featured rows (it now lists every openFDA label).
     labels = json.loads((ROOT / "data" / "bottles" / "fda_labels.json").read_text())
-    assert set(PREDICTED_L55) == {b["id"] for b in labels["bottles"]}
+    assert set(PREDICTED_L55) == {b["id"] for b in labels["labels"] if b["featured"]}
     live = catalogue_l55()
     for bottle, value in PREDICTED_L55.items():
         assert live[bottle] == pytest.approx(value, abs=1e-9), bottle

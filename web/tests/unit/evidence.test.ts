@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { predictCastCurl, predictExample } from "@/lib/agent";
 import { CATALOGUE, TONES } from "@/lib/catalogue";
-import { cellParts, CURVE_Y_MAX, curveLabel, curvePoints, DATA_URL, evidenceSteps, evidenceTiles, factLine, originFrom } from "@/lib/evidence";
+import { cellParts, CURVE_Y_MAX, curveLabel, curvePoints, DATA_URL, evidenceSteps, evidenceTiles, factLine, leftOutLine, originFrom } from "@/lib/evidence";
 import { K1B } from "@/lib/gates";
 
 test("tiles read the recorded K1b numbers", () => {
@@ -54,6 +54,12 @@ test("step 1 does not claim every rule preceded its data", () => {
 
 test("the fact line carries the counts and the 7 character release", () => {
   expect(factLine(0, 4, "63868ece36982b8a")).toBe("Bottles: 0. Gates on record: 4. Release 63868ec.");
+});
+
+test("the left-out line names each category with its count, and the render bound, all passed in", () => {
+  expect(leftOutLine({ tinted: 3, powder: 2, lip: 1, zinc_too_low: 4, render_error: 0 }, 1)).toBe(
+    "Not predicted: tinted (3), powders (2), lip products (1), zinc too low to predict a cast (4), and any render more than 1 L* off its prediction (0).",
+  );
 });
 
 test("the curve points and its label come from the K1b fit", () => {

@@ -1,5 +1,5 @@
 import "server-only";
-import { MCP_PATH, mcpCurl, predictCastCurl, predictExample, rpcBody } from "@/lib/agent";
+import { MCP_PATH, mcpCurl, predictCastCurl, predictExample, rpcBody, searchLabelsCurl } from "@/lib/agent";
 import { DATA_URL, REPO, originFrom } from "@/lib/evidence";
 import { TOOLS } from "@/server/mcpTools";
 import { LEGACY_VERSIONS, MODERN_VERSIONS, SUPPORTED_VERSIONS } from "@/server/routes/mcp";
@@ -38,6 +38,10 @@ export function llmsText(base: string): string {
     "Predict one bottle on one skin tone:",
     "",
     predictCastCurl(base),
+    "",
+    "Find a label by brand or name (its id goes to predict_cast as bottle_id):",
+    "",
+    searchLabelsCurl(base),
     "",
     `Initialize (${legacy}), then list the tools:`,
     "",
