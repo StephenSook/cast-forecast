@@ -100,6 +100,8 @@ function originAllowed(req: Request): boolean {
 /**
  * False only for an Accept header that rules JSON out; a missing one, or curl's default, accepts it. JSON's quality is
  * that of the most specific range that matches it (RFC 9110 12.5.1): a q=0 on application/json beats any wildcard.
+ * A range with a parameter besides q and charset (a profile, say) names a representation this server does not send,
+ * so it matches nothing; charset is let through because clients add it to JSON ranges (Codex review, round 2).
  */
 export function acceptsJson(accept: string | null): boolean {
   if (accept === null || accept.trim() === "") return true;
@@ -109,6 +111,7 @@ export function acceptsJson(accept: string | null): boolean {
     const [range, ...params] = part.split(";").map((s) => s.trim().toLowerCase());
     const r = range === "application/json" ? 3 : range === "application/*" ? 2 : range === "*/*" ? 1 : 0;
     if (r === 0 || r < rank) continue;
+    if (params.some((p) => p !== "" && !p.startsWith("q=") && !p.startsWith("charset="))) continue;
     const q = params.find((p) => p.startsWith("q="));
     const value = q === undefined ? 1 : Number(q.slice(2));
     const v = Number.isFinite(value) ? value : 1;

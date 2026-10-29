@@ -398,6 +398,16 @@ test("Accept: JSON's quality comes from the most specific range that matches it"
   }
 });
 
+// Codex review, round 2: a profile-qualified JSON range was read as plain JSON and outvoted the q=0 refusal.
+test("Accept: a JSON range with a parameter besides q and charset matches nothing", () => {
+  for (const no of ["application/json;profile=custom;q=1, application/json;q=0", "application/json;profile=x", "application/json;version=2, */*;q=0"]) {
+    expect(acceptsJson(no), no).toBe(false);
+  }
+  for (const yes of ["application/json; charset=utf-8", "application/json;charset=UTF-8;q=0.5", "application/json;profile=x, */*"]) {
+    expect(acceptsJson(yes), yes).toBe(true);
+  }
+});
+
 // Codex review: the allowed origin came from Host and X-Forwarded-Host, which the caller controls.
 test("Origin must be the configured site's; the request's own host and forwarded headers never vouch for it", async () => {
   vi.stubEnv("SITE_URL", "https://cast.example.test");
