@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 import * as llmsRoute from "@/app/llms.txt/route";
-import { predictCastCurl } from "@/lib/agent";
+import { predictCastCurl, searchLabelsCurl } from "@/lib/agent";
 import { CATALOGUE } from "@/lib/catalogue";
+import { LABELS } from "@/server/labels";
 import { TOOLS } from "@/server/mcpTools";
 import { llmsText } from "@/server/routes/llms";
 import { SUPPORTED_VERSIONS, makeMcpHandler } from "@/server/routes/mcp";
@@ -32,21 +33,24 @@ test("llms.txt names the endpoint, every tool, every protocol version and the la
   expect(text).toContain(SUPPORTED_VERSIONS.join(", "));
   expect(text).toContain(`[GET /api/label-model](${BASE}/api/label-model)`);
   expect(text).toContain(predictCastCurl(BASE));
+  expect(text).toContain(searchLabelsCurl(BASE));
   expect(findCopyViolations(text, "llms.txt")).toEqual([]);
   expect(text).not.toMatch(/[\u2018\u2019\u201c\u201d]/); // curly quotes, written as escapes
 });
 
 test("every curl llms.txt prints runs as printed and answers a result", async () => {
-  const { deps } = testDeps({ catalogue: CATALOGUE });
+  const { deps } = testDeps({ catalogue: CATALOGUE, labels: LABELS });
   const handler = makeMcpHandler(deps);
   const printed = curls(llmsText(BASE));
-  expect(printed.length).toBe(5);
+  expect(printed.length).toBe(6);
   for (const c of printed) {
     const res = await handler(new Request(`${BASE}/api/mcp`, { method: "POST", headers: c.headers, body: c.body }));
     expect(res.status, c.line).toBe(200);
     const b = await res.json();
     expect(b.error, c.line).toBeUndefined();
     expect(b.result.isError, c.line).toBeUndefined();
+    // The printed search finds labels in the shipped catalogue.
+    if (c.body.includes('"search_labels"')) expect(b.result.structuredContent.labels.length).toBeGreaterThan(0);
   }
 });
 

@@ -29,3 +29,11 @@ export function mcpCurl(base: string, body: string, headers: readonly string[] =
 export function predictCastCurl(base: string): string {
   return mcpCurl(base, rpcBody(1, "tools/call", { name: "predict_cast", arguments: predictExample() }));
 }
+
+/** The search_labels arguments llms.txt prints: a word most mineral sunscreen names carry, and a short page. */
+export const SEARCH_EXAMPLE = { query: "mineral", limit: 5 } as const;
+
+/** The search_labels call llms.txt prints. */
+export function searchLabelsCurl(base: string): string {
+  return mcpCurl(base, rpcBody(1, "tools/call", { name: "search_labels", arguments: SEARCH_EXAMPLE }));
+}

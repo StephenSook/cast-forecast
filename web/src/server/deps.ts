@@ -11,9 +11,12 @@ export type RouteDeps = {
   env: ServerEnv;
   youcam: (key: string) => YouCam;
   limiter: Limiter;
-  /** The featured bottles (the chips): what the MCP tools list and predict. */
+  /** The featured bottles (the chips): what the MCP list_bottles tool lists. */
   catalogue: readonly Bottle[];
-  /** Every kept FDA label: what the render route accepts, so a bottle found by search renders like a chip. */
+  /**
+   * Every kept FDA label: what the render route and the MCP predict_cast and search_labels tools accept, so a bottle
+   * found by search is treated like a chip everywhere.
+   */
   labels: readonly Bottle[];
   balance: BalanceCache;
   now: () => number;
@@ -30,8 +33,8 @@ export function defaultDeps(): RouteDeps {
     env: readServerEnv(),
     youcam: (key) => createYouCam({ key }),
     limiter,
-    // The MCP tools keep the featured list they shipped with (a reply listing every label would be about 250 KB);
-    // widening them is a separate decision.
+    // list_bottles keeps the featured list (one reply listing every label would be about 250 KB); search_labels pages
+    // through the rest.
     catalogue: CATALOGUE,
     labels: LABELS,
     balance,

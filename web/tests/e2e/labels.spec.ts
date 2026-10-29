@@ -113,3 +113,17 @@ test("the evidence page counts every label and names what is left out, from the 
   await expect(page.getByText(`Bottles: ${data.kept}.`, { exact: false })).toBeVisible();
   await expect(page.getByText(`Not predicted: tinted (${data.tinted}), powders (${data.powder}), lip products (${data.lip}), zinc too low to predict a cast (${data.zinc_too_low}), and any render more than 1 L* off its prediction (${data.render_error}).`)).toBeVisible();
 });
+
+// An agent finds a label that is not a chip with search_labels, and predict_cast answers its published number.
+test("over MCP, search_labels finds a label that is not a chip and predict_cast answers its published number", async ({ request }) => {
+  const rpc = (id: number, name: string, args: object) =>
+    request.post("/api/mcp", { data: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }), headers: { "Content-Type": "application/json" } });
+  const found = (await (await rpc(1, "search_labels", { query: "blue lizard sheer", limit: 3 })).json()).result;
+  expect(found.isError).toBeUndefined();
+  expect(found.structuredContent.labels.map((l: { id: string }) => l.id)).toContain(FOUND.id);
+  const all = JSON.parse(readFileSync("src/data/labels.json", "utf8")).bottles;
+  const tone = all.find((b: { id: string }) => b.id === FOUND.id).tones.find((t: { lStar: number }) => t.lStar === 45);
+  const cast = (await (await rpc(2, "predict_cast", { bottle_id: FOUND.id, skin_lightness: 45 })).json()).result;
+  expect(cast.isError).toBeUndefined();
+  expect(cast.structuredContent.whitening).toEqual(tone.whitening);
+});
