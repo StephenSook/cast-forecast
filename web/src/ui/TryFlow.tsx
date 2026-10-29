@@ -243,9 +243,12 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
             Suggest my tone
           </button>
         )}
-        {state.skinType && (
-          <p className="max-w-[34rem]">
-            {onSample && sample ? recordedReadLine(state.skinType, sample.data.skinType.recordedOn) : suggestedLine(state.skinType)}
+        {bottles.length > 0 && (
+          // Always mounted (a live region announces changes only once it exists), and out of the layout while empty, so
+          // the suggested tone is read out whether it came from a live read or the sample face's recorded one.
+          <p data-testid="skin-line" aria-live="polite" className={state.skinType ? "max-w-[34rem]" : "sr-only"}>
+            {state.skinType &&
+              (onSample && sample ? recordedReadLine(state.skinType, sample.data.skinType.recordedOn) : suggestedLine(state.skinType))}
           </p>
         )}
         {state.tone === "deeper" && <p className="max-w-[34rem] font-bold">{DEEPER_LINE}</p>}

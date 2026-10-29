@@ -72,6 +72,28 @@ test("Suggest my tone on the sample face shows the recorded read and its tone, w
   expect(paid()).toBe(0);
 });
 
+test("the recorded read is announced: it lands in a polite live region that was already mounted, from the keyboard", async () => {
+  const { user, useSample } = setup();
+  const region = screen.getByTestId("skin-line");
+  expect(region).toHaveAttribute("aria-live", "polite");
+  expect(region).toBeEmptyDOMElement();
+  await useSample();
+  const suggest = screen.getByRole("button", { name: "Suggest my tone" });
+  suggest.focus();
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(screen.getByTestId("skin-line")).toHaveTextContent(recordedReadLine("III", "2026-10-29")));
+  expect(screen.getByTestId("skin-line")).toBe(region); // the same node, so a screen reader hears the change
+});
+
+test("a live read is announced the same way", async () => {
+  const { api, user } = setup();
+  const region = screen.getByTestId("skin-line");
+  await user.upload(screen.getByTestId("upload-input"), new File(["x"], "a.jpg", { type: "image/jpeg" }));
+  await user.click(screen.getByRole("button", { name: "Suggest my tone" }));
+  await waitFor(() => expect(region).toHaveTextContent("YouCam reads Fitzpatrick type IV."));
+  expect(api.readSkinType).toHaveBeenCalledTimes(1);
+});
+
 test("a label that is not a chip, found by search, says a live render needs your own selfie, and sends nothing", async () => {
   const { user, useSample, paid } = setup();
   await useSample();
