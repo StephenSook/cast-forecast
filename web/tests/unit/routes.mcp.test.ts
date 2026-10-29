@@ -410,6 +410,16 @@ test("under the handshake, MCP-Protocol-Version must name a version it serves", 
   await rpcErrorOf(await send(rpc("tools/list"), { "MCP-Protocol-Version": MODERN }), 400, -32020);
 });
 
+// Codex review: 2024-11-05's HTTP transport is the old SSE one (a GET that answers an endpoint event); this endpoint
+// answers GET 405, so that revision is not offered anywhere.
+test("2024-11-05 is not offered: not in the versions, not by initialize, not as a header", async () => {
+  const send = server();
+  expect(SUPPORTED_VERSIONS).toEqual([MODERN, "2025-11-25", "2025-06-18", "2025-03-26"]);
+  const r = (await answer(await send(rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {} })))).result!;
+  expect(r.protocolVersion).toBe(LEGACY_VERSIONS[0]);
+  await rpcErrorOf(await send(rpc("tools/list"), { "MCP-Protocol-Version": "2024-11-05" }), 400, -32022);
+});
+
 test("2026-07-28: server/discover, tools/list and tools/call carry resultType, the cache hint and the server's identity", async () => {
   const send = server();
   const serverMeta = { "io.modelcontextprotocol/serverInfo": SERVER_INFO };

@@ -17,7 +17,8 @@ import { mediaType, readCapped, waitText } from "@/server/routes/common";
  */
 
 export const MODERN_VERSIONS: readonly string[] = ["2026-07-28"];
-export const LEGACY_VERSIONS: readonly string[] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+// Not 2024-11-05: that revision's HTTP transport is the old SSE one (GET for an endpoint event), which this is not.
+export const LEGACY_VERSIONS: readonly string[] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 export const SUPPORTED_VERSIONS: readonly string[] = [...MODERN_VERSIONS, ...LEGACY_VERSIONS];
 /** What a request with no MCP-Protocol-Version header is served as. */
 const UNDECLARED_VERSION = "2025-03-26";
