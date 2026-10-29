@@ -53,7 +53,9 @@ type Era = "modern" | "legacy";
 
 const isObject = (v: unknown): v is Json => typeof v === "object" && v !== null && !Array.isArray(v);
 const has = (o: Json, k: string) => Object.hasOwn(o, k);
-const short = (s: string) => JSON.stringify(s.length > 64 ? `${s.slice(0, 64)}...` : s);
+// Error messages are fixed text: none repeats a header, method or tool name the caller sent (Codex review). The one
+// echo is the spec's own field, UnsupportedProtocolVersionError data.requested.
+const TOOL_NAMES = TOOLS.map((t) => t.name).join(", ");
 
 function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return Response.json(body, { status, headers: { ...NO_STORE, ...headers } });
@@ -200,16 +202,14 @@ function modern(id: Id, method: string, params: Json, meta: Json, headers: Heade
   if (typeof declared !== "string") return rpcError(400, id, INVALID_PARAMS, `_meta ${VERSION_KEY} must be a string.`);
   const header = headers.get("mcp-protocol-version");
   if (header !== declared) {
-    const got = header === null ? "is missing" : `is ${short(header)}`;
-    return rpcError(400, id, HEADER_MISMATCH, `Header mismatch: MCP-Protocol-Version ${got}; the body says ${short(declared)}.`);
+    return rpcError(400, id, HEADER_MISMATCH, `Header mismatch: MCP-Protocol-Version must equal _meta ${VERSION_KEY}.`);
   }
   if (!MODERN_VERSIONS.includes(declared)) {
     return rpcError(400, id, UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", { supported: SUPPORTED_VERSIONS, requested: declared });
   }
   const mcpMethod = headers.get("mcp-method");
   if (mcpMethod !== method) {
-    const got = mcpMethod === null ? "is missing" : `is ${short(mcpMethod)}`;
-    return rpcError(400, id, HEADER_MISMATCH, `Header mismatch: Mcp-Method ${got}; the body says ${short(method)}.`);
+    return rpcError(400, id, HEADER_MISMATCH, "Header mismatch: Mcp-Method must equal the request's method.");
   }
   // Required on every request (basic/index, per-request protocol fields): missing is malformed, 400 and -32602.
   if (!has(meta, CAPABILITIES_KEY) || !isObject(meta[CAPABILITIES_KEY])) {
@@ -218,8 +218,7 @@ function modern(id: Id, method: string, params: Json, meta: Json, headers: Heade
   if (method === "tools/call" && typeof params.name === "string") {
     const name = decodeHeaderValue(headers.get("mcp-name"));
     if (name !== params.name) {
-      const got = name === null ? "is missing or malformed" : `is ${short(name)}`;
-      return rpcError(400, id, HEADER_MISMATCH, `Header mismatch: Mcp-Name ${got}; the body says ${short(params.name)}.`);
+      return rpcError(400, id, HEADER_MISMATCH, "Header mismatch: Mcp-Name must equal params.name.");
     }
   }
   switch (method) {
@@ -237,7 +236,7 @@ function modern(id: Id, method: string, params: Json, meta: Json, headers: Heade
       return common(id, "modern", method, params, d);
     default:
       // The spec answers an unknown method 404 in this revision.
-      return rpcError(404, id, METHOD_NOT_FOUND, `Method not found: ${short(method)}`);
+      return rpcError(404, id, METHOD_NOT_FOUND, "Method not found. This server answers server/discover, ping, tools/list and tools/call.");
   }
 }
 
@@ -245,14 +244,14 @@ function modern(id: Id, method: string, params: Json, meta: Json, headers: Heade
 function legacy(id: Id, method: string, params: Json, headers: Headers, d: RouteDeps): Response {
   const header = headers.get("mcp-protocol-version");
   if (header !== null && MODERN_VERSIONS.includes(header)) {
-    return rpcError(400, id, HEADER_MISMATCH, `Header mismatch: MCP-Protocol-Version is ${short(header)} but params._meta has no ${VERSION_KEY}.`);
+    return rpcError(400, id, HEADER_MISMATCH, `Header mismatch: that MCP-Protocol-Version needs _meta ${VERSION_KEY} in params.`);
   }
   const version = header ?? UNDECLARED_VERSION;
   if (!LEGACY_VERSIONS.includes(version)) {
     return rpcError(400, id, UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", { supported: SUPPORTED_VERSIONS, requested: version });
   }
   if (method === "ping" || method === "tools/list" || method === "tools/call") return common(id, "legacy", method, params, d);
-  return rpcError(200, id, METHOD_NOT_FOUND, `Method not found: ${short(method)}`);
+  return rpcError(200, id, METHOD_NOT_FOUND, "Method not found. This server answers initialize, ping, tools/list and tools/call.");
 }
 
 /** ping, tools/list and tools/call, the same in both eras apart from the result's envelope. */
@@ -266,9 +265,9 @@ function common(id: Id, era: Era, method: string, params: Json, d: RouteDeps): R
   if (typeof name !== "string") return rpcError(200, id, INVALID_PARAMS, "tools/call needs params.name (a string).");
   const args = params.arguments;
   if (args !== undefined && !isObject(args)) {
-    return rpcError(200, id, INVALID_PARAMS, `Invalid arguments for tool ${short(name)}: arguments must be an object.`);
+    return rpcError(200, id, INVALID_PARAMS, "Invalid arguments: params.arguments must be an object.");
   }
   const out: ToolResult | null = callTool(name, args ?? {}, d.catalogue);
-  if (out === null) return rpcError(200, id, INVALID_PARAMS, `Unknown tool: ${short(name)}`);
+  if (out === null) return rpcError(200, id, INVALID_PARAMS, `Unknown tool. The tools are ${TOOL_NAMES}.`);
   return rpcResult(id, era, out);
 }

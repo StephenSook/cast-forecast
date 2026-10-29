@@ -18,6 +18,7 @@ import {
   decodeHeaderValue,
   makeMcpHandler,
 } from "@/server/routes/mcp";
+import { findCopyViolations } from "../helpers/copyGuard";
 import { testDeps } from "../helpers/routes";
 
 const ENDPOINT = "https://cf.test/api/mcp";
@@ -200,9 +201,9 @@ test("predict_cast refuses, as a tool error the model can read, everything it ca
     [{ zinc_oxide_pct: "12", skin_lightness: 55 }, /zinc_oxide_pct must be a finite number/],
     [{ zinc_oxide_pct: {}, skin_lightness: 55 }, /zinc_oxide_pct must be a finite number/],
     [{ bottle_id: 7, skin_lightness: 55 }, /bottle_id must be a string/],
-    [{ bottle_id: "no-such-bottle", skin_lightness: 55 }, /unknown bottle_id "no-such-bottle"/],
-    [{ bottle_id: "x".repeat(200), skin_lightness: 55 }, /unknown bottle_id "x{64}\.\.\."/],
-    [{ bottle_id: id, skin_lightness: 55, tone: "light" }, /unknown argument "tone"/],
+    [{ bottle_id: "no-such-bottle", skin_lightness: 55 }, /^No prediction: no bottle has that bottle_id\. Call list_bottles/],
+    [{ bottle_id: "x".repeat(200), skin_lightness: 55 }, /no bottle has that bottle_id/],
+    [{ bottle_id: id, skin_lightness: 55, tone: "light" }, /predict_cast takes only bottle_id or zinc_oxide_pct, and skin_lightness/],
   ];
   for (const [args, why] of cases) {
     const r = await tool(await send(call("predict_cast", args)));
@@ -216,7 +217,7 @@ test("predict_cast refuses, as a tool error the model can read, everything it ca
   const raw: [string, RegExp][] = [
     [`{"zinc_oxide_pct":1e400,"skin_lightness":55}`, /zinc_oxide_pct must be a finite number/],
     [`{"bottle_id":"${id}","skin_lightness":-1e400}`, /skin_lightness must be a finite number/],
-    [`{"bottle_id":"${id}","skin_lightness":55,"__proto__":{"x":1}}`, /unknown argument "__proto__"/],
+    [`{"bottle_id":"${id}","skin_lightness":55,"__proto__":{"x":1}}`, /predict_cast takes only/],
   ];
   for (const [args, why] of raw) {
     const r = await tool(await send(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"predict_cast","arguments":${args}}}`));
@@ -238,18 +239,44 @@ test("held_out_error is the /api/label-model payload; the no-argument tools refu
   for (const name of ["held_out_error", "list_bottles"]) {
     const bad = await tool(await send(call(name, { x: 1 })));
     expect(bad.isError).toBe(true);
-    expect(bad.content[0].text).toBe(`${name} takes no arguments (got "x").`);
+    expect(bad.content[0].text).toBe(`${name} takes no arguments.`);
   }
 });
 
 test("an unknown tool and a malformed tools/call are protocol errors (-32602)", async () => {
   const send = server();
-  expect((await rpcErrorOf(await send(call("predict_tan", {})), 200, -32602)).error!.message).toBe('Unknown tool: "predict_tan"');
+  expect((await rpcErrorOf(await send(call("predict_tan", {})), 200, -32602)).error!.message).toBe("Unknown tool. The tools are list_bottles, predict_cast, held_out_error.");
   await rpcErrorOf(await send(rpc("tools/call", { arguments: {} })), 200, -32602);
   await rpcErrorOf(await send(rpc("tools/call", { name: 5 })), 200, -32602);
   for (const args of [[], "x", null, 3]) await rpcErrorOf(await send(call("predict_cast", args)), 200, -32602);
   await rpcErrorOf(await send(rpc("tools/list", { cursor: "next" })), 200, -32602);
   await rpcErrorOf(await send(rpc("ping", [1] as unknown as object)), 200, -32602);
+});
+
+// Codex review: a caller could make the server say whatever it sent, banned copy included. Every reply here is
+// checked with the site's own copy guard, and none may repeat the planted text.
+test("no reply repeats what the caller sent", async () => {
+  const send = server();
+  const planted = `${String.fromCharCode(0x2014)}SPF 50 protects${String.fromCharCode(0x201d)}`;
+  const replies = [
+    await send(call("predict_cast", { bottle_id: planted, skin_lightness: 55 })),
+    await send(call("predict_cast", { bottle_id: CATALOGUE[0].id, skin_lightness: 55, [planted]: 1 })),
+    await send(call("list_bottles", { [planted]: 1 })),
+    await send(call(planted, {})),
+    await send(rpc(planted)),
+    await send(rpc("SPF", { _meta: META }), modernHeaders("SPF")), // a header value cannot carry the dash, so ASCII
+    await send(rpc("tools/list"), { "MCP-Protocol-Version": "SPF" }), // data.requested is the spec's own echo
+    await send(rpc("tools/list", { _meta: META }), { ...modernHeaders("tools/list"), "Mcp-Method": "SPF" }),
+    await send(rpc("tools/call", { name: "predict_cast", arguments: {}, _meta: META }), modernHeaders("tools/call", "SPF")),
+  ];
+  expect(replies).toHaveLength(9);
+  for (const res of replies) {
+    const b = await answer(res);
+    const text = b.error ? b.error.message : b.result!.content.map((c) => c.text).join(" ");
+    expect(text.length).toBeGreaterThan(5);
+    expect(text, text).not.toContain("SPF");
+    expect(findCopyViolations(text, "reply"), text).toEqual([]);
+  }
 });
 
 // JSON-RPC framing.

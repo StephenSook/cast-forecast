@@ -26,8 +26,6 @@ const [Z_LO, Z_HI] = ZINC_RANGE;
 const [L_LO, L_HI] = LIGHTNESS_RANGE;
 const SITE_TONES = TONES.map((t) => t.lStar).join(", ");
 const STUDY = `${Z_LO} to ${Z_HI}% zinc oxide, skin L* ${L_LO.toFixed(1)} to ${L_HI.toFixed(1)}`;
-/** Longest piece of a caller's input echoed back in a message. */
-const ECHO = 64;
 
 export const INSTRUCTIONS =
   "Cast Forecast predicts how white a zinc oxide sunscreen looks on skin, as a CIELAB L* change, from the zinc oxide " +
@@ -94,12 +92,12 @@ function refused(text: string): ToolResult {
   return { content: [{ type: "text", text }], isError: true };
 }
 
-const echo = (s: string) => JSON.stringify(s.length > ECHO ? `${s.slice(0, ECHO)}...` : s);
-
-/** The argument names outside `allowed`, or null when there are none. */
-function unknownArguments(args: Record<string, unknown>, allowed: readonly string[]): string | null {
-  const extra = Object.keys(args).filter((k) => !allowed.includes(k));
-  return extra.length === 0 ? null : extra.slice(0, 5).map(echo).join(", ");
+/**
+ * True when `args` holds a name outside `allowed`. Messages never repeat what the caller sent, only fixed text and
+ * numbers, so a reply can never carry copy the site would not write (Codex review).
+ */
+function hasUnknown(args: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(args).some((k) => !allowed.includes(k));
 }
 
 /** Six places, as castforecast/label_catalogue.py publishes every float, so a published value comes back unchanged. */
@@ -113,8 +111,7 @@ function whitening(value: number): Whitening {
 const signed = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}`;
 
 function listBottles(args: Record<string, unknown>, catalogue: readonly Bottle[]): ToolResult {
-  const extra = unknownArguments(args, []);
-  if (extra) return refused(`list_bottles takes no arguments (got ${extra}).`);
+  if (hasUnknown(args, [])) return refused("list_bottles takes no arguments.");
   const bottles = catalogue.map((b) => ({ id: b.id, name: b.name, brand: b.brand, evidence: b.evidence, labelUrl: labelUrl(b) }));
   return done(`${bottles.length} bottles. Pass an id to predict_cast as bottle_id.`, { bottles });
 }
@@ -123,8 +120,9 @@ const isNumber = (v: unknown): v is number => typeof v === "number" && Number.is
 
 function predictCast(args: Record<string, unknown>, catalogue: readonly Bottle[]): ToolResult {
   const no = (why: string) => refused(`No prediction: ${why}`);
-  const extra = unknownArguments(args, ["bottle_id", "zinc_oxide_pct", "skin_lightness"]);
-  if (extra) return no(`unknown argument ${extra}. predict_cast takes bottle_id or zinc_oxide_pct, and skin_lightness.`);
+  if (hasUnknown(args, ["bottle_id", "zinc_oxide_pct", "skin_lightness"])) {
+    return no("predict_cast takes only bottle_id or zinc_oxide_pct, and skin_lightness.");
+  }
   // A null reads as not given: some clients send every optional property, null when unused.
   const given = (k: string) => args[k] !== undefined && args[k] !== null;
   if (given("bottle_id") && given("zinc_oxide_pct")) return no("give bottle_id or zinc_oxide_pct, not both.");
@@ -139,7 +137,7 @@ function predictCast(args: Record<string, unknown>, catalogue: readonly Bottle[]
     const id = args.bottle_id;
     if (typeof id !== "string") return no("bottle_id must be a string.");
     bottle = findBottle(id, catalogue);
-    if (!bottle) return no(`unknown bottle_id ${echo(id)}. Call list_bottles for the ids.`);
+    if (!bottle) return no("no bottle has that bottle_id. Call list_bottles for the ids.");
     zinc = bottle.evidence.zincOxidePct;
   } else {
     const pct = args.zinc_oxide_pct;
@@ -165,8 +163,7 @@ function predictCast(args: Record<string, unknown>, catalogue: readonly Bottle[]
 let heldOut: LabelModelPayload | undefined;
 
 function heldOutError(args: Record<string, unknown>): ToolResult {
-  const extra = unknownArguments(args, []);
-  if (extra) return refused(`held_out_error takes no arguments (got ${extra}).`);
+  if (hasUnknown(args, [])) return refused("held_out_error takes no arguments.");
   heldOut ??= labelModelPayload();
   const h = heldOut.heldOut;
   return done(
