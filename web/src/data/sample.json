@@ -1,0 +1,334 @@
+{
+  "schemaVersion": 1,
+  "face": {
+    "src": "/sample/face.jpg",
+    "width": 697,
+    "height": 1079
+  },
+  "skinType": {
+    "fitzpatrick": "IV",
+    "recordedOn": "2026-10-29"
+  },
+  "renders": [
+    {
+      "bottleId": "cetaphil-sheer-mineral-face",
+      "tone": 65,
+      "colorIntensity": 10,
+      "predictedBlend": 0.03437820473449388,
+      "src": "/sample/renders/cetaphil-sheer-mineral-face-65.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "cetaphil-sheer-mineral-face",
+      "tone": 60,
+      "colorIntensity": 9,
+      "predictedBlend": 0.03094038426104449,
+      "src": "/sample/renders/cetaphil-sheer-mineral-face-60.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "cetaphil-sheer-mineral-face",
+      "tone": 55,
+      "colorIntensity": 8,
+      "predictedBlend": 0.027502563787595104,
+      "src": "/sample/renders/cetaphil-sheer-mineral-face-55.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "cetaphil-sheer-mineral-face",
+      "tone": 50,
+      "colorIntensity": 8,
+      "predictedBlend": 0.027502563787595104,
+      "src": "/sample/renders/cetaphil-sheer-mineral-face-50.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "cetaphil-sheer-mineral-face",
+      "tone": 45,
+      "colorIntensity": 7,
+      "predictedBlend": 0.024064743314145712,
+      "src": "/sample/renders/cetaphil-sheer-mineral-face-45.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "babo-sheer-zinc",
+      "tone": 65,
+      "colorIntensity": 17,
+      "predictedBlend": 0.058442948048639594,
+      "src": "/sample/renders/babo-sheer-zinc-65.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "babo-sheer-zinc",
+      "tone": 60,
+      "colorIntensity": 16,
+      "predictedBlend": 0.05500512757519021,
+      "src": "/sample/renders/babo-sheer-zinc-60.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "babo-sheer-zinc",
+      "tone": 55,
+      "colorIntensity": 14,
+      "predictedBlend": 0.048129486628291425,
+      "src": "/sample/renders/babo-sheer-zinc-55.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "babo-sheer-zinc",
+      "tone": 50,
+      "colorIntensity": 13,
+      "predictedBlend": 0.04469166615484204,
+      "src": "/sample/renders/babo-sheer-zinc-50.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "babo-sheer-zinc",
+      "tone": 45,
+      "colorIntensity": 12,
+      "predictedBlend": 0.041253845681392655,
+      "src": "/sample/renders/babo-sheer-zinc-45.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "supergoop-mineral-sheer-stick",
+      "tone": 65,
+      "colorIntensity": 17,
+      "predictedBlend": 0.058442948048639594,
+      "src": "/sample/renders/supergoop-mineral-sheer-stick-65.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "supergoop-mineral-sheer-stick",
+      "tone": 60,
+      "colorIntensity": 16,
+      "predictedBlend": 0.05500512757519021,
+      "src": "/sample/renders/supergoop-mineral-sheer-stick-60.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "supergoop-mineral-sheer-stick",
+      "tone": 55,
+      "colorIntensity": 14,
+      "predictedBlend": 0.048129486628291425,
+      "src": "/sample/renders/supergoop-mineral-sheer-stick-55.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "supergoop-mineral-sheer-stick",
+      "tone": 50,
+      "colorIntensity": 13,
+      "predictedBlend": 0.04469166615484204,
+      "src": "/sample/renders/supergoop-mineral-sheer-stick-50.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "supergoop-mineral-sheer-stick",
+      "tone": 45,
+      "colorIntensity": 12,
+      "predictedBlend": 0.041253845681392655,
+      "src": "/sample/renders/supergoop-mineral-sheer-stick-45.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "badger-face-mineral",
+      "tone": 65,
+      "colorIntensity": 22,
+      "predictedBlend": 0.07592691288741493,
+      "src": "/sample/renders/badger-face-mineral-65.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "badger-face-mineral",
+      "tone": 60,
+      "colorIntensity": 20,
+      "predictedBlend": 0.06875640946898776,
+      "src": "/sample/renders/badger-face-mineral-60.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "badger-face-mineral",
+      "tone": 55,
+      "colorIntensity": 19,
+      "predictedBlend": 0.06531858899553837,
+      "src": "/sample/renders/badger-face-mineral-55.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "badger-face-mineral",
+      "tone": 50,
+      "colorIntensity": 17,
+      "predictedBlend": 0.058442948048639594,
+      "src": "/sample/renders/badger-face-mineral-50.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "badger-face-mineral",
+      "tone": 45,
+      "colorIntensity": 16,
+      "predictedBlend": 0.05500512757519021,
+      "src": "/sample/renders/badger-face-mineral-45.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "hello-bello-mineral",
+      "tone": 65,
+      "colorIntensity": 24,
+      "predictedBlend": 0.08309741630584211,
+      "src": "/sample/renders/hello-bello-mineral-65.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "hello-bello-mineral",
+      "tone": 60,
+      "colorIntensity": 22,
+      "predictedBlend": 0.07592691288741493,
+      "src": "/sample/renders/hello-bello-mineral-60.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "hello-bello-mineral",
+      "tone": 55,
+      "colorIntensity": 21,
+      "predictedBlend": 0.07234166117820134,
+      "src": "/sample/renders/hello-bello-mineral-55.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "hello-bello-mineral",
+      "tone": 50,
+      "colorIntensity": 19,
+      "predictedBlend": 0.06531858899553837,
+      "src": "/sample/renders/hello-bello-mineral-50.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "hello-bello-mineral",
+      "tone": 45,
+      "colorIntensity": 17,
+      "predictedBlend": 0.058442948048639594,
+      "src": "/sample/renders/hello-bello-mineral-45.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "neutrogena-sheer-zinc",
+      "tone": 65,
+      "colorIntensity": 27,
+      "predictedBlend": 0.09385317143348287,
+      "src": "/sample/renders/neutrogena-sheer-zinc-65.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "neutrogena-sheer-zinc",
+      "tone": 60,
+      "colorIntensity": 25,
+      "predictedBlend": 0.0866826680150557,
+      "src": "/sample/renders/neutrogena-sheer-zinc-60.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "neutrogena-sheer-zinc",
+      "tone": 55,
+      "colorIntensity": 23,
+      "predictedBlend": 0.07951216459662852,
+      "src": "/sample/renders/neutrogena-sheer-zinc-55.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "neutrogena-sheer-zinc",
+      "tone": 50,
+      "colorIntensity": 21,
+      "predictedBlend": 0.07234166117820134,
+      "src": "/sample/renders/neutrogena-sheer-zinc-50.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "neutrogena-sheer-zinc",
+      "tone": 45,
+      "colorIntensity": 20,
+      "predictedBlend": 0.06875640946898776,
+      "src": "/sample/renders/neutrogena-sheer-zinc-45.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "eltamd-uv-aox-mist",
+      "tone": 65,
+      "colorIntensity": 13,
+      "predictedBlend": 0.04469166615484204,
+      "src": "/sample/renders/eltamd-uv-aox-mist-65.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "eltamd-uv-aox-mist",
+      "tone": 60,
+      "colorIntensity": 12,
+      "predictedBlend": 0.041253845681392655,
+      "src": "/sample/renders/eltamd-uv-aox-mist-60.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "eltamd-uv-aox-mist",
+      "tone": 55,
+      "colorIntensity": 11,
+      "predictedBlend": 0.03781602520794327,
+      "src": "/sample/renders/eltamd-uv-aox-mist-55.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "eltamd-uv-aox-mist",
+      "tone": 50,
+      "colorIntensity": 10,
+      "predictedBlend": 0.03437820473449388,
+      "src": "/sample/renders/eltamd-uv-aox-mist-50.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "eltamd-uv-aox-mist",
+      "tone": 45,
+      "colorIntensity": 9,
+      "predictedBlend": 0.03094038426104449,
+      "src": "/sample/renders/eltamd-uv-aox-mist-45.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "coppertone-pure-and-simple",
+      "tone": 65,
+      "colorIntensity": 31,
+      "predictedBlend": 0.10819417827033723,
+      "src": "/sample/renders/coppertone-pure-and-simple-65.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "coppertone-pure-and-simple",
+      "tone": 60,
+      "colorIntensity": 29,
+      "predictedBlend": 0.10102367485191005,
+      "src": "/sample/renders/coppertone-pure-and-simple-60.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "coppertone-pure-and-simple",
+      "tone": 55,
+      "colorIntensity": 27,
+      "predictedBlend": 0.09385317143348287,
+      "src": "/sample/renders/coppertone-pure-and-simple-55.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "coppertone-pure-and-simple",
+      "tone": 50,
+      "colorIntensity": 25,
+      "predictedBlend": 0.0866826680150557,
+      "src": "/sample/renders/coppertone-pure-and-simple-50.png",
+      "recordedOn": "2026-10-29"
+    },
+    {
+      "bottleId": "coppertone-pure-and-simple",
+      "tone": 45,
+      "colorIntensity": 23,
+      "predictedBlend": 0.07951216459662852,
+      "src": "/sample/renders/coppertone-pure-and-simple-45.png",
+      "recordedOn": "2026-10-29"
+    }
+  ]
+}

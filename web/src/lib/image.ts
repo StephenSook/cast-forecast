@@ -19,8 +19,11 @@ export function fitWithin(w: number, h: number, maxW = RENDER_MAX.width, maxH = 
     : { width: w, height: h };
 }
 
-/** A selfie ready to send: a fresh JPEG (pixels only, so no metadata), its size, and an object URL for the preview. */
-export type PreparedImage = { blob: Blob; width: number; height: number; url: string };
+/**
+ * A selfie ready to send: a fresh JPEG (pixels only, so no metadata), its size, and an object URL for the preview.
+ * `sample` marks the sample face (lib/sample.ts), which is never sent: its results are recordings.
+ */
+export type PreparedImage = { blob: Blob; width: number; height: number; url: string; sample?: true };
 
 export type ImageDeps = {
   decode(f: Blob): Promise<{ width: number; height: number; source: CanvasImageSource; close(): void }>;
