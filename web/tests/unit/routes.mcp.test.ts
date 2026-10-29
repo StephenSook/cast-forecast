@@ -416,6 +416,19 @@ test("2026-07-28: headers that do not mirror the body are refused (-32020), an u
   await rpcErrorOf(await send(rpc("tools/list", { _meta: { ...META, "io.modelcontextprotocol/protocolVersion": 2026 } }), modernHeaders("tools/list")), 400, -32602);
 });
 
+// Codex review. basic/index: clientCapabilities is required on every request; a request without it is malformed,
+// -32602 with 400.
+test("2026-07-28: a request without clientCapabilities is refused, 400 and -32602", async () => {
+  const send = server();
+  const versionOnly = { "io.modelcontextprotocol/protocolVersion": MODERN };
+  for (const method of ["ping", "tools/list", "server/discover"]) {
+    const b = await rpcErrorOf(await send(rpc(method, { _meta: versionOnly }), modernHeaders(method)), 400, -32602);
+    expect(b.error!.message).toMatch(/clientCapabilities is required/);
+  }
+  const nulled = { ...versionOnly, "io.modelcontextprotocol/clientCapabilities": null };
+  await rpcErrorOf(await send(rpc("ping", { _meta: nulled }), modernHeaders("ping")), 400, -32602);
+});
+
 test("Mcp-Name values decode from the base64 sentinel, and a malformed sentinel is no value", () => {
   expect(decodeHeaderValue(null)).toBeNull();
   expect(decodeHeaderValue("predict_cast")).toBe("predict_cast");

@@ -199,8 +199,9 @@ function modern(id: Id, method: string, params: Json, meta: Json, headers: Heade
     const got = mcpMethod === null ? "is missing" : `is ${short(mcpMethod)}`;
     return rpcError(400, id, HEADER_MISMATCH, `Header mismatch: Mcp-Method ${got}; the body says ${short(method)}.`);
   }
-  if (has(meta, CAPABILITIES_KEY) && !isObject(meta[CAPABILITIES_KEY])) {
-    return rpcError(400, id, INVALID_PARAMS, `_meta ${CAPABILITIES_KEY} must be an object.`);
+  // Required on every request (basic/index, per-request protocol fields): missing is malformed, 400 and -32602.
+  if (!has(meta, CAPABILITIES_KEY) || !isObject(meta[CAPABILITIES_KEY])) {
+    return rpcError(400, id, INVALID_PARAMS, `_meta ${CAPABILITIES_KEY} is required, an object ({} for none).`);
   }
   if (method === "tools/call" && typeof params.name === "string") {
     const name = decodeHeaderValue(headers.get("mcp-name"));
