@@ -64,3 +64,29 @@ export function heldOutMae(targets: readonly Cell[], pool: readonly Cell[]): num
 }
 
 export const CELLS: readonly Cell[] = parseCells(CELLS_CSV);
+
+/** The fit on every cell, the 0 percent formulation included, as label_model.py fits A and C. */
+export const LABEL_FIT: { a: number; c: number } = fit(CELLS);
+
+const ZINC_CELLS = CELLS.filter((c) => c.zincOxidePct > 0);
+const span = (xs: number[]): readonly [number, number] => [Math.min(...xs), Math.max(...xs)];
+
+/** Zinc oxide percent and skin L* before, as far as the study's zinc cells reach (label_model.py ZINC_RANGE, LIGHTNESS_RANGE). */
+export const ZINC_RANGE = span(ZINC_CELLS.map((c) => c.zincOxidePct));
+export const LIGHTNESS_RANGE = span(ZINC_CELLS.map((c) => c.lBefore));
+
+/**
+ * Port of label_model.predict: the predicted L* change, or why there is none. Outside the zinc and the lightness the
+ * study covered (ends included) the model is never extrapolated.
+ */
+export function predictInStudy(zincOxidePct: number, lBefore: number, m: { a: number; c: number } = LABEL_FIT): { value: number } | { refusal: string } {
+  const [zLo, zHi] = ZINC_RANGE;
+  const [lLo, lHi] = LIGHTNESS_RANGE;
+  if (!(zincOxidePct >= zLo && zincOxidePct <= zHi)) {
+    return { refusal: `zinc oxide ${zincOxidePct}% is outside the study's ${zLo} to ${zHi}%` };
+  }
+  if (!(lBefore >= lLo && lBefore <= lHi)) {
+    return { refusal: `skin L* ${lBefore.toFixed(1)} is outside the study's ${lLo.toFixed(1)} to ${lHi.toFixed(1)}` };
+  }
+  return { value: predict(m, zincOxidePct, lBefore) };
+}

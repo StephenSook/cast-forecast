@@ -1,8 +1,9 @@
+import { predictCastCurl } from "@/lib/agent";
 import { githubDocUrl, type K1bSummary } from "@/lib/gates";
 import { siteUrl } from "@/lib/site";
 import type { JudgeStep } from "@/ui/JudgeSteps";
 
-const REPO = "https://github.com/StephenSook/cast-forecast";
+export const REPO = "https://github.com/StephenSook/cast-forecast";
 
 /** The study table behind the predictions and the pinned FDA labels, on GitHub. */
 export const DATA_URL = `${REPO}/tree/main/data`;
@@ -38,6 +39,14 @@ export function evidenceSteps(base: string, bottles: number): JudgeStep[] {
       title: "Check the prediction",
       body: "Refits the label model from the study table and recomputes Gate 1's held-out error.",
       code: `curl -s ${base}/api/label-model`,
+    },
+    {
+      title: "Ask it as an agent",
+      body: "The same model, as MCP tools an agent can call.",
+      code: predictCastCurl(base),
+      href: "/llms.txt",
+      cta: "llms.txt",
+      external: true,
     },
     { title: "Check the render mapping", body: "Recomputes the K1b inverse from the published curve.", code: `curl -s ${base}/api/gates` },
     data,

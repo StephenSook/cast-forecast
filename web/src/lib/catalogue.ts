@@ -6,6 +6,12 @@ export const CATALOGUE_SCHEMA_VERSION = 2;
 /** Largest L* gap, for a tone, between a bottle's render as sent and its predicted whitening (castforecast/label_catalogue.py). */
 export const RENDER_MAX_ERROR_L = 1.0;
 
+/**
+ * Half-width of every whitening band: the label model's held-out error on the study's differently formulated benchmark
+ * product (castforecast/label_catalogue.py RETAIL_ERROR_L), since retail bottles are formulated differently.
+ */
+export const RETAIL_ERROR_L = 2.35;
+
 const Hex = z.string().regex(/^#[0-9A-Fa-f]{6}$/);
 
 const WhiteningSchema = z

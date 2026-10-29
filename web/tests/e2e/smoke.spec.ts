@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
@@ -56,10 +57,49 @@ test("/api/label-model recomputes Gate 1's held-out error", async ({ request }) 
   expect(body.heldOut.benchmark.maeL).toBeCloseTo(2.35, 2);
 });
 
+// The agent card's curl, run as printed: at the URL it prints, which must be this page's own origin (Codex review: a
+// fixed "/api/mcp" passed whatever host the card named), answering the shipped catalogue's number for that bottle and tone.
+test("the predict_cast curl on /evidence runs against this server and answers the catalogue's number", async ({ page }) => {
+  await page.goto("/evidence");
+  const line = (await page.locator("code", { hasText: "/api/mcp" }).textContent())!;
+  expect(line).toMatch(/^curl -s \S+ -H 'Content-Type: application\/json' -d '\{.*\}'$/);
+  const url = /^curl -s (\S+) /.exec(line)![1];
+  expect(url).toBe(`${new URL(page.url()).origin}/api/mcp`);
+  const body = /-d '(.*)'$/.exec(line)![1];
+  const res = await page.request.post(url, { data: body, headers: { "Content-Type": "application/json" } });
+  expect(res.status()).toBe(200);
+  expect(res.headers()["cache-control"]).toBe("no-store");
+  expect(res.headers()["x-content-type-options"]).toBe("nosniff");
+  const { result } = await res.json();
+  expect(result.isError).toBeUndefined();
+  const args = JSON.parse(body).params.arguments;
+  const catalogue = JSON.parse(readFileSync("src/data/bottles.json", "utf8"));
+  const bottle = catalogue.bottles.find((b: { id: string }) => b.id === args.bottle_id);
+  const tone = bottle.tones.find((t: { lStar: number }) => t.lStar === args.skin_lightness);
+  expect(result.structuredContent.whitening).toEqual(tone.whitening);
+});
+
+test("/api/mcp is POST only, and /llms.txt prints the same curl", async ({ request }) => {
+  const get = await request.get("/api/mcp");
+  expect(get.status()).toBe(405);
+  expect(get.headers()["allow"]).toBe("POST");
+  const llms = await request.get("/llms.txt");
+  expect(llms.status()).toBe(200);
+  expect(llms.headers()["content-type"]).toBe("text/plain; charset=utf-8");
+  const text = await llms.text();
+  expect(text).toMatch(/^# Cast Forecast\n/);
+  // Every curl names the origin llms.txt was served from.
+  const origin = new URL(llms.url()).origin;
+  const urls = [...text.matchAll(/^curl -s (\S+) /gm)].map((m) => m[1]);
+  expect(urls.length).toBeGreaterThanOrEqual(5);
+  for (const u of urls) expect(u).toBe(`${origin}/api/mcp`);
+  expect(text).toMatch(/^curl -s \S+ -H 'Content-Type: application\/json' -d '.*predict_cast.*'$/m);
+});
+
 test("evidence step cards never clip at 390", async ({ page }) => {
   await page.goto("/evidence");
   const items = await page.locator("ol > li").all();
-  expect(items).toHaveLength(5);
+  expect(items).toHaveLength(6);
   for (const li of items) expect(await li.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
 });
 
@@ -114,7 +154,7 @@ test("a phone can reach /compare from the header", async ({ page, isMobile }) =>
 });
 
 test("every page and API route sends the security headers", async ({ request }) => {
-  for (const path of ["/", "/evidence", "/api/health", "/api/label-model", "/art/grain.svg"]) {
+  for (const path of ["/", "/evidence", "/api/health", "/api/label-model", "/llms.txt", "/art/grain.svg"]) {
     const res = await request.get(path);
     expect(res.status(), path).toBe(200);
     const h = res.headers();
