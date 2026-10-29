@@ -2,6 +2,8 @@
 
 See a mineral sunscreen's white cast on your own selfie before you buy it.
 
+Why: in a 2024 dermatology survey, 25% of skin of color respondents named white cast as a barrier to sunscreen (7% of non-Hispanic White respondents), and 41% named finding suitable products ([Wang et al., J Drugs Dermatol 2024](https://pubmed.ncbi.nlm.nih.gov/38834222/)). Today you find out after you buy the bottle.
+
 **Try it:** https://cast-forecast-web.vercel.app · **Evidence:** https://cast-forecast-web.vercel.app/evidence
 
 ## How it works
