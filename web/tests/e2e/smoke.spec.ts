@@ -110,8 +110,10 @@ test("a phone can reach /compare from the header", async ({ page, isMobile }) =>
 });
 
 test("every page and API route sends the security headers", async ({ request }) => {
-  for (const path of ["/", "/evidence", "/api/health", "/api/label-model"]) {
-    const h = (await request.get(path)).headers();
+  for (const path of ["/", "/evidence", "/api/health", "/api/label-model", "/art/grain.svg"]) {
+    const res = await request.get(path);
+    expect(res.status(), path).toBe(200);
+    const h = res.headers();
     expect(h["x-content-type-options"], path).toBe("nosniff");
     expect(h["referrer-policy"], path).toBe("strict-origin-when-cross-origin");
     expect(h["x-frame-options"], path).toBe("DENY");
