@@ -28,6 +28,14 @@ jobs:
           else
             echo "on=true" >> "$GITHUB_OUTPUT"
           fi
+      # A dispatch from another branch or tag would compare production with that ref's commit, not main's.
+      - if: steps.live.outputs.on == 'true'
+        name: Run on main only
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "This watch compares production with main; run it on main, not $GITHUB_REF."
+            exit 1
+          fi
       - if: steps.live.outputs.on == 'true'
         uses: actions/checkout@v7
       - if: steps.live.outputs.on == 'true'

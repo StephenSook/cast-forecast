@@ -1297,8 +1297,13 @@ def test_credits_needs_a_whole_balance_with_headroom_above_the_floor():
         {"balance": 846.5, "floor": 100},
         {"balance": True, "floor": 0},
         {"balance": 846},
+        {"balance": 0, "floor": -100},  # Codex PR 11: a negative floor let an empty account pass
+        {"balance": -5, "floor": 0},
     ]:
         assert dc.credits_ok(bad, 100) == (False, "credits answer has no whole balance and floor")
+    for headroom in (-1, True, 1.5):
+        with pytest.raises(ValueError):
+            dc.credits_ok({"balance": 846, "floor": 100}, headroom)
 
 
 def test_main_credits_reads_the_route_and_fails_on_anything_but_200(monkeypatch, capsys):
@@ -1314,4 +1319,5 @@ def test_main_credits_reads_the_route_and_fails_on_anything_but_200(monkeypatch,
     answers[url] = (0, "unreachable")
     assert dc.main(["credits", "https://cf.test", "100"]) == 1
     assert dc.main(["credits", "https://cf.test", "lots"]) == 2
+    assert dc.main(["credits", "https://cf.test", "-100"]) == 2
     assert "credits unreadable (status 0)" in capsys.readouterr().out

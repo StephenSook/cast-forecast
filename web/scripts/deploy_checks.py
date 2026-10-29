@@ -150,17 +150,22 @@ def gates_ok(body: dict) -> tuple[bool, str]:
     return True, "ok"
 
 
-def _whole(v) -> bool:
-    return isinstance(v, int) and not isinstance(v, bool)
+def _count(v) -> bool:
+    """A whole number of units, zero or more (a bool is not one)."""
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
 
 
 def credits_ok(body, headroom: int) -> tuple[bool, str]:
-    """For the daily production watch: /api/credits must read a whole balance at least `headroom`
-    units above its floor, so a judge's renders and skin-type reads are not refused as paused."""
+    """For the daily production watch: /api/credits must read a balance at least `headroom` units
+    above its floor, so a judge's renders and skin-type reads are not refused as paused. Balance,
+    floor and headroom are whole counts of units, zero or more: a negative floor would let an empty
+    account pass."""
+    if not _count(headroom):
+        raise ValueError("headroom must be a whole number of units, zero or more")
     if (
         not isinstance(body, dict)
-        or not _whole(body.get("balance"))
-        or not _whole(body.get("floor"))
+        or not _count(body.get("balance"))
+        or not _count(body.get("floor"))
     ):
         return False, "credits answer has no whole balance and floor"
     spare = body["balance"] - body["floor"]
@@ -513,7 +518,9 @@ def main(argv: list[str]) -> int:
         try:
             headroom = int(args[1])
         except ValueError:
-            print("headroom must be an integer")
+            headroom = -1
+        if headroom < 0:
+            print("headroom must be a whole number of units, zero or more")
             return 2
         status, body = _get(args[0].rstrip("/") + "/api/credits")
         if status != 200:
