@@ -7,8 +7,9 @@ import { INSTRUCTIONS, TOOLS, type ToolResult, callTool } from "@/server/mcpTool
 import { mediaType, readCapped, waitText } from "@/server/routes/common";
 
 /**
- * POST /api/mcp: a stateless MCP server over Streamable HTTP. One JSON-RPC message per POST, one JSON answer, no SSE,
- * no session (an Mcp-Session-Id is ignored, none is minted). It serves both eras of the protocol, per request:
+ * POST /api/mcp: a stateless MCP server over Streamable HTTP. One JSON-RPC message per POST (or a batch, under
+ * 2025-03-26 only), one JSON answer, no SSE, no session (an Mcp-Session-Id is ignored, none is minted). It serves both
+ * eras of the protocol, per request:
  * - 2026-07-28 (current): every request carries its version in params._meta, mirrored in the MCP-Protocol-Version,
  *   Mcp-Method and Mcp-Name headers, which must match the body; server/discover is the optional first call.
  * - 2025-11-25 and earlier: initialize negotiates a version and notifications/initialized is acknowledged, though
@@ -22,6 +23,8 @@ export const LEGACY_VERSIONS: readonly string[] = ["2025-11-25", "2025-06-18", "
 export const SUPPORTED_VERSIONS: readonly string[] = [...MODERN_VERSIONS, ...LEGACY_VERSIONS];
 /** What a request with no MCP-Protocol-Version header is served as. */
 const UNDECLARED_VERSION = "2025-03-26";
+/** The one revision whose POST may carry a JSON-RPC batch. */
+const BATCH_VERSION = "2025-03-26";
 /** Largest request body read. A tools/call with full 2026-07-28 metadata is well under 1 KB. */
 export const MAX_BODY_BYTES = 4096;
 /** How long a client may cache tools/list and server/discover: the tools change only with a deploy. */
@@ -156,7 +159,7 @@ export function makeMcpHandler(deps: () => RouteDeps): (req: Request) => Promise
       return rpcError(400, undefined, PARSE_ERROR, "Parse error: the body is not UTF-8 JSON.");
     }
     try {
-      return dispatch(message, req.headers, d);
+      return Array.isArray(message) ? await batch(message, req.headers, d) : dispatch(message, req.headers, d);
     } catch (e) {
       logUnexpected(e);
       const id = isObject(message) && (typeof message.id === "string" || typeof message.id === "number") ? message.id : undefined;
@@ -165,8 +168,35 @@ export function makeMcpHandler(deps: () => RouteDeps): (req: Request) => Promise
   };
 }
 
+/**
+ * A JSON-RPC batch. 2025-03-26 requires a server to receive them (base protocol, Batching) and 2025-06-18 removed
+ * them, so they are read only under 2025-03-26, which is also what a request without the header is. Each message is
+ * answered as if it came alone, in order; a notification gets no entry, and initialize may not be batched (lifecycle).
+ * Only notifications: 202. The body cap bounds the batch, and the limiter counts it as one POST.
+ */
+async function batch(messages: unknown[], headers: Headers, d: RouteDeps): Promise<Response> {
+  const version = headers.get("mcp-protocol-version") ?? UNDECLARED_VERSION;
+  if (version !== BATCH_VERSION) {
+    if (!SUPPORTED_VERSIONS.includes(version)) {
+      return rpcError(400, undefined, UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", { supported: SUPPORTED_VERSIONS, requested: version });
+    }
+    return rpcError(400, undefined, INVALID_REQUEST, `Batches are part of ${BATCH_VERSION} only: send one message per POST.`);
+  }
+  if (messages.length === 0) return rpcError(400, undefined, INVALID_REQUEST, "Invalid request: an empty batch.");
+  const replies: unknown[] = [];
+  for (const m of messages) {
+    const res =
+      isObject(m) && m.method === "initialize" && has(m, "id")
+        ? rpcError(400, typeof m.id === "string" || (typeof m.id === "number" && Number.isFinite(m.id)) ? m.id : undefined, INVALID_REQUEST, "initialize may not be part of a batch.")
+        : dispatch(m, headers, d);
+    if (res.status !== 202) replies.push(await res.json());
+  }
+  return replies.length === 0 ? new Response(null, { status: 202, headers: NO_STORE }) : json(200, replies);
+}
+
 function dispatch(message: unknown, headers: Headers, d: RouteDeps): Response {
-  if (Array.isArray(message)) return rpcError(400, undefined, INVALID_REQUEST, "Batches are not supported: send one message per POST.");
+  // Only a batch's own entries get here as arrays.
+  if (Array.isArray(message)) return rpcError(400, undefined, INVALID_REQUEST, "Invalid request: a batch inside a batch.");
   if (!isObject(message)) return rpcError(400, undefined, INVALID_REQUEST, "Invalid request: expected a JSON-RPC object.");
   const raw = message.id;
   const id = typeof raw === "string" || (typeof raw === "number" && Number.isFinite(raw)) ? raw : undefined;

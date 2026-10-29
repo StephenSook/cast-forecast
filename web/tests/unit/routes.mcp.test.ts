@@ -45,7 +45,7 @@ function server() {
     handler(new Request(ENDPOINT, { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body), headers: { "Content-Type": "application/json", ...headers } }));
 }
 const rpc = (method: string, params?: object, id: string | number = 1) => (params === undefined ? { jsonrpc: "2.0", id, method } : { jsonrpc: "2.0", id, method, params });
-const call = (name: string, args?: unknown) => rpc("tools/call", args === undefined ? { name } : { name, arguments: args });
+const call = (name: string, args?: unknown, id: string | number = 1) => rpc("tools/call", args === undefined ? { name } : { name, arguments: args }, id);
 const modernHeaders = (method: string, name?: string): Headers => ({
   "MCP-Protocol-Version": MODERN,
   "Mcp-Method": method,
@@ -294,7 +294,10 @@ test("malformed JSON and invalid UTF-8 are parse errors (-32700) with no id", as
 
 test("anything that is not one JSON-RPC 2.0 request or notification is an invalid request (-32600)", async () => {
   const send = server();
-  expect((await rpcErrorOf(await send([rpc("ping")]), 400, -32600)).error!.message).toMatch(/Batches/);
+  for (const v of ["2025-11-25", "2025-06-18", MODERN]) {
+    const b = await rpcErrorOf(await send([rpc("ping")], { "MCP-Protocol-Version": v }), 400, -32600);
+    expect(b.error!.message, v).toBe("Batches are part of 2025-03-26 only: send one message per POST.");
+  }
   for (const body of [5, "x", null, true]) await rpcErrorOf(await send(JSON.stringify(body)), 400, -32600);
   expect((await rpcErrorOf(await send({ jsonrpc: "1.0", id: 3, method: "ping" }), 400, -32600)).id).toBe(3);
   await rpcErrorOf(await send({ id: 3, method: "ping" }), 400, -32600);
@@ -305,6 +308,36 @@ test("anything that is not one JSON-RPC 2.0 request or notification is an invali
     const b = await rpcErrorOf(await send({ jsonrpc: "2.0", id, method: "ping" }), 400, -32600);
     expect(b).not.toHaveProperty("id");
   }
+});
+
+// Codex review. 2025-03-26 base protocol, Batching: implementations MUST support receiving JSON-RPC batches, and a
+// request without MCP-Protocol-Version is served as 2025-03-26.
+test("under 2025-03-26 a batch is answered entry by entry, notifications left out", async () => {
+  const send = server();
+  const forms: Headers[] = [{}, { "MCP-Protocol-Version": "2025-03-26" }];
+  for (const headers of forms) {
+    const res = await send([rpc("ping"), { jsonrpc: "2.0", method: "notifications/initialized" }, call("predict_cast", { bottle_id: CATALOGUE[0].id, skin_lightness: 55 }, 2)], headers);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/^application\/json/);
+    const replies = (await res.json()) as Body[];
+    expect(replies.map((r) => r.id)).toEqual([1, 2]);
+    expect(replies[0]).toEqual({ jsonrpc: "2.0", id: 1, result: {} });
+    expect(replies[1].result!.structuredContent.whitening).toEqual(CATALOGUE[0].whitening);
+  }
+  // Codex's case, as sent.
+  const one = await send('[{"jsonrpc":"2.0","id":1,"method":"ping"}]', { "MCP-Protocol-Version": "2025-03-26" });
+  expect(one.status).toBe(200);
+  expect(await one.json()).toEqual([{ jsonrpc: "2.0", id: 1, result: {} }]);
+  // Only notifications: 202, no body.
+  const quiet = await send([{ jsonrpc: "2.0", method: "notifications/initialized" }]);
+  expect(quiet.status).toBe(202);
+  expect(await quiet.text()).toBe("");
+  // Bad entries answer for themselves; the good ones still run.
+  const mixed = (await (await send([5, [rpc("ping")], { jsonrpc: "2.0", id: 7, method: "initialize", params: { protocolVersion: "2025-03-26" } }, call("nope", {}, 8), rpc("ping", undefined, 9)])).json()) as Body[];
+  expect(mixed.map((r) => [r.id, r.error?.code])).toEqual([[undefined, -32600], [undefined, -32600], [7, -32600], [8, -32602], [9, undefined]]);
+  expect(mixed[2].error!.message).toBe("initialize may not be part of a batch.");
+  await rpcErrorOf(await send([]), 400, -32600);
+  await rpcErrorOf(await send([rpc("ping")], { "MCP-Protocol-Version": "1999-01-01" }), 400, -32022);
 });
 
 test("an unknown method is -32601: 200 under the handshake, 404 under 2026-07-28", async () => {
