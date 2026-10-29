@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { EXPIRED_LINE, type TryEvent, bottleFromParam, canPick, initialTryState, tryReducer } from "@/lib/tryFlow";
+import { EXPIRED_LINE, type TryEvent, bottleFromParam, canPick, canSuggest, initialTryState, tryReducer } from "@/lib/tryFlow";
 import { NOW } from "../helpers/constants";
 import { testEntry } from "../helpers/entries";
 
@@ -102,4 +102,35 @@ test("a new tone clears the shown render but keeps the uploaded file, and waits 
   expect(tryReducer(initialTryState(), { type: "TONE", tone: 60 })).toMatchObject({ phase: "empty", tone: 60 });
   const photoError = tryReducer(initialTryState(), { type: "FAILED", code: "too_small" });
   expect(tryReducer(photoError, { type: "TONE", tone: 60 })).toMatchObject({ phase: "error", code: "too_small", tone: 60 });
+});
+
+test("reading the skin type uploads once, suggests the type's tone, and keeps the file for the pick", () => {
+  const photo = tryReducer(initialTryState(), { type: "PHOTO_READY", image });
+  expect(canSuggest(initialTryState())).toBe(false); expect(canSuggest(photo)).toBe(true);
+  const reading = tryReducer(photo, { type: "READ_SKIN" });
+  expect(reading.phase).toBe("reading"); expect(canPick(reading)).toBe(false); expect(canSuggest(reading)).toBe(false);
+  expect(tryReducer(reading, { type: "READ_SKIN" })).toBe(reading);
+  expect(tryReducer(reading, { type: "TONE", tone: 60 })).toBe(reading);
+  expect(tryReducer(reading, { type: "PICK", bottleId: "test-a" })).toBe(reading);
+  const uploaded = tryReducer(reading, { type: "UPLOADED", fileId: "file-1" });
+  expect(uploaded).toMatchObject({ phase: "reading", fileId: "file-1" });
+  const read = tryReducer(uploaded, { type: "SKIN_READ", fitzpatrick: "IV" });
+  expect(read).toMatchObject({ phase: "ready", skinType: "IV", tone: 55, fileId: "file-1" });
+  expect(tryReducer(read, { type: "PICK", bottleId: "test-a" }).phase).toBe("rendering");
+  expect(tryReducer(read, { type: "TONE", tone: 60 })).toMatchObject({ tone: 60, skinType: "IV" });
+});
+test("type VI suggests Deeper, which has no prediction, so no bottle can be picked", () => {
+  const read = ([{ type: "PHOTO_READY", image }, { type: "READ_SKIN" }, { type: "UPLOADED", fileId: "file-1" },
+    { type: "SKIN_READ", fitzpatrick: "VI" }] as TryEvent[]).reduce(tryReducer, initialTryState());
+  expect(read).toMatchObject({ tone: "deeper", skinType: "VI" }); expect(canPick(read)).toBe(false);
+});
+test("a suggestion drops a shown render, a new photo forgets the type, and a stale answer changes nothing", () => {
+  const reading = tryReducer(done, { type: "READ_SKIN" });
+  expect(reading).toMatchObject({ phase: "reading", result: null, fileId: "file-1" });
+  const read = tryReducer(reading, { type: "SKIN_READ", fitzpatrick: "II" });
+  expect(read).toMatchObject({ tone: 65, skinType: "II" });
+  expect(tryReducer(read, { type: "PHOTO_READY", image })).toMatchObject({ skinType: null, fileId: null });
+  expect(tryReducer(ready, { type: "SKIN_READ", fitzpatrick: "V" })).toBe(ready);
+  const failed = tryReducer(reading, { type: "FAILED", code: "lighting" });
+  expect(failed).toMatchObject({ phase: "error", code: "lighting", tone: 55 }); expect(canPick(failed)).toBe(true);
 });

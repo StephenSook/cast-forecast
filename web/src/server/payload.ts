@@ -25,6 +25,11 @@ export function makeupVtoPayload(fileId: string, paletteHex: string, colorIntens
   };
 }
 
+/** The fitzpatrick-scale-analyzer task body: one face, so no pre-process step (ai_fitzpatrick_skin_type.yaml:385-434). */
+export function skinTypePayload(fileId: string): object {
+  return { src_file_id: fileId, version: "1.0" };
+}
+
 /** The skin-tone-analysis task body, as castforecast/k2_tone.py sends it. */
 export function tonePayload(fileId: string): object {
   return { src_file_id: fileId, face_angle_strictness_level: "high" };

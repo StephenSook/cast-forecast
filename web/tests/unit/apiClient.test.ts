@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { ApiFailure, RENDER_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, renderBottle, uploadSelfie } from "@/lib/apiClient";
+import { ApiFailure, RENDER_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, readSkinType, renderBottle, uploadSelfie } from "@/lib/apiClient";
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
@@ -120,4 +120,14 @@ test("our own deadline passing is timeout, not upstream", async () => {
 test("ApiFailure is an Error with the visitor's line", () => {
   const e = new ApiFailure("face_position");
   expect(e).toBeInstanceOf(Error); expect(e.message).toBe(MESSAGES.face_position); expect(e.retryAfterS).toBeUndefined();
+});
+
+test("readSkinType posts JSON fileId and returns only a type from I to VI", async () => {
+  const f = vi.fn(async () => json(200, { fitzpatrick: "III", extra: 1 }));
+  expect(await readSkinType("file-1", f)).toEqual({ fitzpatrick: "III" });
+  expect(f).toHaveBeenCalledWith("/api/skin-type", expect.objectContaining({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: "file-1" }) }));
+  for (const body of [{ fitzpatrick: "VII" }, { fitzpatrick: 3 }, {}, null]) {
+    await expect(readSkinType("file-1", vi.fn(async () => json(200, body)))).rejects.toMatchObject({ code: "upstream" });
+  }
+  await expect(readSkinType("file-1", vi.fn(async () => json(422, { error: { code: "lighting", message: "x" } })))).rejects.toMatchObject({ code: "lighting" });
 });

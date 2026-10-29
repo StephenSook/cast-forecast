@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ApiFailure, renderBottle, uploadSelfie } from "@/lib/apiClient";
+import { ApiFailure, readSkinType, renderBottle, uploadSelfie } from "@/lib/apiClient";
 import { type Bottle, TONES, type Tone, findBottle, formatValue, toneOf, whiteningDomain } from "@/lib/catalogue";
 import { type PreparedImage, releaseImage } from "@/lib/image";
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
-import { EXPIRED_LINE, type TryEvent, type TryState, canPick, initialTryState, tryReducer } from "@/lib/tryFlow";
+import { EXPIRED_LINE, type TryEvent, type TryState, canPick, canSuggest, initialTryState, tryReducer } from "@/lib/tryFlow";
 import { Bars } from "./Bars";
 import { BottleChips } from "./BottleChips";
 import { CaptureFrame } from "./CaptureFrame";
@@ -19,12 +19,18 @@ const SLOW_MS = 10_000;
 /** Shown when the shopper's skin is deeper than any tone the study measured. */
 export const DEEPER_LINE = "The study behind these numbers measured skin down to L* 44. Deeper skin has no prediction yet.";
 
-type Api = { upload: typeof uploadSelfie; render: typeof renderBottle };
-const DEFAULT_API: Api = { upload: uploadSelfie, render: renderBottle };
+type Api = { upload: typeof uploadSelfie; render: typeof renderBottle; readSkinType: typeof readSkinType };
+const DEFAULT_API: Api = { upload: uploadSelfie, render: renderBottle, readSkinType };
+
+/** The line under the tones once YouCam has read the selfie's skin type. */
+export function suggestedLine(fitzpatrick: string): string {
+  return `YouCam reads Fitzpatrick type ${fitzpatrick}. We picked the closest tone; change it if it looks off.`;
+}
 
 function progressLine(phase: TryState["phase"], slow: boolean): string {
   if (phase === "uploading") return slow ? "Still sending. Up to a minute." : "Sending your selfie.";
   if (phase === "rendering") return slow ? "Still rendering. Up to 2 minutes." : "Rendering the cast.";
+  if (phase === "reading") return slow ? "Still reading. Up to 2 minutes." : "Reading your skin type.";
   return "";
 }
 
@@ -52,8 +58,9 @@ function useWaitClock(busy: boolean): { elapsed: number | null; start(): void } 
 }
 
 /**
- * The Try screen: a selfie, a bottle chip, then the render. The selfie leaves the browser only when a chip is tapped,
- * and only through `api.upload`; a second bottle reuses the uploaded file. Every transition goes through tryReducer
+ * The Try screen: a selfie, a tone (picked, or suggested from the selfie's skin type), a bottle chip, then the render.
+ * The selfie leaves the browser only when a chip or the suggest button is tapped, and only through `api.upload`; later
+ * steps reuse the uploaded file. Every transition goes through tryReducer
  * synchronously (a ref mirrors the state), so a double tap starts one render, and a newer photo or pick makes any
  * answer still in flight for an older one count for nothing. No pick starts while a new photo is being prepared, and
  * the result shows only once the render's image has loaded.
@@ -92,7 +99,7 @@ export function TryFlow({ bottles, tones = TONES, initialBottleId = null, api = 
   // Nothing still in flight may act once the flow is gone.
   useEffect(() => () => void ++run.current, []);
 
-  const busy = state.phase === "uploading" || state.phase === "rendering";
+  const busy = state.phase === "uploading" || state.phase === "rendering" || state.phase === "reading";
   const resultUrl = state.phase === "result" && state.result ? state.result.imageUrl : null;
   const revealed = resultUrl !== null && shownUrl === resultUrl;
   // Still waiting while the render's image downloads: the clock and the rendering line keep going until it shows.
@@ -132,6 +139,29 @@ export function TryFlow({ bottles, tones = TONES, initialBottleId = null, api = 
     }
   };
 
+  const onSuggest = async () => {
+    const before = live.current;
+    const started = send({ type: "READ_SKIN" });
+    if (started === before || !started.image) return;
+    wait.start();
+    const mine = ++run.current;
+    const current = () => mine === run.current;
+    try {
+      let fileId = started.fileId;
+      if (fileId === null) {
+        const up = await api.upload(started.image.blob);
+        if (!current()) return;
+        if (send({ type: "UPLOADED", fileId: up.fileId }).phase !== "reading") return;
+        fileId = up.fileId;
+      }
+      const read = await api.readSkinType(fileId);
+      if (!current()) return;
+      send({ type: "SKIN_READ", fitzpatrick: read.fitzpatrick });
+    } catch (e) {
+      if (current()) send({ type: "FAILED", ...failureOf(e) });
+    }
+  };
+
   const line = state.phase === "error" && state.code ? (state.message ?? MESSAGES[state.code]) : state.expired ? EXPIRED_LINE : "";
   const bottle = revealed && state.result ? findBottle(state.result.bottleId, bottles) : undefined;
   const shown = bottle && typeof state.tone === "number" ? toneOf(bottle, state.tone) : undefined;
@@ -154,6 +184,17 @@ export function TryFlow({ bottles, tones = TONES, initialBottleId = null, api = 
         {bottles.length > 0 && (
           <ToneSwatches tones={tones} selected={state.tone} disabled={busy || preparing} onPick={(tone) => send({ type: "TONE", tone })} />
         )}
+        {bottles.length > 0 && (
+          <button
+            type="button"
+            disabled={!canSuggest(state) || preparing}
+            onClick={() => void onSuggest()}
+            className="justify-self-start rounded-full border-2 border-ink px-4 py-2.5 min-h-11 font-bold bg-paper shadow-[0_2px_0_var(--ink)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Suggest my tone
+          </button>
+        )}
+        {state.skinType && <p className="max-w-[34rem]">{suggestedLine(state.skinType)}</p>}
         {state.tone === "deeper" && <p className="max-w-[34rem] font-bold">{DEEPER_LINE}</p>}
         <BottleChips bottles={bottles} selectedId={state.bottleId} disabled={!canPick(state) || preparing} onPick={(id) => void onPick(id)} />
         {line && (

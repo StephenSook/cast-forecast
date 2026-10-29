@@ -14,6 +14,8 @@ export const RUN_VTO = `POST ${YOUCAM_BASE}/s2s/v2.0/task/makeup-vto`;
 export const POLL_VTO = `GET ${YOUCAM_BASE}/s2s/v2.0/task/makeup-vto/t1`;
 export const RUN_TONE = `POST ${YOUCAM_BASE}/s2s/v2.0/task/skin-tone-analysis`;
 export const POLL_TONE = `GET ${YOUCAM_BASE}/s2s/v2.0/task/skin-tone-analysis/t2`;
+export const RUN_SKIN_TYPE = `POST ${YOUCAM_BASE}/s2s/v2.0/task/fitzpatrick-scale-analyzer`;
+export const POLL_SKIN_TYPE = `GET ${YOUCAM_BASE}/s2s/v2.0/task/fitzpatrick-scale-analyzer/t3`;
 
 /** A 200 file registration whose single presigned request PUTs to https://s3.example/put. */
 export function registerReply(fileId: string): Response {

@@ -1,6 +1,7 @@
 import { type Bottle, CATALOGUE, findBottle } from "@/lib/catalogue";
 import type { PreparedImage } from "@/lib/image";
 import type { CfErrorCode } from "@/lib/messages";
+import { type Fitzpatrick, SUGGESTED_TONE } from "@/lib/skinType";
 import type { RenderResult } from "@/lib/types";
 
 /**
@@ -8,12 +9,15 @@ import type { RenderResult } from "@/lib/types";
  * states the real wait, up to an hour); otherwise the line is MESSAGES[code].
  */
 export type TryState = {
-  phase: "empty" | "ready" | "uploading" | "rendering" | "result" | "error";
+  /** `reading`: the selfie is being uploaded and read for a skin type, which then suggests a tone. */
+  phase: "empty" | "ready" | "uploading" | "rendering" | "reading" | "result" | "error";
   image: PreparedImage | null;
   fileId: string | null;
   bottleId: string | null;
   /** The L* of the skin tone picked, "deeper" for skin past the study's range (no prediction), or null before a pick. */
   tone: number | "deeper" | null;
+  /** YouCam's Fitzpatrick type for this photo, once read. */
+  skinType: Fitzpatrick | null;
   result: RenderResult | null;
   code: CfErrorCode | null;
   message: string | null;
@@ -24,6 +28,8 @@ export type TryEvent =
   | { type: "PHOTO_READY"; image: PreparedImage }
   | { type: "TONE"; tone: number | "deeper" }
   | { type: "PICK"; bottleId: string }
+  | { type: "READ_SKIN" }
+  | { type: "SKIN_READ"; fitzpatrick: Fitzpatrick }
   | { type: "UPLOADED"; fileId: string }
   | { type: "RENDERED"; result: RenderResult }
   | { type: "FAILED"; code: CfErrorCode; message?: string }
@@ -32,7 +38,18 @@ export type TryEvent =
 export const EXPIRED_LINE = "That render expired. Pick the bottle again.";
 
 export function initialTryState(bottleId: string | null = null): TryState {
-  return { phase: "empty", image: null, fileId: null, bottleId, tone: null, result: null, code: null, message: null, expired: false };
+  return {
+    phase: "empty",
+    image: null,
+    fileId: null,
+    bottleId,
+    tone: null,
+    skinType: null,
+    result: null,
+    code: null,
+    message: null,
+    expired: false,
+  };
 }
 
 /** Nothing is in flight. */
@@ -45,6 +62,11 @@ export function canPick(s: TryState): boolean {
   return s.image !== null && typeof s.tone === "number" && s.phase !== "empty" && settled(s);
 }
 
+/** The selfie can be read for a skin type once there is a photo and nothing is in flight. */
+export function canSuggest(s: TryState): boolean {
+  return s.image !== null && s.phase !== "empty" && settled(s);
+}
+
 /**
  * Pure transitions. An event that does not apply in the current phase returns `s` itself, so a second tap while a
  * render is in flight, or an answer for a step that was abandoned, changes nothing.
@@ -52,7 +74,7 @@ export function canPick(s: TryState): boolean {
 export function tryReducer(s: TryState, e: TryEvent): TryState {
   switch (e.type) {
     case "PHOTO_READY":
-      return { ...s, phase: "ready", image: e.image, fileId: null, result: null, code: null, message: null, expired: false };
+      return { ...s, phase: "ready", image: e.image, fileId: null, skinType: null, result: null, code: null, message: null, expired: false };
     case "TONE":
       // A shown render belongs to the old tone, so it goes; the uploaded file and any line about the photo stay.
       if (!settled(s)) return s;
@@ -60,8 +82,15 @@ export function tryReducer(s: TryState, e: TryEvent): TryState {
     case "PICK":
       if (!canPick(s)) return s;
       return { ...s, phase: s.fileId === null ? "uploading" : "rendering", bottleId: e.bottleId, code: null, message: null, expired: false };
+    case "READ_SKIN":
+      // A shown render may belong to a tone the suggestion replaces, so it goes, as for TONE.
+      if (!canSuggest(s)) return s;
+      return { ...s, phase: "reading", result: null, code: null, message: null, expired: false };
+    case "SKIN_READ":
+      return s.phase === "reading" ? { ...s, phase: "ready", skinType: e.fitzpatrick, tone: SUGGESTED_TONE[e.fitzpatrick] } : s;
     case "UPLOADED":
-      return s.phase === "uploading" ? { ...s, phase: "rendering", fileId: e.fileId } : s;
+      if (s.phase === "uploading") return { ...s, phase: "rendering", fileId: e.fileId };
+      return s.phase === "reading" ? { ...s, fileId: e.fileId } : s;
     case "RENDERED":
       return s.phase === "rendering" ? { ...s, phase: "result", result: e.result } : s;
     case "FAILED":

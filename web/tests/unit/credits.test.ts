@@ -19,7 +19,7 @@ test("balance cache makes no second call within 30 s and spend lowers it", async
 });
 
 // Beyond the brief.
-test("unit costs: render 1, tone 20", () => expect(UNIT_COST).toEqual({ render: 1, tone: 20 }));
+test("unit costs: render 1, tone 20, skin type 10", () => expect(UNIT_COST).toEqual({ render: 1, tone: 20, skinType: 10 }));
 test("aboveFloor refuses a non-finite balance", () =>
   expect([aboveFloor(Number.NaN, 1, 100), aboveFloor(Number.POSITIVE_INFINITY, 1, 100)]).toEqual([false, false]));
 test("concurrent misses share one balance call", async () => {
