@@ -1023,14 +1023,18 @@ def test_prod_checks_every_extra_address(rig, site):
     extra = site(_pages(sha))
     code, out = rig.run("deploy-prod.sh", PROD_URL=base, PROD_EXTRA_URLS=extra + "/")
     assert code == 0, out
-    assert sum(line.startswith(f"release {sha} ok: html, health") for line in out.splitlines()) == 2, out
+    assert (
+        sum(line.startswith(f"release {sha} ok: html, health") for line in out.splitlines()) == 2
+    ), out
 
 
 def test_prod_extra_address_serving_another_release_is_an_alias_problem_not_a_rollback(rig, site):
     sha = rig.head()
     base = _alias(rig, site(_pages(sha)))
     stale = site(_pages("0" * 40))
-    code, out = rig.run("deploy-prod.sh", PROD_URL=base, PROD_EXTRA_URLS=stale, RELEASE_ATTEMPTS="1")
+    code, out = rig.run(
+        "deploy-prod.sh", PROD_URL=base, PROD_EXTRA_URLS=stale, RELEASE_ATTEMPTS="1"
+    )
     assert code == 3, out
     assert f"but {stale} did not" in out and "do not roll back" in out
 
@@ -1043,7 +1047,7 @@ def test_prod_url_override_skips_the_live_extra_address(rig, site):
     assert "cast-forecast.vercel.app" not in out
 
 
-PROD_KEY =SOME_VARS + " YOUCAM_API_KEY                Encrypted   Production     2d ago\n"
+PROD_KEY = SOME_VARS + " YOUCAM_API_KEY                Encrypted   Production     2d ago\n"
 
 
 def test_prod_paused_refuses_before_deploying_while_production_lists_the_key(rig, site):
