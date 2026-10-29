@@ -1,0 +1,221 @@
+{
+ "alpha": 0.05,
+ "bottles": [
+  {
+   "asin": "B08HJKQP7X",
+   "beyond_cap": 0,
+   "bottle": "cetaphil-sheer-mineral-face",
+   "complaint_count": 3,
+   "complaint_share": 0.375,
+   "complaint_terms": {
+    "white cast": 2,
+    "whitecast": 1
+   },
+   "duplicates_removed": 0,
+   "empty_texts": 0,
+   "error_records": 0,
+   "measurable": false,
+   "mention_count": 4,
+   "mention_share": 0.5,
+   "non_english": 2,
+   "predicted_whitening_l55": 2.184193,
+   "reviews_analysed": 8,
+   "rows_returned": 10
+  },
+  {
+   "asin": "B01MXSYBWK",
+   "beyond_cap": 0,
+   "bottle": "babo-sheer-zinc",
+   "complaint_count": 0,
+   "complaint_share": null,
+   "complaint_terms": {},
+   "duplicates_removed": 0,
+   "empty_texts": 0,
+   "error_records": 0,
+   "measurable": false,
+   "mention_count": 0,
+   "mention_share": null,
+   "non_english": 0,
+   "predicted_whitening_l55": 3.717068,
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B0DMWTFB6N",
+   "beyond_cap": 0,
+   "bottle": "supergoop-mineral-sheer-stick",
+   "complaint_count": 0,
+   "complaint_share": null,
+   "complaint_terms": {},
+   "duplicates_removed": 0,
+   "empty_texts": 0,
+   "error_records": 0,
+   "measurable": false,
+   "mention_count": 0,
+   "mention_share": null,
+   "non_english": 0,
+   "predicted_whitening_l55": 3.717068,
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B0CHN9MGXX",
+   "beyond_cap": 0,
+   "bottle": "badger-face-mineral",
+   "complaint_count": 0,
+   "complaint_share": null,
+   "complaint_terms": {},
+   "duplicates_removed": 0,
+   "empty_texts": 0,
+   "error_records": 0,
+   "measurable": false,
+   "mention_count": 0,
+   "mention_share": null,
+   "non_english": 0,
+   "predicted_whitening_l55": 4.770919,
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B0B2BF74PC",
+   "beyond_cap": 0,
+   "bottle": "hello-bello-mineral",
+   "complaint_count": 0,
+   "complaint_share": null,
+   "complaint_terms": {},
+   "duplicates_removed": 0,
+   "empty_texts": 0,
+   "error_records": 0,
+   "measurable": false,
+   "mention_count": 0,
+   "mention_share": null,
+   "non_english": 0,
+   "predicted_whitening_l55": 5.249942,
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B01HOHBO7E",
+   "beyond_cap": 0,
+   "bottle": "neutrogena-sheer-zinc",
+   "complaint_count": 0,
+   "complaint_share": null,
+   "complaint_terms": {},
+   "duplicates_removed": 0,
+   "empty_texts": 0,
+   "error_records": 0,
+   "measurable": false,
+   "mention_count": 0,
+   "mention_share": null,
+   "non_english": 0,
+   "predicted_whitening_l55": 5.863092,
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B0C1LR82PG",
+   "beyond_cap": 0,
+   "bottle": "eltamd-uv-aox-mist",
+   "complaint_count": 0,
+   "complaint_share": null,
+   "complaint_terms": {},
+   "duplicates_removed": 0,
+   "empty_texts": 0,
+   "error_records": 0,
+   "measurable": false,
+   "mention_count": 0,
+   "mention_share": null,
+   "non_english": 0,
+   "predicted_whitening_l55": 2.95063,
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B073H54CJH",
+   "beyond_cap": 0,
+   "bottle": "coppertone-pure-and-simple",
+   "complaint_count": 0,
+   "complaint_share": null,
+   "complaint_terms": {},
+   "duplicates_removed": 0,
+   "empty_texts": 0,
+   "error_records": 0,
+   "measurable": false,
+   "mention_count": 0,
+   "mention_share": null,
+   "non_english": 0,
+   "predicted_whitening_l55": 6.813474,
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  }
+ ],
+ "dropped": [
+  {
+   "bottle": "cetaphil-sheer-mineral-face",
+   "reason": "8 analysed reviews, fewer than 20"
+  },
+  {
+   "bottle": "babo-sheer-zinc",
+   "reason": "0 analysed reviews, fewer than 20"
+  },
+  {
+   "bottle": "supergoop-mineral-sheer-stick",
+   "reason": "0 analysed reviews, fewer than 20"
+  },
+  {
+   "bottle": "badger-face-mineral",
+   "reason": "0 analysed reviews, fewer than 20"
+  },
+  {
+   "bottle": "hello-bello-mineral",
+   "reason": "0 analysed reviews, fewer than 20"
+  },
+  {
+   "bottle": "neutrogena-sheer-zinc",
+   "reason": "0 analysed reviews, fewer than 20"
+  },
+  {
+   "bottle": "eltamd-uv-aox-mist",
+   "reason": "0 analysed reviews, fewer than 20"
+  },
+  {
+   "bottle": "coppertone-pure-and-simple",
+   "reason": "0 analysed reviews, fewer than 20"
+  }
+ ],
+ "lexicon": [
+  "white cast",
+  "whitecast",
+  "white-cast",
+  "white residue",
+  "white film",
+  "white sheen",
+  "white streak(s)",
+  "white tint",
+  "leaves (a|me|my skin)? white",
+  "ghostly",
+  "ghost(-like)?",
+  "ashy",
+  "ashen",
+  "gr(a|e)y cast",
+  "purple cast",
+  "chalky",
+  "pasty"
+ ],
+ "max_reviews": 100,
+ "min_bottles": 6,
+ "min_reviews": 20,
+ "n_measurable": 0,
+ "negation_window_tokens": 4,
+ "primary": {
+  "measure": "complaint share",
+  "verdict": "NOT TESTABLE"
+ },
+ "reference_skin_l": 55.0,
+ "rows_not_assigned": 0,
+ "secondary": {
+  "measure": "mention share",
+  "note": "not computed, too few bottles"
+ },
+ "test": "crowd check"
+}
