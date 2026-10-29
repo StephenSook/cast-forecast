@@ -17,6 +17,7 @@ import {
   acceptsJson,
   decodeHeaderValue,
   makeMcpHandler,
+  splitUnquoted,
 } from "@/server/routes/mcp";
 import { findCopyViolations } from "../helpers/copyGuard";
 import { testDeps } from "../helpers/routes";
@@ -410,6 +411,18 @@ test("Accept: a JSON range with a parameter besides q and charset matches nothin
   for (const yes of ["application/json; charset=utf-8", "application/json;charset=UTF-8;q=0.5", "application/json;profile=x, */*"]) {
     expect(acceptsJson(yes), yes).toBe(true);
   }
+});
+
+// Codex review, round 3: a quoted parameter value holding a comma forged a separate application/json range.
+test("Accept: commas and semicolons inside quoted parameter values separate nothing", () => {
+  const forged = 'application/json;profile="custom,application/json,x";q=1, application/json;q=0';
+  expect(acceptsJson(forged)).toBe(false);
+  expect(acceptsJson('application/json;profile="a;q=1"')).toBe(false);
+  expect(acceptsJson('text/html;x="a,b", application/json')).toBe(true);
+  expect(acceptsJson('text/html;x="a\\",application/json", */*;q=0')).toBe(false); // an escaped quote stays inside
+  expect(splitUnquoted('a;b="c;d";e', ";")).toEqual(["a", 'b="c;d"', "e"]);
+  expect(splitUnquoted('a="x\\"y,z",b', ",")).toEqual(['a="x\\"y,z"', "b"]);
+  expect(splitUnquoted("", ",")).toEqual([""]);
 });
 
 // Codex review: the allowed origin came from Host and X-Forwarded-Host, which the caller controls.

@@ -102,13 +102,14 @@ function originAllowed(req: Request): boolean {
  * that of the most specific range that matches it (RFC 9110 12.5.1): a q=0 on application/json beats any wildcard.
  * A range with a parameter besides q and charset (a profile, say) names a representation this server does not send,
  * so it matches nothing; charset is let through because clients add it to JSON ranges (Codex review, round 2).
+ * Commas and semicolons inside a quoted parameter value separate nothing (Codex review, round 3).
  */
 export function acceptsJson(accept: string | null): boolean {
   if (accept === null || accept.trim() === "") return true;
   let rank = 0;
   let quality = 0;
-  for (const part of accept.split(",")) {
-    const [range, ...params] = part.split(";").map((s) => s.trim().toLowerCase());
+  for (const part of splitUnquoted(accept, ",")) {
+    const [range, ...params] = splitUnquoted(part, ";").map((s) => s.trim().toLowerCase());
     const r = range === "application/json" ? 3 : range === "application/*" ? 2 : range === "*/*" ? 1 : 0;
     if (r === 0 || r < rank) continue;
     if (params.some((p) => p !== "" && !p.startsWith("q=") && !p.startsWith("charset="))) continue;
@@ -119,6 +120,30 @@ export function acceptsJson(accept: string | null): boolean {
     rank = r;
   }
   return quality > 0;
+}
+
+/** `s` split on `sep` wherever it is outside a quoted string (RFC 9110 5.6.4: double quotes, backslash escapes). */
+export function splitUnquoted(s: string, sep: string): string[] {
+  const out: string[] = [];
+  let piece = "";
+  let quoted = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quoted && c === "\\" && i + 1 < s.length) {
+      piece += c + s[i + 1];
+      i++;
+      continue;
+    }
+    if (c === '"') quoted = !quoted;
+    if (c === sep && !quoted) {
+      out.push(piece);
+      piece = "";
+      continue;
+    }
+    piece += c;
+  }
+  out.push(piece);
+  return out;
 }
 
 /** An Mcp-Name value with the spec's =?base64?...?= sentinel decoded, or null when the header is absent or malformed. */
