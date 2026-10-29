@@ -1,17 +1,21 @@
 """Catalogue entries for retail bottles, predicted from their FDA labels (web/src/lib/catalogue.ts).
 
-Whitening: `label_model.predict` from the label's zinc oxide percentage, on a stated reference skin
-(L* 55). Its band is the label model's error on the one differently formulated product in Gate 1
-(2.35 L*), not its smaller error on the study's own formulations (1.61 L*), because retail bottles
-are formulated differently too.
+Tones: the shopper picks the closest of five skin tones spanning the PLOS ONE 2025 study's range
+(L* 65 lighter to L* 45 deeper; the study measured L* 43.8 to 68.4 and had no Dark ITA group).
+Skin deeper than these gets no prediction: the model is never extrapolated.
 
-Render: YouCam's makeup render mixes a palette colour into the skin, out = (1 - a) rho + a P. The
-palette is white, the colour K1b validated. The blend a is the one whose L* change best matches
-the predicted whitening over skins of L* 45 to 65 (inside the study's range), and the error is
-measured on what YouCam is actually sent: the blend the K1b curve shows at the whole
-colorIntensity the render route picks. A render more than `MAX_RENDER_ERROR` from the prediction
-on any of those skins, or a blend above the top of the K1b curve, is unreachable; the render route
-refuses it, and `build` leaves such a bottle out. Every render is labelled an approximation.
+Whitening: `label_model.predict` from the label's zinc oxide percentage, per tone. Its band is the
+label model's error on the one differently formulated product in Gate 1 (2.35 L*), not its smaller
+error on the study's own formulations (1.61 L*), because retail bottles are formulated differently.
+The top-level whitening is the middle tone (L* 55), used where one number per bottle is shown.
+
+Render, per tone: YouCam's makeup render mixes a palette colour into the skin, out = (1 - a) rho +
+a P, with a white palette (the colour K1b validated). The render route sends a whole
+colorIntensity, which the K1b curve turns into the blend actually shown, so each tone's render is
+chosen among those whole intensities: the one whose shown blend lands closest to the prediction,
+provided it is within `MAX_RENDER_ERROR`. The stored blend is that intensity's shown blend, so
+the route's inverse gives back the same intensity. A tone with no such intensity has no render and
+the route refuses it. Every render is labelled an approximation.
 
     python -m castforecast.label_catalogue [labels_json] [out_json]
 """
@@ -25,8 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from castforecast.catalogue import K1B_CURVE, MAX_RENDER_ERROR
-from castforecast.k1_render import coverage_for_alpha
+from castforecast.catalogue import K1B_CURVE, MAX_RENDER_ERROR, _hex
 from castforecast.label_model import predict
 
 with warnings.catch_warnings():
@@ -36,19 +39,24 @@ with warnings.catch_warnings():
 ROOT = Path(__file__).resolve().parent.parent
 LABELS = ROOT / "data" / "bottles" / "fda_labels.json"
 OUT = ROOT / "web" / "src" / "data" / "bottles.json"
+SCHEMA_VERSION = 2
 PALETTE = "#ffffff"
-SKIN_LIGHTNESS = (45.0, 50.0, 55.0, 60.0, 65.0)
+TONES = (65.0, 60.0, 55.0, 50.0, 45.0)  # L*, lighter to deeper, inside the study's range
 SKINS = np.array(
     [
         colour.XYZ_to_sRGB(
             colour.Lab_to_XYZ(np.array([lum, 14.0, 18.0])), apply_cctf_encoding=False
         )
-        for lum in SKIN_LIGHTNESS
+        for lum in TONES
     ]
 )
 REFERENCE_L = 55.0
 RETAIL_ERROR_L = 2.35  # Gate 1, label model on the differently formulated benchmark product
-ALPHAS = np.linspace(0.0, 1.0, 10001)
+_KEYS = sorted(K1B_CURVE)
+INTENSITIES = np.arange(0, 101)
+SHOWN = np.interp(
+    INTENSITIES, _KEYS, [K1B_CURVE[k] for k in _KEYS]
+)  # blend shown at each whole intensity
 
 
 def _lightness(rgb: np.ndarray) -> np.ndarray:
@@ -59,35 +67,49 @@ def _lightness(rgb: np.ndarray) -> np.ndarray:
     return 116.0 * f - 16.0
 
 
-def _rendered(alpha: np.ndarray | float, skins: np.ndarray) -> np.ndarray:
-    """L* change of each skin under a white render at blend alpha (alphas x skins)."""
-    a = np.atleast_1d(alpha)[:, None, None]
-    return _lightness((1.0 - a) * skins[None] + a) - _lightness(skins)[None]
+def _rendered(alpha: np.ndarray, skin: np.ndarray) -> np.ndarray:
+    """L* change of one skin under a white render at each blend in `alpha`."""
+    a = np.asarray(alpha)[:, None]
+    return _lightness((1.0 - a) * skin[None] + a) - _lightness(skin)
 
 
-def label_render(zinc_oxide_pct: float) -> dict:
-    """Blend for a white render of this zinc oxide percentage, the colorIntensity and shown blend the
-    route will use, the worst L* error of that render against the prediction, and whether it is usable."""
-    target = np.array([predict(zinc_oxide_pct, lum) for lum in SKIN_LIGHTNESS])
-    sse = ((_rendered(ALPHAS, SKINS) - target[None]) ** 2).sum(axis=1)
-    blend = float(ALPHAS[int(np.argmin(sse))])
-    intensity, shown, on_curve = coverage_for_alpha(K1B_CURVE, blend)
-    error = float(np.abs(_rendered(shown, SKINS)[0] - target).max())
+def tone_render(zinc_oxide_pct: float, tone: float) -> dict | None:
+    """The render for this tone as the route will send it, or None when no whole intensity is close enough."""
+    skin = SKINS[TONES.index(tone)]
+    errors = np.abs(_rendered(SHOWN, skin) - predict(zinc_oxide_pct, tone))
+    if errors.min() > MAX_RENDER_ERROR:
+        return None
+    i = int(np.argmin(errors))
     return {
         "paletteHex": PALETTE,
-        "blend": blend,
-        "colorIntensity": intensity,
-        "shown_blend": shown,
-        "render_error": error,
-        "reachable": bool(on_curve and error <= MAX_RENDER_ERROR),
+        "blend": float(SHOWN[i]),
+        "colorIntensity": int(INTENSITIES[i]),
+        "errorL": float(errors[i]),
+    }
+
+
+def _whitening(zinc_oxide_pct: float, tone: float) -> dict:
+    value = predict(zinc_oxide_pct, tone)
+    return {
+        "value": value,
+        "low": value - RETAIL_ERROR_L,
+        "high": value + RETAIL_ERROR_L,
+        "unit": "L*",
     }
 
 
 def entry(bottle: dict) -> dict:
     """One web catalogue entry from one pinned FDA label (data/bottles/fda_labels.json)."""
     zinc = float(bottle["zinc_oxide_pct"])
-    render = label_render(zinc)
-    value = predict(zinc, REFERENCE_L)
+    tones = []
+    for tone in TONES:
+        r = tone_render(zinc, tone)
+        render = (
+            None
+            if r is None
+            else {"paletteHex": r["paletteHex"], "blend": r["blend"], "errorL": r["errorL"]}
+        )
+        tones.append({"lStar": tone, "whitening": _whitening(zinc, tone), "render": render})
     eff = str(bottle["label_effective"])
     return {
         "id": bottle["id"],
@@ -96,17 +118,8 @@ def entry(bottle: dict) -> dict:
         "upc": bottle["upc"],
         "filter": "mineral",
         "tinted": False,
-        "render": {
-            "paletteHex": render["paletteHex"],
-            "blend": render["blend"],
-            "errorL": render["render_error"],
-        },
-        "whitening": {
-            "value": value,
-            "low": value - RETAIL_ERROR_L,
-            "high": value + RETAIL_ERROR_L,
-            "unit": "L*",
-        },
+        "whitening": _whitening(zinc, REFERENCE_L),
+        "tones": tones,
         "evidence": {
             "source": "fda-label",
             "setId": bottle["set_id"],
@@ -117,15 +130,17 @@ def entry(bottle: dict) -> dict:
 
 
 def build(labels: Path = LABELS) -> tuple[dict, list[str]]:
-    """The catalogue file, and the ids of bottles left out because their render is unreachable."""
+    """The catalogue file, and the ids of bottles left out because no tone has a render."""
     kept, left_out = [], []
     for bottle in json.loads(Path(labels).read_text())["bottles"]:
         e = entry(bottle)
-        if label_render(float(bottle["zinc_oxide_pct"]))["reachable"]:
-            kept.append(e)
-        else:
-            left_out.append(bottle["id"])
-    return {"schemaVersion": 1, "bottles": kept}, left_out
+        (kept if any(t["render"] for t in e["tones"]) else left_out).append(
+            e if e["tones"] else bottle
+        )
+    tones = [{"lStar": t, "hex": _hex(s)} for t, s in zip(TONES, SKINS, strict=True)]
+    return {"schemaVersion": SCHEMA_VERSION, "tones": tones, "bottles": kept}, [
+        b["id"] for b in left_out
+    ]
 
 
 def dumps(catalogue: dict) -> str:
@@ -139,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     catalogue, left_out = build(labels)
     out.write_text(dumps(catalogue))
     print(
-        f"wrote {out}: {len(catalogue['bottles'])} bottles; left out (unreachable render): {left_out or 'none'}"
+        f"wrote {out}: {len(catalogue['bottles'])} bottles; left out (no tone renders): {left_out or 'none'}"
     )
     return 0
 

@@ -91,10 +91,10 @@ function isRenderResult(v: unknown): v is RenderResult {
 }
 
 /** Renders the bottle's cast on an uploaded selfie. */
-export async function renderBottle(fileId: string, bottleId: string, f: typeof fetch = fetch): Promise<RenderResult> {
+export async function renderBottle(fileId: string, bottleId: string, tone: number, f: typeof fetch = fetch): Promise<RenderResult> {
   const body = await post(
     "/api/render",
-    { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId, bottleId }), signal: timeoutSignal(RENDER_TIMEOUT_MS) },
+    { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId, bottleId, tone }), signal: timeoutSignal(RENDER_TIMEOUT_MS) },
     f,
   );
   if (!isRenderResult(body)) throw new ApiFailure("upstream");

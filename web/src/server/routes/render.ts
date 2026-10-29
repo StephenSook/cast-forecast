@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { RENDER_MAX_ERROR_L, findBottle } from "@/lib/catalogue";
+import { RENDER_MAX_ERROR_L, findBottle, toneOf } from "@/lib/catalogue";
 import { colorIntensityForBlend } from "@/lib/curve";
 import type { RenderResult } from "@/lib/types";
 import { UNIT_COST } from "@/server/credits";
@@ -11,7 +11,8 @@ import { makeupVtoPayload } from "@/server/payload";
 import { guarded, mediaType, ok, paidTask, readJson, refusal, youcamFor } from "@/server/routes/common";
 import { readSession } from "@/server/session";
 
-const RenderBody = z.object({ fileId: z.string().min(1).max(512), bottleId: z.string().min(1).max(64) });
+// tone is the L* of the skin tone the shopper picked; only the catalogue's own tones have a prediction.
+const RenderBody = z.object({ fileId: z.string().min(1).max(512), bottleId: z.string().min(1).max(64), tone: z.number().finite() });
 
 // YouCam result URLs live about 2 hours; the page is told 5 minutes less.
 const RESULT_TTL_MS = 7_200_000 - 300_000;
@@ -25,8 +26,9 @@ function isHttpsUrl(s: string): boolean {
 }
 
 /**
- * POST /api/render, JSON {fileId, bottleId}: 200 RenderResult. Every refusal that needs no YouCam call (configuration,
- * body, session, bottle) comes before the limiter and the balance read; one unit is held before the task starts.
+ * POST /api/render, JSON {fileId, bottleId, tone}: 200 RenderResult. Every refusal that needs no YouCam call
+ * (configuration, body, session, bottle, tone) comes before the limiter and the balance read; one unit is held before
+ * the task starts.
  */
 export function makeRenderHandler(deps: () => RouteDeps): (req: Request) => Promise<Response> {
   return guarded("render", async (req) => {
@@ -43,12 +45,14 @@ export function makeRenderHandler(deps: () => RouteDeps): (req: Request) => Prom
     const session = readSession(req.headers.get("cookie"), secret, now);
     if (!session || !session.files.includes(body.fileId)) return errorResponse("session_missing", 401);
 
-    // A bottle whose blend the K1b curve cannot reach would render a weaker cast than predicted, and one whose render
-    // misses its own prediction by more than RENDER_MAX_ERROR_L would show the wrong cast: both refused like an unknown one.
+    // A tone the bottle does not list has no prediction (skin outside the study is never extrapolated). A render the K1b
+    // curve cannot reach would show a weaker cast than predicted, and one that misses its own prediction by more than
+    // RENDER_MAX_ERROR_L would show the wrong cast: all refused like an unknown bottle, before any YouCam call.
     const bottle = findBottle(body.bottleId, d.catalogue);
-    const target = bottle && bottle.render.errorL <= RENDER_MAX_ERROR_L ? colorIntensityForBlend(bottle.render.blend) : null;
-    if (!bottle || !target?.reachable) return errorResponse("unknown_bottle", 404);
-    const payload = makeupVtoPayload(body.fileId, bottle.render.paletteHex, target.colorIntensity);
+    const render = bottle ? (toneOf(bottle, body.tone)?.render ?? null) : null;
+    const target = render && render.errorL <= RENDER_MAX_ERROR_L ? colorIntensityForBlend(render.blend) : null;
+    if (!bottle || !render || !target?.reachable) return errorResponse("unknown_bottle", 404);
+    const payload = makeupVtoPayload(body.fileId, render.paletteHex, target.colorIntensity);
 
     const limit = d.limiter.take("render", session.sid, clientIp(req), now);
     if (!limit.ok) return refusal(limit);

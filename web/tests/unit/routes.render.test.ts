@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 import * as renderRoute from "@/app/api/render/route";
-import { loadCatalogue } from "@/lib/catalogue";
+import { CATALOGUE, RENDER_MAX_ERROR_L } from "@/lib/catalogue";
+import { colorIntensityForBlend } from "@/lib/curve";
 import { MESSAGES } from "@/lib/messages";
 import { mapYouCamError } from "@/server/errors";
 import { makeupVtoPayload } from "@/server/payload";
@@ -8,7 +9,6 @@ import { BODY_READ_DEADLINE_MS } from "@/server/routes/common";
 import { makeCreditsHandler } from "@/server/routes/credits";
 import { makeRenderHandler } from "@/server/routes/render";
 import { JSON_TIMEOUT_MS, POLL_INTERVAL_MS, YouCamError, createYouCam } from "@/server/youcam";
-import fromPython from "../contracts/catalogue-from-python.json";
 import { CREDIT, NOW, POLL_VTO, RUN_VTO } from "../helpers/constants";
 import { testEntry } from "../helpers/entries";
 import { jsonReply } from "../helpers/fakeFetch";
@@ -16,7 +16,7 @@ import { cookieFor, get, jsonPost, stalledPost, taskRouteWorstCase, testDeps } f
 
 const okRender = { [RUN_VTO]: jsonReply(200, { data: { task_id: "t1" } }),
   [POLL_VTO]: jsonReply(200, { data: { task_status: "success", results: { url: "https://out.example/r.png" } } }) };
-const renderReq = (cookie = cookieFor(["file-1"])) => jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookie);
+const renderReq = (cookie = cookieFor(["file-1"]), tone = 55) => jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone }, cookie);
 
 test("render sends the K1b-mapped payload for blend 0.169", async () => {
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
@@ -66,7 +66,7 @@ test("render answers 504 timeout when the poll deadline passes", async () => {
 test("render requires content-type application/json and a valid body", async () => {
   // Fix round 1: a VALID body over scripted ok routes, so only the content-type guard can refuse it.
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
-  const text = new Request("https://cf.test/api/render", { method: "POST", body: JSON.stringify({ fileId: "file-1", bottleId: "test-a" }),
+  const text = new Request("https://cf.test/api/render", { method: "POST", body: JSON.stringify({ fileId: "file-1", bottleId: "test-a", tone: 55 }),
     headers: { "Content-Type": "text/plain", cookie: cookieFor(["file-1"]) } });
   const refused = await makeRenderHandler(deps)(text);
   expect(refused.status).toBe(400); expect((await refused.json()).error.code).toBe("bad_request"); expect(ff.calls).toEqual([]);
@@ -148,26 +148,43 @@ test("a failed balance read is mapped and starts no task", async () => {
   expect(res.status).toBe(502); expect((await res.json()).error.code).toBe("upstream"); expect(ff.taskStarts()).toBe(0);
 });
 test("carry 4: a bottle whose blend the K1b curve cannot reach is 404 unknown_bottle before any YouCam call", async () => {
-  const { deps, ff } = testDeps({ catalogue: [testEntry({ render: { paletteHex: "#FFFFFF", blend: 0.5, errorL: 0.4 } })], balance: 879, routes: okRender });
+  const tones = testEntry().tones.map((t) => ({ ...t, render: { paletteHex: "#FFFFFF", blend: 0.5, errorL: 0.4 } }));
+  const { deps, ff } = testDeps({ catalogue: [testEntry({ tones })], balance: 879, routes: okRender });
   const res = await makeRenderHandler(deps)(renderReq());
   expect(res.status).toBe(404); expect((await res.json()).error.code).toBe("unknown_bottle"); expect(ff.calls).toEqual([]);
 });
-// Codex reviews r4 and r5: renders the Python catalogue rejected (1.26 L* from the film; 1.06 L* once rounded to
-// what YouCam is sent) used to reach a paid task. The fixture is written by castforecast.catalogue.render_entry and
-// tests/test_catalogue.py checks it still matches, so this runs the producer, the loader and the handler together.
-test("every render that misses its film by more than 1 L* is 404 unknown_bottle before any YouCam call", async () => {
-  const catalogue = loadCatalogue(fromPython);
-  expect(catalogue.map((b) => b.id)).toEqual(["test-blue-scatter", "test-quantized"]);
-  for (const bottle of catalogue) {
-    expect(bottle.render.errorL).toBeGreaterThan(1);
-    const { deps, ff } = testDeps({ catalogue, balance: 879, routes: okRender });
-    const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: bottle.id }, cookieFor(["file-1"])));
-    expect(res.status).toBe(404); expect((await res.json()).error.code).toBe("unknown_bottle"); expect(ff.calls).toEqual([]);
+// Codex review of PR #8: a render had no check on the shopper's skin. A tone the catalogue does not list (skin outside
+// the study) and a tone with no render are refused before any YouCam call; a body without a tone is a bad request.
+test("a tone the bottle does not list, or one with no render, is 404 unknown_bottle before any YouCam call", async () => {
+  const tones = testEntry().tones.map((t) => (t.lStar === 55 ? { ...t, render: null } : t));
+  const { deps, ff } = testDeps({ catalogue: [testEntry({ tones })], balance: 879, routes: okRender });
+  for (const tone of [40, 70, 55]) {
+    const res = await makeRenderHandler(deps)(renderReq(cookieFor(["file-1"]), tone));
+    expect(res.status, String(tone)).toBe(404); expect((await res.json()).error.code).toBe("unknown_bottle");
+  }
+  expect(ff.calls).toEqual([]);
+});
+test("a body without a tone is 400 bad_request before any YouCam call", async () => {
+  const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
+  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookieFor(["file-1"])));
+  expect(res.status).toBe(400); expect(ff.calls).toEqual([]);
+});
+// The shipped catalogue, written by castforecast.label_catalogue and kept in sync by tests/test_label_catalogue.py.
+test("every shipped bottle renders on every tone within the bound, at the whole intensity it was chosen for", () => {
+  expect(CATALOGUE.length).toBeGreaterThanOrEqual(5);
+  for (const b of CATALOGUE) {
+    for (const t of b.tones) {
+      expect(t.render, `${b.id} ${t.lStar}`).not.toBeNull();
+      expect(t.render!.errorL).toBeLessThanOrEqual(RENDER_MAX_ERROR_L);
+      const target = colorIntensityForBlend(t.render!.blend);
+      expect(target.reachable).toBe(true);
+      expect(target.predictedBlend).toBeCloseTo(t.render!.blend, 9);
+    }
   }
 });
 test("carry 4: an unknown bottle id makes zero fetch calls", async () => {
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
-  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-z" }, cookieFor(["file-1"])));
+  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-z", tone: 55 }, cookieFor(["file-1"])));
   expect(res.status).toBe(404); expect(ff.calls).toEqual([]);
 });
 test("a missing or tampered cookie is 401 session_missing with no call", async () => {
@@ -175,7 +192,7 @@ test("a missing or tampered cookie is 401 session_missing with no call", async (
   const good = cookieFor(["file-1"]);
   const tampered = good.slice(0, -1) + (good.endsWith("A") ? "B" : "A");                    // always a different last signature char
   for (const cookie of [undefined, "cf_session=bad.sig", tampered]) {
-    const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a" }, cookie));
+    const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: "test-a", tone: 55 }, cookie));
     expect(res.status).toBe(401);
   }
   expect(ff.calls).toEqual([]);
@@ -191,10 +208,10 @@ test("render accepts application/json with a charset, and refuses malformed or o
   const h = makeRenderHandler(deps);
   const post = (body: string, type = "application/json") =>
     h(new Request("https://cf.test/api/render", { method: "POST", body, headers: { "Content-Type": type, cookie: cookieFor(["file-1"]) } }));
-  expect((await post(JSON.stringify({ fileId: "file-1", bottleId: "test-a" }), "application/json; charset=utf-8")).status).toBe(200);
+  expect((await post(JSON.stringify({ fileId: "file-1", bottleId: "test-a", tone: 55 }), "application/json; charset=utf-8")).status).toBe(200);
   expect((await post("{not json")).status).toBe(400);
   expect((await post(JSON.stringify({ fileId: "file-1", bottleId: "test-a", pad: "x".repeat(10_000) }))).status).toBe(400);
-  expect((await post(JSON.stringify({ fileId: "", bottleId: "test-a" }))).status).toBe(400);
+  expect((await post(JSON.stringify({ fileId: "", bottleId: "test-a", tone: 55 }))).status).toBe(400);
 });
 test("successful render responses are not cached", async () => {
   const { deps } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });

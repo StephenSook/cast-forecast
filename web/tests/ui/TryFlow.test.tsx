@@ -26,7 +26,12 @@ function setup(o: { bottles?: readonly Bottle[]; initialBottleId?: string | null
     render: o.render ?? vi.fn(async (_f: string, b: string) => ({ ...result, bottleId: b })) };
   const user = o.user ?? userEvent.setup();
   const view = render(<TryFlow bottles={o.bottles ?? bottles} initialBottleId={o.initialBottleId} api={api} prepare={o.prepare ?? (async () => image)} />);
-  const addPhoto = () => user.upload(screen.getByTestId("upload-input"), new File(["x"], "a.jpg", { type: "image/jpeg" }));
+  // A photo, then the middle tone, since no bottle can be picked without a tone.
+  const addPhoto = async () => {
+    await user.upload(screen.getByTestId("upload-input"), new File(["x"], "a.jpg", { type: "image/jpeg" }));
+    const tone = screen.queryByRole("button", { name: "Skin L* 55" });
+    if (tone && !tone.hasAttribute("disabled") && tone.getAttribute("aria-pressed") !== "true") await user.click(tone);
+  };
   const chip = (name: string) => screen.getByRole("button", { name });
   return { api, user, addPhoto, chip, ...view };
 }
@@ -42,7 +47,7 @@ test("second bottle reuses the fileId without a second upload", async () => {
   const { api, user, addPhoto, chip } = setup();
   await addPhoto(); await user.click(chip("Test entry A")); await screen.findByTestId("result-image");
   await user.click(chip("Test entry B")); await waitFor(() => expect(api.render).toHaveBeenCalledTimes(2));
-  expect(api.upload).toHaveBeenCalledTimes(1); expect(api.render.mock.calls[1]).toEqual(["file-1", "test-b"]);
+  expect(api.upload).toHaveBeenCalledTimes(1); expect(api.render.mock.calls[1]).toEqual(["file-1", "test-b", 55]);
 });
 test("a new photo uploads again on the next pick", async () => {
   const { api, user, addPhoto, chip } = setup();
@@ -80,7 +85,7 @@ test("initialBottleId preselects the chip and still waits for a tap", async () =
   await addPhoto();
   expect(api.upload).not.toHaveBeenCalled(); expect(api.render).not.toHaveBeenCalled();
   await user.click(chip("Test entry B")); await screen.findByTestId("result-image");
-  expect(api.upload).toHaveBeenCalledTimes(1); expect(api.render.mock.calls[0]).toEqual(["file-1", "test-b"]);
+  expect(api.upload).toHaveBeenCalledTimes(1); expect(api.render.mock.calls[0]).toEqual(["file-1", "test-b", 55]);
 });
 test("has no axe violations", async () => { const { container } = setup(); await expectNoAxeViolations(container); });
 
@@ -109,7 +114,7 @@ test("session_missing makes the next tap upload again", async () => {
   await addPhoto(); await user.click(chip("Test entry A"));
   expect(await screen.findByRole("alert")).toHaveTextContent(MESSAGES.session_missing);
   await user.click(chip("Test entry A")); await screen.findByTestId("result-image");
-  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-a"]);
+  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-a", 55]);
 });
 
 test("an expired render uploads the selfie again on the next tap", async () => {
@@ -120,7 +125,7 @@ test("an expired render uploads the selfie again on the next tap", async () => {
   await screen.findByRole("alert");
   expect(screen.getByTestId("selfie-preview")).toHaveAttribute("src", "blob:a");
   await user.click(chip("Test entry A")); await screen.findByTestId("result-image");
-  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-a"]);
+  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-a", 55]);
 });
 
 test("after an expired render, a photo that cannot be used shows its own line", async () => {
@@ -177,7 +182,7 @@ test("a render whose image fails before it shows: the selfie stays, the line ask
   await user.click(chip("Test entry A"));
   fireEvent.load(await screen.findByTestId("result-image"));
   expect(screen.getByTestId("result")).toBeInTheDocument(); expect(screen.queryByRole("alert")).toBeNull();
-  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-a"]);
+  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-a", 55]);
 });
 
 test("a chip tap while a new photo is still being prepared starts nothing; the flow resumes once it is ready", async () => {
@@ -195,7 +200,7 @@ test("a chip tap while a new photo is still being prepared starts nothing; the f
   expect(chip("Test entry B")).toBeEnabled();
   await user.click(chip("Test entry B"));
   await waitFor(() => expect(api.render).toHaveBeenCalledTimes(2));
-  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-b"]);
+  expect(api.upload).toHaveBeenCalledTimes(2); expect(api.render.mock.calls[1]).toEqual(["file-2", "test-b", 55]);
 });
 
 test("the chips are off the moment the change event returns, so a tap right after it starts nothing", async () => {
@@ -225,7 +230,7 @@ test("the result shows the predicted cast for the bottle and a link to the evide
   fireEvent.load(screen.getByTestId("result-image"));
   const block = screen.getByTestId("result");
   expect(within(block).getByText("+2.4 L*")).toBeInTheDocument();
-  expect(within(block).getByText("Test entry A")).toBeInTheDocument();
+  expect(within(block).getByText(/^Test entry A on skin of L\* 55\. Predicted from the label; the picture is an approximation\.$/)).toBeInTheDocument();
   expect(screen.getByRole("list", { name: "Predicted white cast" })).toHaveTextContent("1.9 L* to +2.9 L*");
   expect(screen.getByRole("link", { name: "See the evidence" })).toHaveAttribute("href", "/evidence");
   expect(screen.queryByTestId("scan-line")).toBeNull();
@@ -299,7 +304,7 @@ test("a newer photo's upload wins even when the older upload answers last-but-on
   expect(api.render).not.toHaveBeenCalled();
   await act(async () => second.resolve({ fileId: "file-new" }));
   await screen.findByTestId("result-image");
-  expect(api.render.mock.calls).toEqual([["file-new", "test-a"]]);
+  expect(api.render.mock.calls).toEqual([["file-new", "test-a", 55]]);
 });
 
 test("every object URL is revoked when its photo is replaced and when the flow unmounts", async () => {

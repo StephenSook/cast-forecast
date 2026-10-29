@@ -4,18 +4,20 @@ import { CATALOGUE, formatWhitening, labelUrl, loadCatalogue, RENDER_MAX_ERROR_L
 import { catalogueFile, testEntry } from "../helpers/entries";
 
 test("shipped catalogue is version 1 and parses; every bottle cites an FDA label and renders within the bound", () => {
-  expect(bottlesJson.schemaVersion).toBe(1);
+  expect(bottlesJson.schemaVersion).toBe(2);
   const bottles = loadCatalogue(bottlesJson);
   expect(bottles.length).toBeGreaterThanOrEqual(5);
   for (const b of bottles) {
     expect(b.evidence.source).toBe("fda-label");
     expect(labelUrl(b)).toBe(`https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=${b.evidence.setId}`);
-    expect(b.render.errorL).toBeLessThanOrEqual(RENDER_MAX_ERROR_L);
+    for (const t of b.tones) expect(t.render?.errorL ?? Infinity).toBeLessThanOrEqual(RENDER_MAX_ERROR_L);
   }
 });
 test("schema rejects a zinc oxide percent above the 25 percent label limit", () =>
   expect(() => loadCatalogue(catalogueFile([testEntry({ evidence: { ...testEntry().evidence, zincOxidePct: 30 } })]))).toThrow());
-test("loadCatalogue rejects another schemaVersion", () => expect(() => loadCatalogue({ schemaVersion: 2, bottles: [] })).toThrow());
+test("loadCatalogue rejects another schemaVersion", () => expect(() => loadCatalogue({ schemaVersion: 1, tones: [], bottles: [] })).toThrow());
+test("loadCatalogue rejects a bottle whose tones are not the file's tones in order", () =>
+  expect(() => loadCatalogue(catalogueFile([testEntry({ tones: [...testEntry().tones].reverse() })]))).toThrow(/tones/));
 test("loadCatalogue rejects the unversioned bare array", () => expect(() => loadCatalogue([])).toThrow());
 test("no shipped id starts with test-", () => expect(CATALOGUE.filter((b) => b.id.startsWith("test-"))).toEqual([]));
 test("schema rejects an entry without evidence", () => expect(() => loadCatalogue(catalogueFile([{ ...testEntry(), evidence: undefined }]))).toThrow());

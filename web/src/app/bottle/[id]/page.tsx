@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CATALOGUE, findBottle, formatWhitening, labelUrl } from "@/lib/catalogue";
+import { CATALOGUE, findBottle, formatValue, formatWhitening, labelUrl, whiteningDomain } from "@/lib/catalogue";
 import { evidenceLine } from "@/lib/compare";
+import { Bars } from "@/ui/Bars";
 import { ResultBlock } from "@/ui/ResultBlock";
 import { SquashButton } from "@/ui/SquashButton";
 
@@ -29,6 +30,15 @@ export default async function BottlePage({ params }: PageProps<"/bottle/[id]">) 
           word={formatWhitening(bottle)}
           line={evidenceLine(bottle)}
           tone="amber"
+        />
+      </div>
+      <div className="mt-8 max-w-[44rem]">
+        <p className="mb-3 font-bold">By skin tone, lighter to deeper.</p>
+        <Bars
+          rows={bottle.tones.map((t) => ({ label: `Skin L* ${t.lStar}`, value: t.whitening.value, low: t.whitening.low, high: t.whitening.high }))}
+          domain={whiteningDomain(CATALOGUE)}
+          format={(v) => formatValue({ value: v, unit: bottle.whitening.unit })}
+          ariaLabel="Predicted whitening by skin tone"
         />
       </div>
       <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-4">

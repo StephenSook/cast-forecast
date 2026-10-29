@@ -5,7 +5,7 @@ import { testEntry } from "../helpers/entries";
 
 const image = { blob: new Blob(["x"], { type: "image/jpeg" }), width: 640, height: 480, url: "blob:a" };
 const result = { imageUrl: "https://out.example/r.png", bottleId: "test-a", colorIntensity: 49, predictedBlend: 0.1697, expiresAt: NOW + 6_900_000 };
-const ready = tryReducer(initialTryState(), { type: "PHOTO_READY", image });
+const ready = ([{ type: "PHOTO_READY", image }, { type: "TONE", tone: 55 }] as TryEvent[]).reduce(tryReducer, initialTryState());
 const done = ([{ type: "PICK", bottleId: "test-a" }, { type: "UPLOADED", fileId: "file-1" }, { type: "RENDERED", result }] as TryEvent[]).reduce(tryReducer, ready);
 test("initial state is empty, keeps a preselected bottle, and cannot pick", () => {
   expect(initialTryState("test-b")).toMatchObject({ phase: "empty", bottleId: "test-b", fileId: null });
@@ -83,4 +83,23 @@ test("?bottle= preselects only a bottle in the list", () => {
   expect(bottleFromParam(undefined, list)).toBeNull();
   expect(bottleFromParam(["test-a", "test-b"], list)).toBeNull();
   expect(bottleFromParam("test-a", [])).toBeNull();
+});
+
+test("no bottle can be picked without a tone with a prediction", () => {
+  const photo = tryReducer(initialTryState(), { type: "PHOTO_READY", image });
+  expect(canPick(photo)).toBe(false);
+  expect(tryReducer(photo, { type: "PICK", bottleId: "test-a" })).toBe(photo);
+  const deeper = tryReducer(photo, { type: "TONE", tone: "deeper" });
+  expect(deeper.tone).toBe("deeper"); expect(canPick(deeper)).toBe(false);
+  expect(canPick(tryReducer(deeper, { type: "TONE", tone: 50 }))).toBe(true);
+});
+
+test("a new tone clears the shown render but keeps the uploaded file, and waits while a render is in flight", () => {
+  const retoned = tryReducer(done, { type: "TONE", tone: 45 });
+  expect(retoned).toMatchObject({ phase: "ready", tone: 45, result: null, fileId: "file-1" });
+  const inFlight = tryReducer(ready, { type: "PICK", bottleId: "test-a" });
+  expect(tryReducer(inFlight, { type: "TONE", tone: 45 })).toBe(inFlight);
+  expect(tryReducer(initialTryState(), { type: "TONE", tone: 60 })).toMatchObject({ phase: "empty", tone: 60 });
+  const photoError = tryReducer(initialTryState(), { type: "FAILED", code: "too_small" });
+  expect(tryReducer(photoError, { type: "TONE", tone: 60 })).toMatchObject({ phase: "error", code: "too_small", tone: 60 });
 });

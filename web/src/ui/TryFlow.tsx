@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ApiFailure, renderBottle, uploadSelfie } from "@/lib/apiClient";
-import { type Bottle, findBottle, formatWhitening, whiteningDomain } from "@/lib/catalogue";
+import { type Bottle, TONES, type Tone, findBottle, formatValue, toneOf, whiteningDomain } from "@/lib/catalogue";
 import { type PreparedImage, releaseImage } from "@/lib/image";
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
 import { EXPIRED_LINE, type TryEvent, type TryState, canPick, initialTryState, tryReducer } from "@/lib/tryFlow";
@@ -11,9 +11,13 @@ import { Bars } from "./Bars";
 import { BottleChips } from "./BottleChips";
 import { CaptureFrame } from "./CaptureFrame";
 import { ResultBlock } from "./ResultBlock";
+import { ToneSwatches } from "./ToneSwatches";
 
 /** After this long in flight the status line says the wait can be long, and how long. */
 const SLOW_MS = 10_000;
+
+/** Shown when the shopper's skin is deeper than any tone the study measured. */
+export const DEEPER_LINE = "The study behind these numbers measured skin down to L* 44. Deeper skin has no prediction yet.";
 
 type Api = { upload: typeof uploadSelfie; render: typeof renderBottle };
 const DEFAULT_API: Api = { upload: uploadSelfie, render: renderBottle };
@@ -54,8 +58,9 @@ function useWaitClock(busy: boolean): { elapsed: number | null; start(): void } 
  * answer still in flight for an older one count for nothing. No pick starts while a new photo is being prepared, and
  * the result shows only once the render's image has loaded.
  */
-export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, prepare }: {
+export function TryFlow({ bottles, tones = TONES, initialBottleId = null, api = DEFAULT_API, prepare }: {
   bottles: readonly Bottle[];
+  tones?: readonly Tone[];
   initialBottleId?: string | null;
   api?: Api;
   prepare?: (f: File) => Promise<PreparedImage>;
@@ -106,7 +111,8 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
   const onPick = async (bottleId: string) => {
     const before = live.current;
     const picked = send({ type: "PICK", bottleId });
-    if (picked === before || !picked.image) return;
+    if (picked === before || !picked.image || typeof picked.tone !== "number") return;
+    const tone = picked.tone;
     wait.start();
     const mine = ++run.current;
     const current = () => mine === run.current;
@@ -118,7 +124,7 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
         if (send({ type: "UPLOADED", fileId: up.fileId }).phase !== "rendering") return;
         fileId = up.fileId;
       }
-      const result = await api.render(fileId, bottleId);
+      const result = await api.render(fileId, bottleId, tone);
       if (!current()) return;
       send({ type: "RENDERED", result });
     } catch (e) {
@@ -128,6 +134,7 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
 
   const line = state.phase === "error" && state.code ? (state.message ?? MESSAGES[state.code]) : state.expired ? EXPIRED_LINE : "";
   const bottle = revealed && state.result ? findBottle(state.result.bottleId, bottles) : undefined;
+  const shown = bottle && typeof state.tone === "number" ? toneOf(bottle, state.tone) : undefined;
   const [lo, hi] = whiteningDomain(bottles);
 
   return (
@@ -144,6 +151,10 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
         onPreparing={setPreparing}
       />
       <div className="grid gap-4 min-w-0">
+        {bottles.length > 0 && (
+          <ToneSwatches tones={tones} selected={state.tone} disabled={busy || preparing} onPick={(tone) => send({ type: "TONE", tone })} />
+        )}
+        {state.tone === "deeper" && <p className="max-w-[34rem] font-bold">{DEEPER_LINE}</p>}
         <BottleChips bottles={bottles} selectedId={state.bottleId} disabled={!canPick(state) || preparing} onPick={(id) => void onPick(id)} />
         {line && (
           <p role="alert" className="max-w-[34rem] rounded-2xl border-2 border-ink bg-paper p-4 font-bold">
@@ -159,14 +170,14 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
             </span>
           )}
         </p>
-        {bottle && (
+        {bottle && shown && (
           <>
-            <ResultBlock word={formatWhitening(bottle)} line={bottle.name} />
+            <ResultBlock word={formatValue(shown.whitening)} line={`${bottle.name} on skin of L* ${shown.lStar}. Predicted from the label; the picture is an approximation.`} />
             {hi > lo && (
               <Bars
-                rows={[{ label: bottle.name, value: bottle.whitening.value, low: bottle.whitening.low, high: bottle.whitening.high }]}
+                rows={[{ label: bottle.name, value: shown.whitening.value, low: shown.whitening.low, high: shown.whitening.high }]}
                 domain={[lo, hi]}
-                format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${bottle.whitening.unit}`}
+                format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${shown.whitening.unit}`}
                 ariaLabel="Predicted white cast"
               />
             )}

@@ -1,5 +1,27 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "tones": [
+    {
+      "lStar": 65.0,
+      "hex": "#c1947e"
+    },
+    {
+      "lStar": 60.0,
+      "hex": "#b38772"
+    },
+    {
+      "lStar": 55.0,
+      "hex": "#a57a65"
+    },
+    {
+      "lStar": 50.0,
+      "hex": "#986e59"
+    },
+    {
+      "lStar": 45.0,
+      "hex": "#8a614d"
+    }
+  ],
   "bottles": [
     {
       "id": "cetaphil-sheer-mineral-face",
@@ -8,17 +30,84 @@
       "upc": null,
       "filter": "mineral",
       "tinted": false,
-      "render": {
-        "paletteHex": "#ffffff",
-        "blend": 0.026500000000000003,
-        "errorL": 0.45402238831860764
-      },
       "whitening": {
         "value": 2.1841928886488198,
         "low": -0.16580711135118031,
         "high": 4.534192888648819,
         "unit": "L*"
       },
+      "tones": [
+        {
+          "lStar": 65.0,
+          "whitening": {
+            "value": 1.6988166911713043,
+            "low": -0.6511833088286958,
+            "high": 4.048816691171305,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.03437820473449388,
+            "errorL": 0.06062876228737735
+          }
+        },
+        {
+          "lStar": 60.0,
+          "whitening": {
+            "value": 1.9415047899100621,
+            "low": -0.40849521008993794,
+            "high": 4.2915047899100625,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.03094038426104449,
+            "errorL": 0.01106937772562655
+          }
+        },
+        {
+          "lStar": 55.0,
+          "whitening": {
+            "value": 2.1841928886488198,
+            "low": -0.16580711135118031,
+            "high": 4.534192888648819,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.0275025637875951,
+            "errorL": 0.06069725687035188
+          }
+        },
+        {
+          "lStar": 50.0,
+          "whitening": {
+            "value": 2.4268809873875776,
+            "low": 0.07688098738757754,
+            "high": 4.776880987387578,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.0275025637875951,
+            "errorL": 0.15097185371470712
+          }
+        },
+        {
+          "lStar": 45.0,
+          "whitening": {
+            "value": 2.6695690861263355,
+            "low": 0.3195690861263354,
+            "high": 5.019569086126335,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.024064743314145712,
+            "errorL": 0.08010782940314876
+          }
+        }
+      ],
       "evidence": {
         "source": "fda-label",
         "setId": "0d09b812-b3ca-4214-bed7-7e21ee3288b7",
@@ -33,17 +122,84 @@
       "upc": null,
       "filter": "mineral",
       "tinted": false,
-      "render": {
-        "paletteHex": "#ffffff",
-        "blend": 0.046400000000000004,
-        "errorL": 0.6181079946924628
-      },
       "whitening": {
         "value": 3.7170675081710334,
         "low": 1.3670675081710333,
         "high": 6.067067508171034,
         "unit": "L*"
       },
+      "tones": [
+        {
+          "lStar": 65.0,
+          "whitening": {
+            "value": 2.8910525063552486,
+            "low": 0.5410525063552485,
+            "high": 5.241052506355249,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.05844294804863959,
+            "errorL": 0.05685857811552619
+          }
+        },
+        {
+          "lStar": 60.0,
+          "whitening": {
+            "value": 3.304060007263141,
+            "low": 0.9540600072631409,
+            "high": 5.654060007263141,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.0550051275751902,
+            "errorL": 0.10218483539609302
+          }
+        },
+        {
+          "lStar": 55.0,
+          "whitening": {
+            "value": 3.7170675081710334,
+            "low": 1.3670675081710333,
+            "high": 6.067067508171034,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.048129486628291425,
+            "errorL": 0.07836456087758048
+          }
+        },
+        {
+          "lStar": 50.0,
+          "whitening": {
+            "value": 4.130075009078926,
+            "low": 1.7800750090789257,
+            "high": 6.480075009078925,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.04469166615484204,
+            "errorL": 0.03469584520762581
+          }
+        },
+        {
+          "lStar": 45.0,
+          "whitening": {
+            "value": 4.543082509986819,
+            "low": 2.193082509986819,
+            "high": 6.893082509986819,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.04125384568139265,
+            "errorL": 0.034256380212317694
+          }
+        }
+      ],
       "evidence": {
         "source": "fda-label",
         "setId": "08f0436b-85b6-5099-e063-6294a90a4c2e",
@@ -58,17 +214,84 @@
       "upc": "0816218029890",
       "filter": "mineral",
       "tinted": false,
-      "render": {
-        "paletteHex": "#ffffff",
-        "blend": 0.046400000000000004,
-        "errorL": 0.6181079946924628
-      },
       "whitening": {
         "value": 3.7170675081710334,
         "low": 1.3670675081710333,
         "high": 6.067067508171034,
         "unit": "L*"
       },
+      "tones": [
+        {
+          "lStar": 65.0,
+          "whitening": {
+            "value": 2.8910525063552486,
+            "low": 0.5410525063552485,
+            "high": 5.241052506355249,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.05844294804863959,
+            "errorL": 0.05685857811552619
+          }
+        },
+        {
+          "lStar": 60.0,
+          "whitening": {
+            "value": 3.304060007263141,
+            "low": 0.9540600072631409,
+            "high": 5.654060007263141,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.0550051275751902,
+            "errorL": 0.10218483539609302
+          }
+        },
+        {
+          "lStar": 55.0,
+          "whitening": {
+            "value": 3.7170675081710334,
+            "low": 1.3670675081710333,
+            "high": 6.067067508171034,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.048129486628291425,
+            "errorL": 0.07836456087758048
+          }
+        },
+        {
+          "lStar": 50.0,
+          "whitening": {
+            "value": 4.130075009078926,
+            "low": 1.7800750090789257,
+            "high": 6.480075009078925,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.04469166615484204,
+            "errorL": 0.03469584520762581
+          }
+        },
+        {
+          "lStar": 45.0,
+          "whitening": {
+            "value": 4.543082509986819,
+            "low": 2.193082509986819,
+            "high": 6.893082509986819,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.04125384568139265,
+            "errorL": 0.034256380212317694
+          }
+        }
+      ],
       "evidence": {
         "source": "fda-label",
         "setId": "0beed72e-51df-d15a-e063-6394a90af559",
@@ -83,17 +306,84 @@
       "upc": "0634084471724",
       "filter": "mineral",
       "tinted": false,
-      "render": {
-        "paletteHex": "#ffffff",
-        "blend": 0.0606,
-        "errorL": 0.8130304145516654
-      },
       "whitening": {
         "value": 4.770918809092555,
         "low": 2.4209188090925546,
         "high": 7.120918809092554,
         "unit": "L*"
       },
+      "tones": [
+        {
+          "lStar": 65.0,
+          "whitening": {
+            "value": 3.7107146292942095,
+            "low": 1.3607146292942094,
+            "high": 6.06071462929421,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.07592691288741493,
+            "errorL": 0.08000650238344731
+          }
+        },
+        {
+          "lStar": 60.0,
+          "whitening": {
+            "value": 4.240816719193382,
+            "low": 1.8908167191933818,
+            "high": 6.590816719193382,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.06875640946898776,
+            "errorL": 0.027252419151785112
+          }
+        },
+        {
+          "lStar": 55.0,
+          "whitening": {
+            "value": 4.770918809092555,
+            "low": 2.4209188090925546,
+            "high": 7.120918809092554,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.06531858899553837,
+            "errorL": 0.08503842313751342
+          }
+        },
+        {
+          "lStar": 50.0,
+          "whitening": {
+            "value": 5.301020898991728,
+            "low": 2.9510208989917275,
+            "high": 7.651020898991728,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.05844294804863959,
+            "errorL": 0.03729534476059815
+          }
+        },
+        {
+          "lStar": 45.0,
+          "whitening": {
+            "value": 5.8311229888909,
+            "low": 3.4811229888909003,
+            "high": 8.1811229888909,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.0550051275751902,
+            "errorL": 0.13821813857017062
+          }
+        }
+      ],
       "evidence": {
         "source": "fda-label",
         "setId": "14a9b605-f1f0-00e5-e063-6394a90a5a51",
@@ -108,17 +398,84 @@
       "upc": null,
       "filter": "mineral",
       "tinted": false,
-      "render": {
-        "paletteHex": "#ffffff",
-        "blend": 0.06720000000000001,
-        "errorL": 0.8891683035016156
-      },
       "whitening": {
         "value": 5.249942127693247,
         "low": 2.899942127693247,
         "high": 7.599942127693247,
         "unit": "L*"
       },
+      "tones": [
+        {
+          "lStar": 65.0,
+          "whitening": {
+            "value": 4.083288321539192,
+            "low": 1.733288321539192,
+            "high": 6.433288321539193,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.08309741630584211,
+            "errorL": 0.048288736620741624
+          }
+        },
+        {
+          "lStar": 60.0,
+          "whitening": {
+            "value": 4.666615224616219,
+            "low": 2.316615224616219,
+            "high": 7.016615224616219,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.07592691288741493,
+            "errorL": 0.03844946657654802
+          }
+        },
+        {
+          "lStar": 55.0,
+          "whitening": {
+            "value": 5.249942127693247,
+            "low": 2.899942127693247,
+            "high": 7.599942127693247,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.07234166117820134,
+            "errorL": 0.09229527916128966
+          }
+        },
+        {
+          "lStar": 50.0,
+          "whitening": {
+            "value": 5.833269030770275,
+            "low": 3.4832690307702747,
+            "high": 8.183269030770274,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.06531858899553837,
+            "errorL": 0.0005324337836967175
+          }
+        },
+        {
+          "lStar": 45.0,
+          "whitening": {
+            "value": 6.416595933847302,
+            "low": 4.066595933847301,
+            "high": 8.766595933847302,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.05844294804863959,
+            "errorL": 0.10815733161476704
+          }
+        }
+      ],
       "evidence": {
         "source": "fda-label",
         "setId": "01cc205b-a345-262a-e063-6394a90a955c",
@@ -133,17 +490,84 @@
       "upc": "0086800110804",
       "filter": "mineral",
       "tinted": false,
-      "render": {
-        "paletteHex": "#ffffff",
-        "blend": 0.07590000000000001,
-        "errorL": 0.8163614465487621
-      },
       "whitening": {
         "value": 5.863091975502132,
         "low": 3.513091975502132,
         "high": 8.213091975502133,
         "unit": "L*"
       },
+      "tones": [
+        {
+          "lStar": 65.0,
+          "whitening": {
+            "value": 4.56018264761277,
+            "low": 2.2101826476127697,
+            "high": 6.9101826476127695,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.09385317143348287,
+            "errorL": 0.07761783709056402
+          }
+        },
+        {
+          "lStar": 60.0,
+          "whitening": {
+            "value": 5.2116373115574515,
+            "low": 2.8616373115574514,
+            "high": 7.561637311557451,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.0866826680150557,
+            "errorL": 0.030550382988154823
+          }
+        },
+        {
+          "lStar": 55.0,
+          "whitening": {
+            "value": 5.863091975502132,
+            "low": 3.513091975502132,
+            "high": 8.213091975502133,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.07951216459662852,
+            "errorL": 0.030675970318017498
+          }
+        },
+        {
+          "lStar": 50.0,
+          "whitening": {
+            "value": 6.514546639446814,
+            "low": 4.164546639446813,
+            "high": 8.864546639446814,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.07234166117820134,
+            "errorL": 0.10763871512734458
+          }
+        },
+        {
+          "lStar": 45.0,
+          "whitening": {
+            "value": 7.1660013033914955,
+            "low": 4.816001303391495,
+            "high": 9.516001303391496,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.06875640946898776,
+            "errorL": 0.1397629339574218
+          }
+        }
+      ],
       "evidence": {
         "source": "fda-label",
         "setId": "525f7bae-44b8-44e4-93ea-32995eca2566",
@@ -158,17 +582,84 @@
       "upc": null,
       "filter": "mineral",
       "tinted": false,
-      "render": {
-        "paletteHex": "#ffffff",
-        "blend": 0.0363,
-        "errorL": 0.6136293069594423
-      },
       "whitening": {
         "value": 2.950630198409927,
         "low": 0.6006301984099269,
         "high": 5.300630198409927,
         "unit": "L*"
       },
+      "tones": [
+        {
+          "lStar": 65.0,
+          "whitening": {
+            "value": 2.2949345987632763,
+            "low": -0.055065401236723766,
+            "high": 4.644934598763276,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.04469166615484204,
+            "errorL": 0.021990087100490552
+          }
+        },
+        {
+          "lStar": 60.0,
+          "whitening": {
+            "value": 2.622782398586602,
+            "low": 0.2727823985866018,
+            "high": 4.972782398586602,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.04125384568139265,
+            "errorL": 0.04061524443506759
+          }
+        },
+        {
+          "lStar": 55.0,
+          "whitening": {
+            "value": 2.950630198409927,
+            "low": 0.6006301984099269,
+            "high": 5.300630198409927,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.03781602520794326,
+            "errorL": 0.06176310082942571
+          }
+        },
+        {
+          "lStar": 50.0,
+          "whitening": {
+            "value": 3.278477998233252,
+            "low": 0.928477998233252,
+            "high": 5.628477998233253,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.03437820473449388,
+            "errorL": 0.08561535776004359
+          }
+        },
+        {
+          "lStar": 45.0,
+          "whitening": {
+            "value": 3.6063257980565773,
+            "low": 1.2563257980565772,
+            "high": 5.956325798056577,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.03094038426104449,
+            "errorL": 0.11313027988654412
+          }
+        }
+      ],
       "evidence": {
         "source": "fda-label",
         "setId": "1062efb1-a638-4323-88f8-f2f98a5b996e",
@@ -183,17 +674,84 @@
       "upc": "0072140028831",
       "filter": "mineral",
       "tinted": false,
-      "render": {
-        "paletteHex": "#ffffff",
-        "blend": 0.0896,
-        "errorL": 0.9695342069674648
-      },
       "whitening": {
         "value": 6.813474239605903,
         "low": 4.463474239605903,
         "high": 9.163474239605904,
         "unit": "L*"
       },
+      "tones": [
+        {
+          "lStar": 65.0,
+          "whitening": {
+            "value": 5.299368853026814,
+            "low": 2.949368853026814,
+            "high": 7.6493688530268145,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.10819417827033723,
+            "errorL": 0.004224700001123516
+          }
+        },
+        {
+          "lStar": 60.0,
+          "whitening": {
+            "value": 6.056421546316359,
+            "low": 3.7064215463163586,
+            "high": 8.40642154631636,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.10102367485191005,
+            "errorL": 0.009703235766068907
+          }
+        },
+        {
+          "lStar": 55.0,
+          "whitening": {
+            "value": 6.813474239605903,
+            "low": 4.463474239605903,
+            "high": 9.163474239605904,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.09385317143348287,
+            "errorL": 0.019037745156247787
+          }
+        },
+        {
+          "lStar": 50.0,
+          "whitening": {
+            "value": 7.570526932895448,
+            "low": 5.220526932895448,
+            "high": 9.920526932895449,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.0866826680150557,
+            "errorL": 0.02071726173912314
+          }
+        },
+        {
+          "lStar": 45.0,
+          "whitening": {
+            "value": 8.327579626184994,
+            "low": 5.977579626184994,
+            "high": 10.677579626184993,
+            "unit": "L*"
+          },
+          "render": {
+            "paletteHex": "#ffffff",
+            "blend": 0.07951216459662852,
+            "errorL": 0.011838583875460884
+          }
+        }
+      ],
       "evidence": {
         "source": "fda-label",
         "setId": "081484f8-58f5-f2a4-e063-6394a90a3379",
