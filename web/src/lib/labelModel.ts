@@ -10,6 +10,7 @@ export type Cell = { volunteer: string; ita: string; formulation: string; zincOx
 const HEADER = "volunteer,ita,formulation,zinc_oxide_pct,pairs,L_before,dL";
 const DECIMAL = /^-?\d+(\.\d+)?$/;
 const WHOLE = /^[1-9]\d*$/;
+const within = (x: number, lo: number, hi: number) => Number.isFinite(x) && x >= lo && x <= hi;
 
 /**
  * The cells of data/plos2025/cells.csv. Throws on a header or a row it cannot read, so a bad table never fits: every
@@ -27,7 +28,8 @@ export function parseCells(csv: string): Cell[] {
     const [volunteer, ita, formulation, zinc, pairs, before, change] = f;
     if (![zinc, before, change].every((s) => DECIMAL.test(s)) || !WHOLE.test(pairs)) throw bad();
     const [zincOxidePct, lBefore, dL] = [Number(zinc), Number(before), Number(change)];
-    if (zincOxidePct > 100 || lBefore > 100 || lBefore < 0) throw bad();
+    // Finite and on scale: a percent from 0 to 100, L* from 0 to 100, and a change no larger than the scale.
+    if (!within(zincOxidePct, 0, 100) || !within(lBefore, 0, 100) || !within(dL, -100, 100)) throw bad();
     const key = `${volunteer}\n${formulation}`;
     if (seen.has(key)) throw new Error(`cells.csv row ${i + 2} repeats ${volunteer} ${formulation}`);
     seen.add(key);

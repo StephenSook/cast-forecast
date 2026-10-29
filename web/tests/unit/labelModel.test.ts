@@ -61,6 +61,14 @@ test("a malformed table is refused, never fitted", () => {
   expect(() => parseCells(ok.replace("60.0", "533.92"))).toThrow(/row 2/);
   expect(() => parseCells(ok.replace("60.0", "1e2"))).toThrow(/row 2/);
   expect(() => parseCells(`${ok}A1,Light,5% ZnO,5.0,3,61.0,-1.2\n`)).toThrow(/row 3 repeats A1/);
+  // Codex review of PR 13, round 2: a negative zinc percent fitted, and a 400-digit decimal overflowed to Infinity.
+  expect(() => parseCells(ok.replace(",5.0,", ",-5.0,"))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace(",-1.0", `,${"9".repeat(400)}`))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace(",-1.0", `,-${"9".repeat(400)}`))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace(",-1.0", ",-100.5"))).toThrow(/row 2/);
+  for (const [zinc, before] of [["0.0", "0.0"], ["100.0", "100.0"]]) {
+    expect(parseCells(ok.replace(",5.0,", `,${zinc},`).replace("60.0", before))).toHaveLength(1);
+  }
   expect(() => fit([])).toThrow(/do not determine/);
 });
 
