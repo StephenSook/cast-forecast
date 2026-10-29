@@ -386,7 +386,7 @@ test("2026-07-28: headers that do not mirror the body are refused (-32020), an u
 test("Mcp-Name values decode from the base64 sentinel, and a malformed sentinel is no value", () => {
   expect(decodeHeaderValue(null)).toBeNull();
   expect(decodeHeaderValue("predict_cast")).toBe("predict_cast");
-  expect(decodeHeaderValue("=?base64?SGVsbG8sIOS4lueVjA==?=")).toBe("Hello, 世界"); // the spec's own example
+  expect(decodeHeaderValue("=?base64?SGVsbG8sIOS4lueVjA==?=")).toBe("Hello, \u4e16\u754c"); // the spec's own example
   expect(decodeHeaderValue("=?base64?abc?=")).toBeNull();
   expect(decodeHeaderValue("=?base64?/w==?=")).toBeNull(); // not UTF-8
 });

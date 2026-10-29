@@ -33,7 +33,7 @@ test("llms.txt names the endpoint, every tool, every protocol version and the la
   expect(text).toContain(`[GET /api/label-model](${BASE}/api/label-model)`);
   expect(text).toContain(predictCastCurl(BASE));
   expect(findCopyViolations(text, "llms.txt")).toEqual([]);
-  expect(text).not.toMatch(/[‘’“”]/);
+  expect(text).not.toMatch(/[\u2018\u2019\u201c\u201d]/); // curly quotes, written as escapes
 });
 
 test("every curl llms.txt prints runs as printed and answers a result", async () => {
