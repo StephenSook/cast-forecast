@@ -85,6 +85,26 @@ test("the recorded read is announced: it lands in a polite live region that was 
   expect(screen.getByTestId("skin-line")).toBe(region); // the same node, so a screen reader hears the change
 });
 
+test("a second suggestion after a manual tone change is announced again, naming the tone it picked", async () => {
+  const { user, useSample } = setup();
+  await useSample();
+  const region = screen.getByTestId("skin-line");
+  await user.click(screen.getByRole("button", { name: "Suggest my tone" }));
+  await waitFor(() => expect(region).toHaveTextContent("We picked the closest tone (L* 60)"));
+  const first = region.firstElementChild;
+  await user.click(screen.getByRole("button", { name: "Skin L* 65" }));
+  const changes: MutationRecord[] = [];
+  const watch = new MutationObserver((m) => changes.push(...m));
+  watch.observe(region, { childList: true, subtree: true, characterData: true });
+  await user.click(screen.getByRole("button", { name: "Suggest my tone" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Skin L* 60" })).toHaveAttribute("aria-pressed", "true"));
+  watch.disconnect();
+  // The same words, but a new node in the live region: a screen reader announces it.
+  expect(region.firstElementChild).not.toBe(first);
+  expect(changes.some((c) => c.addedNodes.length > 0)).toBe(true);
+  expect(region).toHaveTextContent(recordedReadLine("III", "2026-10-29"));
+});
+
 test("a live read is announced the same way", async () => {
   const { api, user } = setup();
   const region = screen.getByTestId("skin-line");

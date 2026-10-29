@@ -1,7 +1,7 @@
 import { z } from "zod";
 import sampleJson from "@/data/sample.json";
 import type { PreparedImage } from "@/lib/image";
-import { FITZPATRICK, type Fitzpatrick } from "@/lib/skinType";
+import { FITZPATRICK, type Fitzpatrick, SUGGESTED_TONE, toneWord } from "@/lib/skinType";
 import type { RenderResult } from "@/lib/types";
 
 /**
@@ -62,7 +62,8 @@ export function recordedRenderLine(recordedOn: string): string {
 
 /** The line under the tones once the sample face's recorded skin type read is shown. */
 export function recordedReadLine(fitzpatrick: Fitzpatrick, recordedOn: string): string {
-  return `Recorded read (YouCam Fitzpatrick Skin Type, ${shortDate(recordedOn)}): type ${fitzpatrick}. We picked the closest tone; change it if it looks off.`;
+  const tone = toneWord(SUGGESTED_TONE[fitzpatrick]);
+  return `Recorded read (YouCam Fitzpatrick Skin Type, ${shortDate(recordedOn)}): type ${fitzpatrick}. We picked the closest tone (${tone}); change it if it looks off.`;
 }
 
 /** The recorded render of `bottleId` at `tone` as a RenderResult, or null when there is none. It never expires. */

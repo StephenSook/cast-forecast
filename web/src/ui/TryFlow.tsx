@@ -7,6 +7,7 @@ import { type Bottle, TONES, type Tone, findBottle, formatValue, toneOf, whiteni
 import { type PreparedImage, releaseImage } from "@/lib/image";
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
 import { SAMPLE, SAMPLE_LIVE_LINE, type Sample, loadSampleFace, recordedReadLine, recordedRenderLine, sampleRender } from "@/lib/sample";
+import { type Fitzpatrick, SUGGESTED_TONE, toneWord } from "@/lib/skinType";
 import { EXPIRED_LINE, type TryCode, type TryEvent, type TryState, canPick, canSuggest, initialTryState, tryReducer } from "@/lib/tryFlow";
 import { Bars } from "./Bars";
 import { BottleChips } from "./BottleChips";
@@ -32,9 +33,9 @@ function lineOf(code: TryCode): string {
   return code === "sample_live" ? SAMPLE_LIVE_LINE : MESSAGES[code];
 }
 
-/** The line under the tones once YouCam has read the selfie's skin type. */
-export function suggestedLine(fitzpatrick: string): string {
-  return `YouCam reads Fitzpatrick type ${fitzpatrick}. We picked the closest tone; change it if it looks off.`;
+/** The line under the tones once YouCam has read the selfie's skin type. It names the tone picked, so it is heard. */
+export function suggestedLine(fitzpatrick: Fitzpatrick): string {
+  return `YouCam reads Fitzpatrick type ${fitzpatrick}. We picked the closest tone (${toneWord(SUGGESTED_TONE[fitzpatrick])}); change it if it looks off.`;
 }
 
 /** On the sample face nothing is rendered or read live, so the wait is only the recorded image loading. */
@@ -108,6 +109,8 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   const [preparing, setPreparing] = useState(false);
   // The render URL whose image has loaded; until then the frame keeps the selfie and the scan line.
   const [shownUrl, setShownUrl] = useState<string | null>(null);
+  // Completed skin type reads; keys the announced line so each one is a new node in the live region.
+  const [reads, setReads] = useState(0);
 
   const send = (e: TryEvent): TryState => {
     const next = tryReducer(live.current, e);
@@ -180,6 +183,13 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     else send({ type: "SELECT", bottleId: b.id });
   };
 
+  // Every completed read counts, so the line re-announces even when it reads the same as the last one (a second
+  // suggestion after the shopper changed the tone moves the tone back).
+  const skinRead = (fitzpatrick: Fitzpatrick) => {
+    const before = live.current;
+    if (send({ type: "SKIN_READ", fitzpatrick }) !== before) setReads((n) => n + 1);
+  };
+
   const onSuggest = async () => {
     const before = live.current;
     const started = send({ type: "READ_SKIN" });
@@ -188,7 +198,8 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     const mine = ++run.current;
     const current = () => mine === run.current;
     if (started.image.sample) {
-      send(sample ? { type: "SKIN_READ", fitzpatrick: sample.data.skinType.fitzpatrick } : { type: "FAILED", code: "sample_live" });
+      if (sample) skinRead(sample.data.skinType.fitzpatrick);
+      else send({ type: "FAILED", code: "sample_live" });
       return;
     }
     try {
@@ -201,7 +212,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
       }
       const read = await api.readSkinType(fileId);
       if (!current()) return;
-      send({ type: "SKIN_READ", fitzpatrick: read.fitzpatrick });
+      skinRead(read.fitzpatrick);
     } catch (e) {
       if (current()) send({ type: "FAILED", ...failureOf(e) });
     }
@@ -245,10 +256,15 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
         )}
         {bottles.length > 0 && (
           // Always mounted (a live region announces changes only once it exists), and out of the layout while empty, so
-          // the suggested tone is read out whether it came from a live read or the sample face's recorded one.
+          // the suggested tone is read out whether it came from a live read or the sample face's recorded one. The line
+          // is keyed by the read count, so each completed read inserts a new node and is announced even when the words
+          // repeat.
           <p data-testid="skin-line" aria-live="polite" className={state.skinType ? "max-w-[34rem]" : "sr-only"}>
-            {state.skinType &&
-              (onSample && sample ? recordedReadLine(state.skinType, sample.data.skinType.recordedOn) : suggestedLine(state.skinType))}
+            {state.skinType && (
+              <span key={reads}>
+                {onSample && sample ? recordedReadLine(state.skinType, sample.data.skinType.recordedOn) : suggestedLine(state.skinType)}
+              </span>
+            )}
           </p>
         )}
         {state.tone === "deeper" && <p className="max-w-[34rem] font-bold">{DEEPER_LINE}</p>}
