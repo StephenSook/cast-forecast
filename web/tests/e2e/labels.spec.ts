@@ -42,12 +42,17 @@ test("search, pick a label that is not a chip, and its render request goes out l
   expect(consoleErrors).toEqual([]);
 });
 
+// Scoped to the search field and its list: typing scrolls the page, and on a phone the translucent fixed header then
+// sits over the selfie buttons, so a whole-page contrast check measures that overlap (CI, Linux) rather than the list.
+// The whole page is checked at the top by smoke.spec.ts.
 test("the search list passes axe while it is open", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("upload-input").setInputFiles("tests/fixtures/plain-640x480.jpg");
   await page.getByRole("combobox", { name: "Find your sunscreen" }).fill("mineral");
   await expect(page.getByRole("option").first()).toBeVisible();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
+  const scan = await new AxeBuilder({ page }).include('[data-testid="bottle-search"]').withTags(["wcag2a", "wcag2aa"]).analyze();
+  expect(scan.passes.length).toBeGreaterThan(0); // the scope matched something
+  expect(scan.violations).toEqual([]);
 });
 
 test("/api/labels answers full entries for a query and refuses a blank one", async ({ request }) => {

@@ -87,7 +87,7 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
           : `${answer.total} found.`;
 
   return (
-    <div className="grid gap-2 max-w-[34rem]">
+    <div data-testid="bottle-search" className="grid gap-2 max-w-[34rem]">
       <label htmlFor={id} className="font-bold">
         Find your sunscreen
       </label>
