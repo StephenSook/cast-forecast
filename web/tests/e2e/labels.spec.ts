@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { FORBIDDEN } from "../bundle/scan";
 
 // A label only search reaches (not one of the eight chips), from the committed catalogue.
 const FOUND = { id: "blue-lizard-sheer-sunscreen-3368f1cb", name: "Blue Lizard Sheer Sunscreen" };
@@ -89,4 +90,21 @@ test("a label that is not a chip has its own bottle page, on the tone asked for"
   await page.getByRole("link", { name: "Try it on me" }).click();
   await expect(page.getByRole("button", { name: FOUND.name })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Skin L* 45" })).toHaveAttribute("aria-pressed", "true");
+});
+
+// The bundle test scans prerendered pages; these are rendered per request, so they are scanned as served.
+test("pages and answers rendered per request carry no key name, no Bearer, no YouCam host", async ({ request }) => {
+  for (const path of ["/", "/compare", "/compare?q=mineral&page=2", `/bottle/${FOUND.id}`, "/evidence", "/api/labels?q=mineral"]) {
+    const res = await request.get(path);
+    expect(res.status(), path).toBe(200);
+    const text = await res.text();
+    for (const needle of FORBIDDEN) expect(text.includes(needle), `${path} ${needle}`).toBe(false);
+  }
+});
+
+test("the evidence page counts every label and names what is left out, from the data", async ({ page }) => {
+  const data = JSON.parse(readFileSync("../data/bottles/fda_labels.json", "utf8")).counts;
+  await page.goto("/evidence");
+  await expect(page.getByText(`Bottles: ${data.kept}.`, { exact: false })).toBeVisible();
+  await expect(page.getByText(`Not predicted: tinted (${data.tinted}), powders (${data.powder}), lip products (${data.lip}), and any render more than 1 L* off its prediction (${data.render_error}).`)).toBeVisible();
 });

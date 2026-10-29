@@ -56,6 +56,11 @@ export function factLine(bottles: number, gates: number, release: string): strin
   return `Bottles: ${bottles}. Gates on record: ${gates}. Release ${release.slice(0, 7)}.`;
 }
 
+/** The labels the catalogue leaves out and why, every count read from the data (data/bottles/README.md has the rules). */
+export function leftOutLine(n: { tinted: number; powder: number; lip: number; render_error: number }, maxErrorL: number): string {
+  return `Not predicted: tinted (${n.tinted}), powders (${n.powder}), lip products (${n.lip}), and any render more than ${maxErrorL} L* off its prediction (${n.render_error}).`;
+}
+
 /** The pinned y axis of the K1b chart (blend strength). A curve above it shows the "data unavailable" card. */
 export const CURVE_Y_MAX = 0.4;
 
