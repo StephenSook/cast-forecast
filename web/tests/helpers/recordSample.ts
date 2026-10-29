@@ -1,5 +1,5 @@
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { Bottle } from "@/lib/catalogue";
 import type { Sample } from "@/lib/sample";
 import { isFitzpatrick } from "@/lib/skinType";
@@ -125,14 +125,48 @@ export async function recordSample(o: {
 }
 
 /**
- * Publishes a complete recording: every render file, then the manifest, then removes any old render file the new
- * manifest does not list. Called only after recordSample has returned, so a failed run leaves the last recording as it was.
+ * Publishes a complete recording without touching the last one until every byte of the new one is on disk. The renders
+ * are written to a fresh `renders.next` folder and the manifest to `<manifest>.next`; a failed write removes both and
+ * leaves the published folder and manifest exactly as they were. Only then is the old folder renamed aside, the new
+ * one renamed into place and the manifest renamed over the old one (renames in the same folder, each all or nothing),
+ * and the old folder removed. If the manifest rename fails, the old folder is put back. `write` is a test seam.
+ * Called only after recordSample has returned, so a failed run never reaches here.
  */
-export function publishSample(o: { publicDir: string; manifestPath: string; rec: SampleRecording }): void {
+export function publishSample(o: {
+  publicDir: string;
+  manifestPath: string;
+  rec: SampleRecording;
+  write?: (path: string, data: Uint8Array | string) => void;
+}): void {
+  const write = o.write ?? ((p: string, d: Uint8Array | string) => writeFileSync(p, d));
   const dir = join(o.publicDir, "sample", "renders");
-  mkdirSync(dir, { recursive: true });
-  for (const [src, bytes] of o.rec.files) writeFileSync(join(o.publicDir, src), bytes);
-  writeFileSync(o.manifestPath, `${JSON.stringify(o.rec.manifest, null, 2)}\n`);
-  const keep = new Set([...o.rec.files.keys()].map((src) => src.replace("/sample/renders/", "")));
-  for (const f of readdirSync(dir)) if (!keep.has(f)) rmSync(join(dir, f));
+  const next = `${dir}.next`;
+  const prev = `${dir}.prev`;
+  const manifestNext = `${o.manifestPath}.next`;
+  const clearStaging = () => {
+    rmSync(next, { recursive: true, force: true });
+    rmSync(manifestNext, { force: true });
+  };
+  clearStaging();
+  try {
+    mkdirSync(next, { recursive: true });
+    for (const [src, bytes] of o.rec.files) write(join(next, basename(src)), bytes);
+    write(manifestNext, `${JSON.stringify(o.rec.manifest, null, 2)}\n`);
+  } catch (e) {
+    clearStaging();
+    throw e;
+  }
+  rmSync(prev, { recursive: true, force: true });
+  const hadOld = existsSync(dir);
+  if (hadOld) renameSync(dir, prev);
+  renameSync(next, dir);
+  try {
+    renameSync(manifestNext, o.manifestPath);
+  } catch (e) {
+    renameSync(dir, next);
+    if (hadOld) renameSync(prev, dir);
+    clearStaging();
+    throw e;
+  }
+  rmSync(prev, { recursive: true, force: true });
 }

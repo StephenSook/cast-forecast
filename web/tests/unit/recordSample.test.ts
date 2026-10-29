@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { crc32 } from "node:zlib";
@@ -148,4 +148,25 @@ test("publishing writes every render, then the manifest, and removes renders the
   expect(readdirSync(join(dir.publicDir, "sample", "renders")).sort()).toEqual(["test-a-55.png", "test-a-60.png"]);
   expect(new Uint8Array(readFileSync(join(dir.publicDir, "sample", "renders", "test-a-60.png")))).toEqual(PNG);
   expect(JSON.parse(readFileSync(dir.manifestPath, "utf8"))).toEqual(rec.manifest);
+  expect(readdirSync(join(dir.publicDir, "sample"))).toEqual(["renders"]); // no staging folder left behind
+  expect(existsSync(`${dir.manifestPath}.next`)).toBe(false);
+});
+
+// Writes 1 and 2 are the two renders, write 3 the manifest: a disk that fills at any of them changes nothing published.
+test.each([1, 2, 3])("a write that fails at write %i leaves the earlier recording and manifest exactly as they were", async (failAt) => {
+  const { run } = setup();
+  const rec = await run();
+  const dir = earlier();
+  let writes = 0;
+  const write = (p: string, d: Uint8Array | string) => {
+    if (++writes === failAt) throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+    writeFileSync(p, d);
+  };
+  expect(() => publishSample({ ...dir, rec, write })).toThrow("ENOSPC");
+  expect(writes).toBe(failAt);
+  expect(readdirSync(join(dir.publicDir, "sample"))).toEqual(["renders"]);
+  expect(readdirSync(join(dir.publicDir, "sample", "renders"))).toEqual(["test-a-55.png"]);
+  expect(readFileSync(join(dir.publicDir, "sample", "renders", "test-a-55.png"), "utf8")).toBe(dir.old);
+  expect(readFileSync(dir.manifestPath, "utf8")).toBe("old manifest");
+  expect(existsSync(`${dir.manifestPath}.next`)).toBe(false);
 });
