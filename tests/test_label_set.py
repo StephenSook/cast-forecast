@@ -234,8 +234,8 @@ def test_select_refuses_a_run_that_leaves_a_featured_label_out():
 
 
 def test_dedupe_keeps_the_newest_label_and_gathers_every_barcode():
-    old = lab(eff="20240101", upcs=("0000000000017",), name="Mineral Sunscreen SPF 30")
-    new = lab(eff="20250101", upcs=("0000000000024",), name="Mineral Sunscreen SPF 50")
+    old = lab(eff="20240101", upcs=("0000000000017",), name="Mineral Sunscreen SPF 50")
+    new = lab(eff="20250101", upcs=("0000000000024",), name="Mineral  Sunscreen SPF 50")
     other_pct = lab("Zinc Oxide 15%", eff="20230101")
     counts, rows = select([old, new, other_pct], {}, {})
     kept = [r for r in rows if r["excluded"] is None]
@@ -256,13 +256,41 @@ def test_dedupe_treats_two_spellings_of_one_labeler_as_one():
 def test_a_duplicate_does_not_hand_its_kept_label_a_sister_products_barcode():
     # An older Pure and Simple label lists the Kids barcode; the Kids label lists it as its own.
     kids_code, own_code = "0000000000017", "0000000000024"
-    old = lab(eff="20240101", upcs=(kids_code, own_code), name="Pure Sunscreen SPF 30")
+    old = lab(eff="20240101", upcs=(kids_code, own_code), name="Pure Sunscreen SPF 50")
     new = lab(eff="20250101", name="Pure Sunscreen SPF 50")
     kids = lab(eff="20250101", upcs=(kids_code,), name="Pure Kids Sunscreen")
     _, rows = select([old, new, kids], {}, {})
     by_set = {r["set_id"]: r for r in rows}
+    assert by_set[old["set_id"]]["excluded"] == DUPLICATE
     assert by_set[new["set_id"]]["upcs"] == [own_code]
     assert by_set[kids["set_id"]]["upcs"] == [kids_code]
+
+
+# Codex review of PR #19: Coppertone Pure and Simple Baby lotion (08134b95, barcode 0072140028718) was merged into
+# the line's aerosol (088b7152) for an equal zinc percent, so the lotion's barcode opened the aerosol's label.
+def test_one_lines_lotion_aerosol_and_stick_are_separate_bottles_with_their_own_barcodes():
+    name = "Coppertone Pure and Simple Baby Sunscreen SPF 50"
+    lotion = lab(upcs=("0072140028718",), name=name, ndcs=("1-lotion",), eff="20251231")
+    aerosol = lab(upcs=("0072140028817",), name=name, ndcs=("1-spray",), eff="20251231")
+    stick = lab(upcs=("0086800112921",), name=name, ndcs=("1-stick",), eff="20251231")
+    forms = {"1-lotion": "LOTION", "1-spray": "AEROSOL, SPRAY", "1-stick": "STICK"}
+    counts, rows = select([lotion, aerosol, stick], forms, {})
+    assert counts["duplicate"] == 0 and counts["kept"] == 3
+    by_set = {r["set_id"]: r for r in rows}
+    assert by_set[lotion["set_id"]]["upcs"] == ["0072140028718"]
+    assert by_set[aerosol["set_id"]]["upcs"] == ["0072140028817"]
+    assert by_set[stick["set_id"]]["upcs"] == ["0086800112921"]
+    # One name each, with the form a shopper sees, and ids that follow the names.
+    names = {r["set_id"]: r["name"] for r in rows}
+    assert names[lotion["set_id"]] == "Coppertone Pure and Simple Baby Sunscreen Lotion"
+    assert names[aerosol["set_id"]] == "Coppertone Pure and Simple Baby Sunscreen Spray"
+    assert names[stick["set_id"]] == "Coppertone Pure and Simple Baby Sunscreen Stick"
+    assert all(r["id"] == bottle_id(r["name"], r["set_id"]) for r in rows)
+
+
+def test_an_spf_30_and_an_spf_50_with_equal_zinc_are_two_bottles():
+    counts, _ = select([lab(name="Sheer Mineral SPF30"), lab(name="Sheer Mineral SPF50")], {}, {})
+    assert counts["duplicate"] == 0 and counts["kept"] == 2
 
 
 def test_a_featured_label_wins_its_group_even_when_older():
@@ -328,9 +356,20 @@ def test_the_committed_rows_are_what_the_current_rules_derive_from_their_own_fie
     rows = json.loads((ROOT / "data" / "bottles" / "fda_labels.json").read_text())["labels"]
     for r in rows:
         if not r["featured"]:
-            assert r["name"] == display_name(r["label_name"]), r["set_id"]
+            base = display_name(r["label_name"])
+            with_form = f"{base} {label_set.form_word(r['dosage_forms'])}"
+            assert r["name"] == base or (r["excluded"] is None and r["name"] == with_form), r[
+                "set_id"
+            ]
             assert r["brand"] == display_brand(r["manufacturer"]), r["set_id"]
             assert r["id"] == bottle_id(r["name"], r["set_id"]), r["set_id"]
         assert all(label_set.valid_upc(u) for u in r["upcs"]), r["set_id"]
         assert r["upc"] is None or r["upc"] in r["upcs"], r["set_id"]
         assert (r["excluded"] == "tinted") <= r["tinted"], r["set_id"]
+    # Kept labels are one product each: no two share labeler, label name, percent and dosage form.
+    keys = [label_set.relabel_key(r) for r in rows if r["excluded"] is None]
+    assert len(keys) == len(set(keys))
+    # The lotion of Codex's report is its own kept label, with its own barcode.
+    lotion = next(r for r in rows if r["set_id"].startswith("08134b95"))
+    assert lotion["excluded"] is None and lotion["upcs"] == ["0072140028718"]
+    assert not any("0072140028718" in r["upcs"] for r in rows if r["set_id"].startswith("088b7152"))

@@ -38,19 +38,32 @@ export function upcEToA(e: string): string | null {
   return `${ns}${body}${check}`;
 }
 
-/** Every normalized barcode to the id of the one entry that lists it. A barcode listed by two entries names neither. */
+/**
+ * Every normalized barcode to the id of the entry it opens. A barcode one entry lists opens it. A barcode several
+ * entries list opens the one that lists the fewest barcodes, when exactly one does: a label listing a single barcode is
+ * that product, while a label listing several can be a family label that also names its sister products (openFDA has
+ * a Coppertone spray label listing the Baby, Kids and Waterbabies barcodes, each also on its own label). Otherwise it
+ * opens nothing.
+ */
 export function upcIndex(entries: readonly { id: string; upcs?: readonly string[]; upc: string | null }[]): Map<string, string> {
-  const index = new Map<string, string>();
-  const shared = new Set<string>();
+  const listers = new Map<string, { id: string; count: number }[]>();
   for (const e of entries) {
-    for (const raw of new Set([...(e.upcs ?? []), ...(e.upc ? [e.upc] : [])])) {
+    const codes = new Set<string>();
+    for (const raw of [...(e.upcs ?? []), ...(e.upc ? [e.upc] : [])]) {
       const code = normalizeUpc(raw);
-      if (!code) continue;
-      const seen = index.get(code);
-      if (seen !== undefined && seen !== e.id) shared.add(code);
-      else index.set(code, e.id);
+      if (code) codes.add(code);
+    }
+    for (const code of codes) {
+      const list = listers.get(code) ?? [];
+      if (!list.some((x) => x.id === e.id)) list.push({ id: e.id, count: codes.size });
+      listers.set(code, list);
     }
   }
-  for (const code of shared) index.delete(code);
+  const index = new Map<string, string>();
+  for (const [code, list] of listers) {
+    const fewest = Math.min(...list.map((x) => x.count));
+    const best = list.filter((x) => x.count === fewest);
+    if (best.length === 1) index.set(code, best[0].id);
+  }
   return index;
 }

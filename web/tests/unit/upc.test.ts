@@ -24,13 +24,17 @@ test("anything that is not a barcode reads as null: wrong check digit, all zeros
   }
 });
 
-test("the index finds an entry by any of its barcodes, and a barcode two entries share names neither", () => {
+test("the index finds an entry by any of its barcodes; a shared barcode opens the most specific lister, or none", () => {
   const index = upcIndex([
-    { id: "a", upc: null, upcs: ["0816218029890", "0000000000017"] },
+    { id: "family", upc: null, upcs: ["0816218029890", "0000000000017", "0000000000024"] },
     { id: "b", upc: "0634084471724" },
-    { id: "c", upc: null, upcs: ["0000000000017"] },
+    { id: "sister", upc: null, upcs: ["0000000000017"] },
+    { id: "twin-1", upc: null, upcs: ["0000000000024", "0000000000031"] },
+    { id: "twin-2", upc: null, upcs: ["0000000000024", "0000000000048"] },
   ]);
-  expect(index.get("0816218029890")).toBe("a");
+  expect(index.get("0816218029890")).toBe("family");
   expect(index.get("0634084471724")).toBe("b");
-  expect(index.has("0000000000017")).toBe(false);
+  expect(index.get("0000000000017")).toBe("sister"); // one barcode against the family label's three
+  expect(index.has("0000000000024")).toBe(false); // two labels each listing two: a tie opens nothing
+  expect(index.get("0000000000031")).toBe("twin-1");
 });

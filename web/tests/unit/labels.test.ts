@@ -42,17 +42,38 @@ test("a real barcode finds its label in any form a scanner reads it", () => {
   expect(labelByUpc("0303162059306")?.id).toBe("blue-lizard-sheer-sunscreen-3368f1cb");
 });
 
-test("a barcode two labels list, or no label lists, finds nothing", () => {
-  // openFDA lists 0086800102748 on two kept Neutrogena labels, each as its own.
+test("a barcode two labels list equally, or no label lists, finds nothing", () => {
+  // openFDA lists 0086800102748 on two kept Neutrogena labels, each as its only barcode.
   expect(labelByUpc("0086800102748")).toBeUndefined();
   expect(labelByUpc("000000000000")).toBeUndefined();
   expect(labelByUpc("not a code")).toBeUndefined();
 });
 
-test("a sister product's barcode that an older duplicate listed opens the sister product, not the chip", () => {
-  // An older Coppertone Pure and Simple label listed the Waterbabies barcode; the Waterbabies label lists it as its own.
+test("a sister product's barcode opens the sister product, not the chip or a family label", () => {
+  // The Coppertone Pure and Simple spray label (b6492438) also lists the Waterbabies, Baby and Kids barcodes; each of
+  // those is the only barcode on its own label, which is the one it opens.
   expect(labelByUpc("0072140028800")?.id).toBe("coppertone-waterbabies-pure-and-simple-sunscreen-0806bdb9");
+  expect(labelByUpc("0072140028824")?.id).toBe("coppertone-pure-and-simple-kids-sunscreen-09a97e3f");
   expect(findLabel("coppertone-pure-and-simple")?.upcs).not.toContain("0072140028800");
+});
+
+// Codex review of PR #19: a lotion was merged into its line's aerosol for an equal zinc percent, so the lotion's
+// barcode opened the aerosol's page and DailyMed label. One line's lotion, spray and stick are separate bottles.
+test("one line's lotion, aerosol and stick barcodes each open their own label", () => {
+  const cases: [string, string, string][] = [
+    ["0072140028718", "coppertone-pure-and-simple-baby-sunscreen-lotion-08134b95", "08134b95"],
+    ["0072140028817", "coppertone-pure-and-simple-baby-sunscreen-spray-088b7152", "088b7152"],
+    ["0086800112921", "neutrogena-sheer-zinc-kids-mineral-sunscreen-stick-4504a10d", "4504a10d"],
+    ["0086800112945", "neutrogena-sheer-zinc-kids-mineral-sunscreen-lotion-c914c4cd", "c914c4cd"],
+  ];
+  for (const [code, id, setId] of cases) {
+    const b = labelByUpc(code);
+    expect(b?.id, code).toBe(id);
+    expect(b!.evidence.setId.startsWith(setId), code).toBe(true); // its own DailyMed label
+  }
+  // Same line, same zinc, two forms: two names a shopper can tell apart.
+  expect(findLabel(cases[0][1])!.name).toBe("Coppertone Pure and Simple Baby Sunscreen Lotion");
+  expect(findLabel(cases[1][1])!.name).toBe("Coppertone Pure and Simple Baby Sunscreen Spray");
 });
 
 test("a scan opens the bottle page, on the tone when one was picked", () => {

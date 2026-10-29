@@ -306,6 +306,7 @@ def select(
             row["featured"] = True
         rows.append(row)
     dedupe(rows, set(featured))
+    name_forms(rows)
     # Featured rows first, in the order given (the order of the site's chips), then by set id.
     order = {s: i for i, s in enumerate(featured)}
     rows.sort(key=lambda r: (order.get(r["set_id"], len(order)), r["set_id"]))
@@ -322,22 +323,57 @@ def select(
     return counts, rows
 
 
-def dedupe(records: list[dict], featured: set[str]) -> None:
-    """Marks all but one kept record per (labeler, display name, percent) as duplicates, in place.
+def form_word(dosage_forms: list[str]) -> str:
+    """The shopper's word for a label's dosage form: "AEROSOL, SPRAY" is "Spray", "LOTION" "Lotion"."""
+    if not dosage_forms:
+        return ""
+    return dosage_forms[0].split(",")[-1].strip().capitalize()
 
-    Two such labels show the same name and get the same prediction (it depends only on the percent),
-    so the shopper sees one bottle. The labeler is compared as displayed, so "Acme , LLC" and
-    "Acme, LLC" are one labeler. The kept one is the newest label, or the featured one. Its `upcs`
-    gains the duplicates' barcodes, so scanning one of them finds it, except a barcode another kept
-    label lists as its own (an older label can list a sister product's barcode). Its `upc` stays
-    its own."""
+
+def name_forms(rows: list[dict]) -> None:
+    """Kept labels that would show the same name and brand but come in different dosage forms (one
+    line's lotion and its spray) get the form after the name, so the shopper can tell them apart;
+    their ids follow the new name. Featured names never change. In place."""
+    groups: dict[tuple, list[dict]] = {}
+    for r in rows:
+        if r["excluded"] is None and not r["featured"]:
+            groups.setdefault((r["name"].lower(), r["brand"].lower()), []).append(r)
+    for group in groups.values():
+        if len({form_word(r["dosage_forms"]) for r in group}) < 2:
+            continue
+        for r in group:
+            word = form_word(r["dosage_forms"])
+            if word and not re.search(rf"\b{re.escape(word)}\b", r["name"], re.IGNORECASE):
+                base = r["name"]
+                if len(base) + 1 + len(word) > 80:  # the site's name limit
+                    base = base[: 80 - 1 - len(word)].rsplit(" ", 1)[0].rstrip(" ,;:-/&+")
+                r["name"] = f"{base} {word}"
+                r["id"] = bottle_id(r["name"], r["set_id"])
+
+
+def relabel_key(r: dict) -> tuple:
+    """What makes two labels one product listed twice: the labeler (as displayed, so "Acme , LLC"
+    and "Acme, LLC" are one), the label's own brand name, the percent and the dosage forms. An equal
+    percent alone is not one product: a lotion and an aerosol of one line are two bottles, and so
+    are an SPF 30 and an SPF 50."""
+    return (
+        display_brand(r["manufacturer"]).lower(),
+        " ".join(r["label_name"].lower().split()),
+        r["zinc_oxide_pct"],
+        tuple(r["dosage_forms"]),
+    )
+
+
+def dedupe(records: list[dict], featured: set[str]) -> None:
+    """Marks all but one kept record per `relabel_key` as duplicates, in place.
+
+    The kept one is the newest label, or the featured one. Its `upcs` gains the duplicates'
+    barcodes, so scanning one of them finds it, except a barcode another kept label lists as its
+    own (an older label can list a sister product's barcode). Its `upc` stays its own."""
     groups: dict[tuple, list[dict]] = {}
     for r in records:
         if r["excluded"] is None:
-            # The name label_set would give it, also for a featured row shown under a shorter name.
-            name = display_name(r["label_name"]).lower()
-            key = (display_brand(r["manufacturer"]).lower(), name, r["zinc_oxide_pct"])
-            groups.setdefault(key, []).append(r)
+            groups.setdefault(relabel_key(r), []).append(r)
     for group in groups.values():
         group.sort(
             key=lambda r: (r["set_id"] in featured, r["label_effective"], r["set_id"]),
