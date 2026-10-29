@@ -13,7 +13,7 @@ Why: in a 2024 dermatology survey, 25% of skin of color respondents named white 
 
 ## Where each number comes from
 - **The bottle:** its zinc oxide percentage, read from its FDA label on DailyMed. Eight zinc-only sunscreens, each pinned by label set id in [`data/bottles/fda_labels.json`](data/bottles/fda_labels.json). A label is used only when its listed active ingredient is exactly zinc oxide and its text gives one plain percentage.
-- **The prediction:** the PLOS ONE 2025 study's own label score, `dL* = (a + c × ZnO%) × (100 − L* before)`, fitted on the study's raw data. In a strict held-out test (Gate 1) it missed by 1.61 L* on average (1.80 on the study's darker skin tones). Each result shows a ±2.35 L* band, the test's error on the study's one differently formulated product, because retail bottles are formulated differently too. CI recomputes the 1.61 from the committed table, [`data/plos2025/cells.csv`](data/plos2025/cells.csv).
+- **The prediction:** a label-percent model fitted here to the raw data of a 2025 PLOS ONE study, using that study's white-cast normalization, dL* / (100 − L* before): `dL* = (a + c × ZnO%) × (100 − L* before)`. The study published the normalization; the straight line in zinc percent and its fit are this project's. In a strict held-out test (Gate 1) it missed by 1.61 L* on average (1.80 on the study's darker skin tones). Each result shows a ±2.35 L* band, the test's error on the study's one differently formulated product, because retail bottles are formulated differently too. CI recomputes the 1.61 from the committed table, [`data/plos2025/cells.csv`](data/plos2025/cells.csv).
 - **The picture:** a white foundation layer at the whole colorIntensity whose lightening, on the curve fitted to 16 K1b renders of one person (R² 0.98, checked with 3 more; PASS 5 of 5), comes closest to the prediction. Calculated on that curve, every bottle and tone lands within 0.16 L*; that is a mismatch under the fitted curve, not a measurement of each render.
 
 ## YouCam APIs
@@ -32,7 +32,7 @@ Why: in a 2024 dermatology survey, 25% of skin of color respondents named white 
 ## Gates
 Each gate has a pass rule written before its data existed, and every result stays published.
 
-- Gate 1: FAIL for the film model; the label score above won and is what the app uses.
+- Gate 1: FAIL for the film model; the label-percent model above won and is what the app uses.
 - K2: FAIL. YouCam's skin tone value is repeatable but does not track the photo's colour (15.1 dE00 from the measured cheek), so the shopper picks a tone instead.
 - K1: FAIL on 4 of 5 criteria, with coverage as the dose.
 - K1b: PASS 5 of 5, with colorIntensity as the dose. This curve maps each prediction to a render.
