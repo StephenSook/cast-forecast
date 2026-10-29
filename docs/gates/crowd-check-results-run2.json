@@ -1,0 +1,75 @@
+{
+ "actor": "axesso_data/amazon-reviews-scraper",
+ "actor_log_message": "Actor usage only allowed for paying user. Please make sure you have sufficient quota.",
+ "amendment": "crowd-check-amendment-1.md",
+ "analysis": "not run: castforecast/crowd_check_axesso.py refuses a reviews file with no rows (exit 1)",
+ "bottles": [
+  {
+   "asin": "B08HJKQP7X",
+   "bottle": "cetaphil-sheer-mineral-face",
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B01MXSYBWK",
+   "bottle": "babo-sheer-zinc",
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B0DMWTFB6N",
+   "bottle": "supergoop-mineral-sheer-stick",
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B0CHN9MGXX",
+   "bottle": "badger-face-mineral",
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B0B2BF74PC",
+   "bottle": "hello-bello-mineral",
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B01HOHBO7E",
+   "bottle": "neutrogena-sheer-zinc",
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B0C1LR82PG",
+   "bottle": "eltamd-uv-aox-mist",
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  },
+  {
+   "asin": "B073H54CJH",
+   "bottle": "coppertone-pure-and-simple",
+   "reviews_analysed": 0,
+   "rows_returned": 0
+  }
+ ],
+ "charged_events": 0,
+ "min_bottles": 6,
+ "min_reviews": 20,
+ "n_measurable": 0,
+ "primary": {
+  "measure": "complaint share",
+  "verdict": "NOT TESTABLE"
+ },
+ "rows_returned": 0,
+ "run": 2,
+ "run_seconds": 1.867,
+ "run_status": "SUCCEEDED",
+ "run_status_message": null,
+ "secondary": {
+  "measure": "mention share",
+  "note": "not computed, no rows"
+ },
+ "test": "crowd check",
+ "usage_total_usd": 0
+}

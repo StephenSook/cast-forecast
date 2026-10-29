@@ -1,0 +1,71 @@
+{
+ "dropped": [],
+ "matched": [
+  {
+   "asin": "B08HJKQP7X",
+   "bottle": "cetaphil-sheer-mineral-face",
+   "evidence": "Listing Ingredients: 'ACTIVE INGREDIENTS: ZINC OXIDE 12% (SUNSCREEN)'; listing bullet names 'CETAPHIL SHEER MINERAL FACE LIQUID SUNSCREEN SPF 50'. Label: Zinc Oxide 12%, 1.7 FL OZ.",
+   "listing_title": "Cetaphil Sheer Mineral Face Sunscreen, SPF 50, Zinc Oxide, 1.7oz | 100% Mineral Broad Spectrum Spf 50, Zinc Oxide, Lightweight, Unscented, Sensitive Skin, Daily Face Sunscreen",
+   "match_route": "zinc percent",
+   "ratings_shown": 6766
+  },
+  {
+   "asin": "B01MXSYBWK",
+   "bottle": "babo-sheer-zinc",
+   "evidence": "Title names 'Babo Botanicals Sheer Zinc Mineral Sunscreen Lotion SPF30'; label name 'Babo Botanicals Sheer Zinc Mineral Sunscreen SPF30'. Listing Item Form: Lotion; the label's ingredients (water first, shea butter) are a lotion's. Zinc percent not readable on the listing pages served.",
+   "listing_title": "Babo Botanicals Sheer Zinc Mineral Sunscreen Lotion SPF30 - Natural Zinc Oxide - Shea Butter - Face & Body - Water Resistant - Fragrance-Free - EWG Verified - Vegan - For all ages - 3 Fl.Oz.",
+   "match_route": "product name and SPF",
+   "ratings_shown": 3249
+  },
+  {
+   "asin": "B0DMWTFB6N",
+   "bottle": "supergoop-mineral-sheer-stick",
+   "evidence": "Listing Ingredients: 'ACTIVE Zinc Oxide 16%'. Listing UPC 816218029890 equals the label UPC 0816218029890. Label: Mineral Sheer Stick SPF 30, 0.70 oz.",
+   "listing_title": "Mineral Sheer Stick SPF 30 by Supergoop for Unisex - 0.7 oz Sunscreen",
+   "match_route": "zinc percent",
+   "ratings_shown": 44
+  },
+  {
+   "asin": "B0CHN9MGXX",
+   "bottle": "badger-face-mineral",
+   "evidence": "Listing Ingredients: 'ZINC OXIDE 18, 75% PURPOSE SUNSCREEN' (comma as the decimal mark). Listing UPC 634084471724 equals the label UPC 0634084471724. Label: Badger SPF 30 Face Mineral Sunscreen, Uncoated Zinc Oxide 18.75%.",
+   "listing_title": "Badger Zinc Oxide Face Sunscreen SPF 30, Organic, No White Cast, 1.7 fl oz | Lightweight Mineral Sunscreen, Matte Finish, No White Cast, Vegan Water Resistant, Mineral sunblock face lotion",
+   "match_route": "zinc percent",
+   "ratings_shown": 390
+  },
+  {
+   "asin": "B0B2BF74PC",
+   "bottle": "hello-bello-mineral",
+   "evidence": "Listing Ingredients: 'Active Ingredient, Zinc Oxide (20%)', and its inactive list (Arachidyl Alcohol, Arachidyl Glucoside, Behenyl Alcohol, Bisabolol, Butyloctyl Salicylate, Shea Butter, Calendula, Camellia Sinensis, ...) is the label's inactive list. Label: Mineral Sunscreen SPF 50, Zinc Oxide 20.0%, 5oz lotion. The listing says SPF 55+, 3oz, for babies.",
+   "listing_title": "Hello Bello Baby Sunscreen, SPF55+ UVA/UVB Mineral Lotion w Prebiotics, 3oz",
+   "match_route": "zinc percent",
+   "ratings_shown": 1254
+  },
+  {
+   "asin": "B01HOHBO7E",
+   "bottle": "neutrogena-sheer-zinc",
+   "evidence": "Title names Neutrogena Sheer Zinc, SPF 50, 3 fl. oz; label 'Neutrogena Sheer Zinc Mineral Sunscreen Broad Spectrum SPF 50', 3.0 FL OZ tube. Listing item model number 086800110804 equals the label UPC 0086800110804, and the listing's inactive list is the label's in another order, except that it omits triethoxycaprylylsilane. Zinc percent not shown on the listing.",
+   "listing_title": "Neutrogena Sheer Zinc Oxide Dry-Touch Sunscreen Lotion with Broad Spectrum SPF 50 ... 3 fl. oz",
+   "match_route": "product name and SPF",
+   "ratings_shown": 1195
+  },
+  {
+   "asin": "B0C1LR82PG",
+   "bottle": "eltamd-uv-aox-mist",
+   "evidence": "Listing Ingredients: 'Active Ingredients: Zinc Oxide 14.0%', and its inactive list is the label's. Label: EltaMD UV AOX Mist, Zinc Oxide 14.0%.",
+   "listing_title": "EltaMD UV AOX Mist 100% Mineral Sunscreen Spray, SPF 40, 5 oz | Broad Spectrum Face And Body Sunscreen, Free of Chemical Propellants, Sprays On White and Dries Clear, Sheer Finish",
+   "match_route": "zinc percent",
+   "ratings_shown": 808
+  },
+  {
+   "asin": "B073H54CJH",
+   "bottle": "coppertone-pure-and-simple",
+   "evidence": "Listing Ingredients: 'Active ingredient: Zinc Oxide 24.08%', and its inactive list is the label's. Label: Coppertone Pure and Simple Sunscreen SPF 50, Zinc Oxide 24.08%, lotion. Chosen by the tie-break over other Pure and Simple listings; see the markdown file.",
+   "listing_title": "Coppertone Pure and Simple Baby Sunscreen Lotion SPF 50, 6 FL OZ | Zinc Oxide Mineral Sunscreen for Baby, Hypoallergenic, Tear Free, PABA, Oxybenzone, Octinoxate, Paraben and Dye Free",
+   "match_route": "zinc percent",
+   "ratings_shown": 4398
+  }
+ ],
+ "matched_on": "2026-10-29",
+ "tie_break": "same UPC as the label; shows the label zinc percent; same format as the label; single unit over multipack; most ratings shown"
+}
