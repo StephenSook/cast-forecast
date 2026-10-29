@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { BottleSearch } from "@/ui/BottleSearch";
@@ -142,4 +142,29 @@ test("more results than shown says how many there are", async () => {
   const { user, box } = setup(vi.fn(async () => ({ total: 40, bottles: [a, b] })));
   await user.type(box, "test");
   expect(await screen.findByText("2 of 40. Keep typing to narrow it.")).toBeInTheDocument();
+});
+
+// Codex review of PR #19, round 2: while an IME composes, its ArrowDown and Enter picked a bottle and cleared the field.
+test("an IME's arrows and Enter pick nothing, however the browser flags the composition", async () => {
+  const { onSelect, box } = setup();
+  fireEvent.compositionStart(box);
+  fireEvent.change(box, { target: { value: "test" } });
+  await screen.findByRole("option", { name: /Test entry A/ });
+  // Inside compositionstart/compositionend, even with no flag on the key event.
+  fireEvent.keyDown(box, { key: "ArrowDown" });
+  fireEvent.keyDown(box, { key: "Enter" });
+  expect(box).not.toHaveAttribute("aria-activedescendant");
+  fireEvent.compositionEnd(box);
+  // After compositionend: a key event the browser still marks as composing (isComposing, or keyCode 229 in Safari).
+  fireEvent.keyDown(box, { key: "ArrowDown", isComposing: true });
+  fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(box, { key: "ArrowDown", keyCode: 229 });
+  fireEvent.keyDown(box, { key: "Enter", keyCode: 229 });
+  expect(onSelect).not.toHaveBeenCalled();
+  expect(box).toHaveValue("test");
+  expect(box).not.toHaveAttribute("aria-activedescendant");
+  // Ordinary keys still work once the composition is over.
+  fireEvent.keyDown(box, { key: "ArrowDown" });
+  fireEvent.keyDown(box, { key: "Enter" });
+  expect(onSelect).toHaveBeenCalledWith(a);
 });

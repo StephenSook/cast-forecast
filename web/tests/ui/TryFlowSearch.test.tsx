@@ -76,6 +76,26 @@ test("Enter while a newer search is pending starts no upload and no render", asy
   expect(screen.queryByRole("button", { name: "Test entry found" })).toBeNull(); // nothing joined the chips
 });
 
+// Codex review of PR #19, round 2: an IME's ArrowDown and Enter (confirming its own text) picked a bottle, and the Try
+// page then uploaded the selfie and started a paid render.
+test("confirming an IME composition starts no upload and no render", async () => {
+  const { api, addPhoto } = setup();
+  await addPhoto();
+  const box = screen.getByRole("combobox", { name: "Find your sunscreen" });
+  fireEvent.compositionStart(box);
+  fireEvent.change(box, { target: { value: "found" } });
+  await screen.findByRole("option", { name: /Test entry found/ });
+  fireEvent.keyDown(box, { key: "ArrowDown", isComposing: true, keyCode: 229 });
+  fireEvent.keyDown(box, { key: "Enter", isComposing: true, keyCode: 229 });
+  fireEvent.compositionEnd(box);
+  fireEvent.keyDown(box, { key: "Enter", keyCode: 229 }); // Safari: the confirming Enter after compositionend
+  await new Promise((r) => setTimeout(r, 50));
+  expect(api.upload).not.toHaveBeenCalled();
+  expect(api.render).not.toHaveBeenCalled();
+  expect(box).toHaveValue("found");
+  expect(screen.queryByRole("button", { name: "Test entry found" })).toBeNull();
+});
+
 test("a search result gets the same refusals as a chip", async () => {
   const { addPhoto, pickFromSearch } = setup({ render: vi.fn(async () => { throw new ApiFailure("unknown_bottle"); }) });
   await addPhoto();

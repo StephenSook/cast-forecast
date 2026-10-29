@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, useEffect, useId, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import type { SearchAnswer } from "@/lib/apiClient";
 import type { Bottle } from "@/lib/catalogue";
 import { foldText } from "@/lib/search";
@@ -24,6 +24,8 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
+  // True between compositionstart and compositionend (an IME is building text: Japanese, Chinese, Korean, dead keys).
+  const composing = useRef(false);
 
   useEffect(() => {
     const q = query.trim();
@@ -68,6 +70,9 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    // While an IME composes, its arrows and Enter choose and confirm the IME's text, not a bottle (a pick starts a paid
+    // render). Browsers flag it in different ways, so any one of them is enough.
+    if (composing.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       if (results.length === 0) return;
       e.preventDefault();
@@ -123,7 +128,16 @@ export function BottleSearch({ search, onSelect, disabled }: { search: Search; o
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onBlur={() => {
+          composing.current = false;
+          setOpen(false);
+        }}
+        onCompositionStart={() => {
+          composing.current = true;
+        }}
+        onCompositionEnd={() => {
+          composing.current = false;
+        }}
         onKeyDown={onKeyDown}
         className="min-h-11 w-full rounded-full border-2 border-ink bg-paper px-4 font-bold shadow-[0_2px_0_var(--ink)] disabled:cursor-not-allowed disabled:opacity-60"
       />
