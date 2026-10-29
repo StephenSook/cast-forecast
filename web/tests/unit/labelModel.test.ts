@@ -51,6 +51,16 @@ test("a malformed table is refused, never fitted", () => {
   expect(() => parseCells(ok.replace("volunteer", "who"))).toThrow(/header/);
   expect(() => parseCells(ok.replace("60.0", "sixty"))).toThrow(/row 2/);
   expect(() => parseCells(`${ok}A2,Light,5% ZnO,5.0\n`)).toThrow(/row 3/);
+  // Codex review of PR 13: a blank volunteer would join training when that volunteer is held out, and a blank
+  // number would read as 0.
+  expect(() => parseCells(ok.replace("A1,", ","))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace(",5% ZnO,", ", ,"))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace("60.0", ""))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace(",-1.0", ","))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace(",3,", ",0,"))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace("60.0", "533.92"))).toThrow(/row 2/);
+  expect(() => parseCells(ok.replace("60.0", "1e2"))).toThrow(/row 2/);
+  expect(() => parseCells(`${ok}A1,Light,5% ZnO,5.0,3,61.0,-1.2\n`)).toThrow(/row 3 repeats A1/);
   expect(() => fit([])).toThrow(/do not determine/);
 });
 

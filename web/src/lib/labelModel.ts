@@ -8,16 +8,30 @@ import { CELLS_CSV } from "@/data/plos2025/cells.generated";
 export type Cell = { volunteer: string; ita: string; formulation: string; zincOxidePct: number; lBefore: number; dL: number };
 
 const HEADER = "volunteer,ita,formulation,zinc_oxide_pct,pairs,L_before,dL";
+const DECIMAL = /^-?\d+(\.\d+)?$/;
+const WHOLE = /^[1-9]\d*$/;
 
-/** The cells of data/plos2025/cells.csv. Throws on a header or a row it cannot read, so a bad table never fits. */
+/**
+ * The cells of data/plos2025/cells.csv. Throws on a header or a row it cannot read, so a bad table never fits: every
+ * field present, numbers written out in full (a blank is not zero), zinc and L* on their 0 to 100 scales, and one cell
+ * per volunteer and formulation, since the held-out test excludes by those two keys (Codex review of PR 13).
+ */
 export function parseCells(csv: string): Cell[] {
   const [header, ...rows] = csv.trim().split(/\r?\n/);
   if (header !== HEADER) throw new Error("cells.csv has an unexpected header");
+  const seen = new Set<string>();
   return rows.map((row, i) => {
-    const f = row.split(",");
-    const [zincOxidePct, lBefore, dL] = [Number(f[3]), Number(f[5]), Number(f[6])];
-    if (f.length !== 7 || ![zincOxidePct, lBefore, dL].every(Number.isFinite)) throw new Error(`cells.csv row ${i + 2} is malformed`);
-    return { volunteer: f[0], ita: f[1], formulation: f[2], zincOxidePct, lBefore, dL };
+    const f = row.split(",").map((s) => s.trim());
+    const bad = () => new Error(`cells.csv row ${i + 2} is malformed`);
+    if (f.length !== 7 || f.some((s) => s === "")) throw bad();
+    const [volunteer, ita, formulation, zinc, pairs, before, change] = f;
+    if (![zinc, before, change].every((s) => DECIMAL.test(s)) || !WHOLE.test(pairs)) throw bad();
+    const [zincOxidePct, lBefore, dL] = [Number(zinc), Number(before), Number(change)];
+    if (zincOxidePct > 100 || lBefore > 100 || lBefore < 0) throw bad();
+    const key = `${volunteer}\n${formulation}`;
+    if (seen.has(key)) throw new Error(`cells.csv row ${i + 2} repeats ${volunteer} ${formulation}`);
+    seen.add(key);
+    return { volunteer, ita, formulation, zincOxidePct, lBefore, dL };
   });
 }
 
