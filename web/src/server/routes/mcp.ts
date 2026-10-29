@@ -1,6 +1,6 @@
 import "server-only";
-import { originFrom } from "@/lib/evidence";
 import { RELEASE } from "@/lib/release";
+import { siteUrl } from "@/lib/site";
 import type { RouteDeps } from "@/server/deps";
 import { clientIp } from "@/server/limits";
 import { INSTRUCTIONS, TOOLS, type ToolResult, callTool } from "@/server/mcpTools";
@@ -76,17 +76,19 @@ export async function methodNotAllowed(): Promise<Response> {
   return rpcError(405, undefined, POST_ONLY, "POST one JSON-RPC message to this endpoint. See /llms.txt.", undefined, { Allow: "POST" });
 }
 
-/** True when there is no Origin, or it is this site's own (spec: an invalid Origin is answered 403). */
+/**
+ * True when there is no Origin, or it is the configured site's (siteUrl: SITE_URL, else the Vercel production host).
+ * Never read from Host or X-Forwarded-Host, which a rebound or forged request controls (Codex review). The spec answers
+ * an invalid Origin 403. No page calls this endpoint, and agents send no Origin.
+ */
 function originAllowed(req: Request): boolean {
   const origin = req.headers.get("origin");
   if (origin === null) return true;
-  let own: string;
   try {
-    own = new URL(req.url).origin;
+    return origin === new URL(siteUrl()).origin;
   } catch {
-    own = "";
+    return false;
   }
-  return origin === own || origin === originFrom(req.headers);
 }
 
 /** False only for an Accept header that rules JSON out; a missing one, or curl's default, accepts it. */

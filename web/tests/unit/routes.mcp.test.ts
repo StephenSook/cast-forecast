@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import * as mcpRoute from "@/app/api/mcp/route";
 import { CATALOGUE, RETAIL_ERROR_L, type Whitening, labelUrl } from "@/lib/catalogue";
 import { LIGHTNESS_RANGE, ZINC_RANGE } from "@/lib/labelModel";
@@ -297,18 +297,37 @@ test("the body is capped: at the cap it is read, one byte over it is 413", async
   await rpcErrorOf(await send(sized(MAX_BODY_BYTES + 1)), 413, -32600);
 });
 
-test("content type, Accept and Origin are checked before the body", async () => {
+test("content type and Accept are checked before the body", async () => {
   const send = server();
   await rpcErrorOf(await send(rpc("ping"), { "Content-Type": "text/plain" }), 415, -32600);
   await rpcErrorOf(await send(rpc("ping"), { "Content-Type": "application/x-www-form-urlencoded" }), 415, -32600);
   expect((await send(rpc("ping"), { "Content-Type": "application/json; charset=utf-8" })).status).toBe(200);
   for (const accept of ["text/event-stream", "text/html", "application/json;q=0"]) await rpcErrorOf(await send(rpc("ping"), { Accept: accept }), 406, -32600);
   for (const accept of ["application/json, text/event-stream", "*/*", "application/*", ""]) expect((await send(rpc("ping"), { Accept: accept })).status).toBe(200);
-  for (const origin of ["https://evil.test", "null", "http://cf.test"]) {
-    const b = await rpcErrorOf(await send(rpc("ping"), { Origin: origin }), 403, ORIGIN_REFUSED);
-    expect(b).not.toHaveProperty("id");
+});
+
+// Codex review: the allowed origin came from Host and X-Forwarded-Host, which the caller controls.
+test("Origin must be the configured site's; the request's own host and forwarded headers never vouch for it", async () => {
+  vi.stubEnv("SITE_URL", "https://cast.example.test");
+  try {
+    const send = server();
+    expect((await send(rpc("ping"), { Origin: "https://cast.example.test" })).status).toBe(200);
+    const forged: Headers[] = [
+      { Origin: "https://evil.test" },
+      { Origin: "null" },
+      { Origin: "http://cast.example.test" },
+      { Origin: "https://cf.test" }, // the request URL's own origin
+      { Origin: "https://evil.test", "X-Forwarded-Host": "evil.test", "X-Forwarded-Proto": "https" },
+      { Origin: "http://evil.test:3000", Host: "evil.test:3000" }, // a rebound name
+    ];
+    for (const h of forged) {
+      const b = await rpcErrorOf(await send(rpc("ping"), h), 403, ORIGIN_REFUSED);
+      expect(b, JSON.stringify(h)).not.toHaveProperty("id");
+    }
+    expect((await send(rpc("ping"))).status).toBe(200); // no Origin: an agent
+  } finally {
+    vi.unstubAllEnvs();
   }
-  expect((await send(rpc("ping"), { Origin: "https://cf.test" })).status).toBe(200);
 });
 
 test("GET and DELETE are 405 with Allow: POST", async () => {
