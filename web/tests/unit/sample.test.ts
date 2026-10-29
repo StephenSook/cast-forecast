@@ -12,6 +12,7 @@ import {
   sampleRender,
   shortDate,
 } from "@/lib/sample";
+import { SUGGESTED_TONE } from "@/lib/skinType";
 import { checkUploadImage, jpegSize, stripMetadata } from "@/server/jpeg";
 import { LABELS } from "@/server/labels";
 import { findCopyViolations } from "../helpers/copyGuard";
@@ -53,14 +54,28 @@ test("each recording used the colorIntensity the live route sends for that bottl
   }
 });
 
-test("every recording is a PNG that exists and decodes in full, and no file in the renders folder is unlisted", () => {
+test("every shipped render decodes in full at the face's size, is named for its manifest entry, and none is unlisted", () => {
   const files = readdirSync("public/sample/renders").sort();
   expect(files).toEqual(SAMPLE.renders.map((r) => r.src.replace("/sample/renders/", "")).sort());
+  expect(SAMPLE.renders).toHaveLength(40); // fails, never passes empty
   for (const r of SAMPLE.renders) {
+    expect(r.src).toBe(`/sample/renders/${r.bottleId}-${r.tone}.png`);
     const b = new Uint8Array(readFileSync(`public${r.src}`));
-    expect(pngIntact(b), r.src).not.toBeNull();
+    const size = pngIntact(b);
+    expect(size, r.src).not.toBeNull();
+    // YouCam returns the uploaded face at its own size, give or take a pixel (696 x 1080 for the 697 x 1079 face), so
+    // a before and after split lines up.
+    expect(Math.abs((size?.width ?? 0) - SAMPLE.face.width), r.src).toBeLessThanOrEqual(2);
+    expect(Math.abs((size?.height ?? 0) - SAMPLE.face.height), r.src).toBeLessThanOrEqual(2);
     expect(b.length, r.src).toBeGreaterThan(50_000);
   }
+});
+
+test("the recorded skin read suggests a tone with a prediction, and every chip has a recording at that tone", () => {
+  const tone = SUGGESTED_TONE[SAMPLE.skinType.fitzpatrick];
+  expect(typeof tone).toBe("number");
+  expect(TONES.map((t) => t.lStar)).toContain(tone);
+  for (const b of CATALOGUE) expect(sampleRender(SAMPLE, b.id, tone as number), b.id).not.toBeNull();
 });
 
 test("a recording is found only for its own bottle and tone, never for a label that is not a chip", () => {
