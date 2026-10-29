@@ -790,6 +790,7 @@ class Rig:
             "VERCEL_ORG_ID",
             "VERCEL_PROJECT_ID",
             "PROD_URL",
+            "PROD_EXTRA_URLS",
             "RELEASE_ATTEMPTS",
         ):
             env.pop(name, None)
@@ -1015,7 +1016,34 @@ def test_prod_paused_allows_no_youcam(rig, site):
     assert "mode paused" in (rig.work / "web" / ".vercel" / "deploy-log.txt").read_text()
 
 
-PROD_KEY = SOME_VARS + " YOUCAM_API_KEY                Encrypted   Production     2d ago\n"
+def test_prod_checks_every_extra_address(rig, site):
+    # Codex review of PR #16: the README links a second production address, so the deploy must prove it too.
+    sha = rig.head()
+    base = _alias(rig, site(_pages(sha)))
+    extra = site(_pages(sha))
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base, PROD_EXTRA_URLS=extra + "/")
+    assert code == 0, out
+    assert sum(line.startswith(f"release {sha} ok: html, health") for line in out.splitlines()) == 2, out
+
+
+def test_prod_extra_address_serving_another_release_is_an_alias_problem_not_a_rollback(rig, site):
+    sha = rig.head()
+    base = _alias(rig, site(_pages(sha)))
+    stale = site(_pages("0" * 40))
+    code, out = rig.run("deploy-prod.sh", PROD_URL=base, PROD_EXTRA_URLS=stale, RELEASE_ATTEMPTS="1")
+    assert code == 3, out
+    assert f"but {stale} did not" in out and "do not roll back" in out
+
+
+def test_prod_url_override_skips_the_live_extra_address(rig, site):
+    # With PROD_URL overridden and PROD_EXTRA_URLS unset, nothing may reach the real site.
+    sha = rig.head()
+    code, out = rig.run("deploy-prod.sh", PROD_URL=_alias(rig, site(_pages(sha))))
+    assert code == 0, out
+    assert "cast-forecast.vercel.app" not in out
+
+
+PROD_KEY =SOME_VARS + " YOUCAM_API_KEY                Encrypted   Production     2d ago\n"
 
 
 def test_prod_paused_refuses_before_deploying_while_production_lists_the_key(rig, site):
