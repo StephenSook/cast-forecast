@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { expect, test } from "vitest";
 import * as labelModelRoute from "@/app/api/label-model/route";
 import { CELLS_CSV } from "@/data/plos2025/cells.generated";
-import { CATALOGUE } from "@/lib/catalogue";
-import { CELLS, fit, heldOutMae, parseCells, predict } from "@/lib/labelModel";
+import { CATALOGUE, RETAIL_ERROR_L } from "@/lib/catalogue";
+import { CELLS, LABEL_FIT, LIGHTNESS_RANGE, ZINC_RANGE, fit, heldOutMae, parseCells, predict, predictInStudy } from "@/lib/labelModel";
 import { labelModelPayload } from "@/server/routes/labelModel";
 
 const source = resolve(__dirname, "../../../data/plos2025/cells.csv");
@@ -36,6 +36,37 @@ test("the app's fit is the one Python used: it reproduces every shipped predicti
     }
   }
   expect(checked).toBeGreaterThanOrEqual(40);
+});
+
+// tests/test_label_model.py: ZINC_RANGE is (5.0, 30.0) and LIGHTNESS_RANGE sits inside (43, 45) and (68, 69). Both
+// are the zinc cells' ends, as in castforecast/label_model.py, not the ends of every cell.
+test("the study range is the zinc cells' ends, and predictInStudy refuses outside it, ends included", () => {
+  const zinc = CELLS.filter((c) => c.zincOxidePct > 0);
+  expect(ZINC_RANGE).toEqual([5, 30]);
+  expect(LIGHTNESS_RANGE).toEqual([Math.min(...zinc.map((c) => c.lBefore)), Math.max(...zinc.map((c) => c.lBefore))]);
+  expect(LIGHTNESS_RANGE[0]).toBeGreaterThan(43); expect(LIGHTNESS_RANGE[0]).toBeLessThan(45);
+  expect(LIGHTNESS_RANGE[1]).toBeGreaterThan(68); expect(LIGHTNESS_RANGE[1]).toBeLessThan(69);
+  expect(LABEL_FIT).toEqual(fit(CELLS));
+  for (const [z, l] of [[5, LIGHTNESS_RANGE[0]], [30, LIGHTNESS_RANGE[1]], [20, 55]]) {
+    expect(predictInStudy(z, l)).toEqual({ value: predict(LABEL_FIT, z, l) });
+  }
+  // The cases tests/test_label_model.py refuses.
+  for (const [z, l] of [[3, 55], [31, 55], [20, 40], [20, 72], [Number.NaN, 55], [20, Number.NaN]]) {
+    const r = predictInStudy(z, l);
+    expect("refusal" in r && r.refusal, `${z} ${l}`).toMatch(/is outside the study's/);
+  }
+});
+
+// castforecast/label_catalogue.py widens every prediction by RETAIL_ERROR_L; the app's copy must be that number, and
+// that number must be the benchmark error the route recomputes.
+test("RETAIL_ERROR_L is every shipped band's half-width and Gate 1's benchmark error", () => {
+  for (const b of CATALOGUE) {
+    for (const w of [b.whitening, ...b.tones.map((t) => t.whitening)]) {
+      expect(w.high - w.value, b.id).toBeCloseTo(RETAIL_ERROR_L, 5);
+      expect(w.value - w.low, b.id).toBeCloseTo(RETAIL_ERROR_L, 5);
+    }
+  }
+  expect(labelModelPayload().heldOut.benchmark.maeL).toBeCloseTo(RETAIL_ERROR_L, 2);
 });
 
 test("held-out fits never see the held cell's volunteer or formulation", () => {
