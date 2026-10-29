@@ -36,7 +36,9 @@ function CameraIcon() {
  * the render, with a thin amber scan line while a request is in flight. Two inputs feed it: the front camera and a
  * file picker. Each photo is prepared in the browser, and only the newest one is handed on; one that loses the race
  * or arrives after the frame is gone has its preview URL freed. A render's image stays invisible, with the selfie and
- * the scan line still showing, until it has loaded, so the frame never goes blank while it downloads.
+ * the scan line still showing, until it has loaded, so the frame never goes blank while it downloads. Once it shows,
+ * the selfie stays underneath and a slider splits the frame: the selfie (before) left of the line, the render (after)
+ * right of it. Each new render starts at the middle.
  */
 export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareImage, resultUrl = null, onResultError, onPreparing, onResultLoad }: Props) {
   const camera = useRef<HTMLInputElement>(null);
@@ -46,6 +48,10 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
   const [preparing, setPreparing] = useState(false);
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const shown = resultUrl !== null && loadedUrl === resultUrl;
+  // The split belongs to one render: a new render URL starts at 50 without an effect.
+  const [cut, setCut] = useState<{ url: string | null; at: number }>({ url: null, at: 50 });
+  const at = cut.url === resultUrl ? cut.at : 50;
+  const compare = shown && image !== null;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -90,6 +96,10 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
           // eslint-disable-next-line @next/next/no-img-element -- a blob: URL that exists only in this tab
           <img data-testid="selfie-preview" src={image.url} alt="Your selfie" className={FILL} />
         )}
+        {compare && (
+          // eslint-disable-next-line @next/next/no-img-element -- a blob: URL that exists only in this tab
+          <img data-testid="before-image" src={image.url} alt="" aria-hidden="true" className={FILL} />
+        )}
         {resultUrl && (
           // eslint-disable-next-line @next/next/no-img-element -- a short-lived YouCam URL; nothing to optimise or cache
           <img
@@ -104,7 +114,36 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
             }}
             onError={onResultError}
             className={shown ? FILL : `${FILL} opacity-0`}
+            style={compare ? { clipPath: `inset(0 0 0 ${at}%)` } : undefined}
           />
+        )}
+        {compare && (
+          <>
+            <input
+              data-testid="before-after"
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={at}
+              aria-label="Before and after"
+              aria-valuetext={`Before ${at}%, after ${100 - at}%`}
+              onChange={(e) => setCut({ url: resultUrl, at: Number(e.currentTarget.value) })}
+              className="peer absolute inset-0 z-10 h-full w-full cursor-ew-resize opacity-0"
+            />
+            <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 w-[3px] -translate-x-1/2 bg-paper" style={{ left: `${at}%` }} />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-ink bg-paper peer-focus-visible:ring-4 peer-focus-visible:ring-amber"
+              style={{ left: `${at}%` }}
+            />
+            <span aria-hidden="true" className="pointer-events-none absolute left-3 top-3 rounded-full bg-ink px-3 py-1 text-sm font-bold text-paper">
+              Before
+            </span>
+            <span aria-hidden="true" className="pointer-events-none absolute right-3 top-3 rounded-full bg-ink px-3 py-1 text-sm font-bold text-paper">
+              After
+            </span>
+          </>
         )}
         {!image && !resultUrl && (
           <svg role="img" aria-label="Selfie frame" viewBox="0 0 120 160" className="w-2/5 text-paper/70" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round">

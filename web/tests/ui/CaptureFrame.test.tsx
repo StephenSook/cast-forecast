@@ -181,3 +181,28 @@ test("has no axe violations with a selfie, while busy, and with a result", async
   fireEvent.load(screen.getByTestId("result-image"));
   await expectNoAxeViolations(container);
 });
+
+test("a shown render splits the frame: the selfie before, the render after, at the middle until the slider moves", async () => {
+  const { container } = setup({ image: prepared, resultUrl: "https://out.example/r.png" });
+  expect(screen.queryByTestId("before-after")).toBeNull(); expect(screen.queryByTestId("before-image")).toBeNull();
+  fireEvent.load(screen.getByTestId("result-image"));
+  expect(screen.getByTestId("before-image")).toHaveAttribute("src", "blob:a");
+  const slider = screen.getByRole("slider", { name: "Before and after" });
+  expect(slider).toHaveValue("50"); expect(slider).toHaveAttribute("aria-valuetext", "Before 50%, after 50%");
+  expect(screen.getByTestId("result-image")).toHaveStyle({ clipPath: "inset(0 0 0 50%)" });
+  fireEvent.change(slider, { target: { value: "20" } });
+  expect(screen.getByTestId("result-image")).toHaveStyle({ clipPath: "inset(0 0 0 20%)" });
+  expect(slider).toHaveAttribute("aria-valuetext", "Before 20%, after 80%");
+  await expectNoAxeViolations(container);
+});
+test("each new render starts its split at the middle", () => {
+  const { rerender, props } = setup({ image: prepared, resultUrl: "https://out.example/1.png" });
+  fireEvent.load(screen.getByTestId("result-image"));
+  fireEvent.change(screen.getByRole("slider", { name: "Before and after" }), { target: { value: "80" } });
+  rerender(<CaptureFrame {...props} resultUrl="https://out.example/2.png" />);
+  expect(screen.queryByRole("slider")).toBeNull();
+  fireEvent.load(screen.getByTestId("result-image"));
+  expect(screen.getByRole("slider", { name: "Before and after" })).toHaveValue("50");
+  expect(screen.getByTestId("result-image")).toHaveStyle({ clipPath: "inset(0 0 0 50%)" });
+});
+// Arrow keys on the slider are the browser's own range behaviour; tests/live-site/try-on.spec.ts presses them.
