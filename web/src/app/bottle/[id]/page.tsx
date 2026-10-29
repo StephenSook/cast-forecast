@@ -23,7 +23,7 @@ export default async function BottlePage({ params }: PageProps<"/bottle/[id]">) 
   if (!bottle) notFound();
   return (
     <section className="section-card bg-aqua-soft px-5 sm:px-12 pt-28 pb-16">
-      <p className="hand text-3xl text-teal -rotate-2">{bottle.brand}</p>
+      <p className="hand text-3xl text-teal -rotate-2">{bottle.evidence.zincOxidePct}% zinc oxide</p>
       <h1 className="display mt-9 text-[clamp(2.6rem,6vw,5.6rem)]">{bottle.name}</h1>
       <div className="mt-8">
         <ResultBlock
