@@ -24,17 +24,18 @@ test("anything that is not a barcode reads as null: wrong check digit, all zeros
   }
 });
 
-test("the index finds an entry by any of its barcodes; a shared barcode opens the most specific lister, or none", () => {
+// Codex review of PR #19, round 2: "fewest barcodes wins" opened one Sun Bum formulation for a barcode both list.
+test("the index finds an entry by any of its own barcodes; a barcode two entries list opens neither", () => {
   const index = upcIndex([
     { id: "family", upc: null, upcs: ["0816218029890", "0000000000017", "0000000000024"] },
     { id: "b", upc: "0634084471724" },
-    { id: "sister", upc: null, upcs: ["0000000000017"] },
+    { id: "single", upc: null, upcs: ["0000000000017"] }, // lists one barcode, the family label three: still neither
     { id: "twin-1", upc: null, upcs: ["0000000000024", "0000000000031"] },
-    { id: "twin-2", upc: null, upcs: ["0000000000024", "0000000000048"] },
   ]);
   expect(index.get("0816218029890")).toBe("family");
   expect(index.get("0634084471724")).toBe("b");
-  expect(index.get("0000000000017")).toBe("sister"); // one barcode against the family label's three
-  expect(index.has("0000000000024")).toBe(false); // two labels each listing two: a tie opens nothing
+  expect(index.has("0000000000017")).toBe(false);
+  expect(index.has("0000000000024")).toBe(false);
   expect(index.get("0000000000031")).toBe("twin-1");
+  expect(upcIndex([{ id: "a", upc: "0634084471724", upcs: ["0634084471724"] }]).get("0634084471724")).toBe("a"); // listed twice by one entry
 });

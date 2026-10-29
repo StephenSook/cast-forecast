@@ -39,31 +39,19 @@ export function upcEToA(e: string): string | null {
 }
 
 /**
- * Every normalized barcode to the id of the entry it opens. A barcode one entry lists opens it. A barcode several
- * entries list opens the one that lists the fewest barcodes, when exactly one does: a label listing a single barcode is
- * that product, while a label listing several can be a family label that also names its sister products (openFDA has
- * a Coppertone spray label listing the Baby, Kids and Waterbabies barcodes, each also on its own label). Otherwise it
- * opens nothing.
+ * Every normalized barcode to the id of the one entry that lists it. A barcode listed by more than one entry opens
+ * nothing: the labels do not say which product it belongs to (openFDA lists barcodes per label, not per package), and
+ * opening the wrong formulation's prediction and label is worse than asking the shopper to search by name.
  */
 export function upcIndex(entries: readonly { id: string; upcs?: readonly string[]; upc: string | null }[]): Map<string, string> {
-  const listers = new Map<string, { id: string; count: number }[]>();
+  const listers = new Map<string, Set<string>>();
   for (const e of entries) {
-    const codes = new Set<string>();
     for (const raw of [...(e.upcs ?? []), ...(e.upc ? [e.upc] : [])]) {
       const code = normalizeUpc(raw);
-      if (code) codes.add(code);
-    }
-    for (const code of codes) {
-      const list = listers.get(code) ?? [];
-      if (!list.some((x) => x.id === e.id)) list.push({ id: e.id, count: codes.size });
-      listers.set(code, list);
+      if (code) listers.set(code, (listers.get(code) ?? new Set()).add(e.id));
     }
   }
   const index = new Map<string, string>();
-  for (const [code, list] of listers) {
-    const fewest = Math.min(...list.map((x) => x.count));
-    const best = list.filter((x) => x.count === fewest);
-    if (best.length === 1) index.set(code, best[0].id);
-  }
+  for (const [code, ids] of listers) if (ids.size === 1) index.set(code, [...ids][0]);
   return index;
 }

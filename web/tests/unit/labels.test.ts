@@ -42,19 +42,22 @@ test("a real barcode finds its label in any form a scanner reads it", () => {
   expect(labelByUpc("0303162059306")?.id).toBe("blue-lizard-sheer-sunscreen-3368f1cb");
 });
 
-test("a barcode two labels list equally, or no label lists, finds nothing", () => {
-  // openFDA lists 0086800102748 on two kept Neutrogena labels, each as its only barcode.
-  expect(labelByUpc("0086800102748")).toBeUndefined();
-  expect(labelByUpc("000000000000")).toBeUndefined();
-  expect(labelByUpc("not a code")).toBeUndefined();
-});
-
-test("a sister product's barcode opens the sister product, not the chip or a family label", () => {
-  // The Coppertone Pure and Simple spray label (b6492438) also lists the Waterbabies, Baby and Kids barcodes; each of
-  // those is the only barcode on its own label, which is the one it opens.
-  expect(labelByUpc("0072140028800")?.id).toBe("coppertone-waterbabies-pure-and-simple-sunscreen-0806bdb9");
-  expect(labelByUpc("0072140028824")?.id).toBe("coppertone-pure-and-simple-kids-sunscreen-09a97e3f");
-  expect(findLabel("coppertone-pure-and-simple")?.upcs).not.toContain("0072140028800");
+// A barcode more than one kept label lists opens nothing: the labels do not say which product it belongs to. Codex
+// review of PR #19, round 2: "fewest barcodes wins" opened the coconut-oil Sun Bum (3b2cb7cf) for 0840155604759, which
+// the dimethicone one (3b014bd6) lists too.
+test("a barcode two labels list, or no label lists, finds nothing", () => {
+  for (const code of [
+    "0840155604759", // Sun Bum Mineral 30: two formulations list it
+    "0086800102748", // two kept Neutrogena labels, each as its only barcode
+    "0072140028800", // Coppertone Waterbabies spray, also listed on the Pure and Simple spray label (b6492438)
+    "0072140028817", // Coppertone Baby spray, likewise
+    "0072140028824", // Coppertone Kids spray, likewise
+    "000000000000",
+    "not a code",
+  ]) {
+    expect(labelByUpc(code), code).toBeUndefined();
+  }
+  expect(findLabel("coppertone-pure-and-simple")?.upcs).not.toContain("0072140028800"); // no borrowed barcodes on the chip
 });
 
 // Codex review of PR #19: a lotion was merged into its line's aerosol for an equal zinc percent, so the lotion's
@@ -62,7 +65,7 @@ test("a sister product's barcode opens the sister product, not the chip or a fam
 test("one line's lotion, aerosol and stick barcodes each open their own label", () => {
   const cases: [string, string, string][] = [
     ["0072140028718", "coppertone-pure-and-simple-baby-sunscreen-lotion-08134b95", "08134b95"],
-    ["0072140028817", "coppertone-pure-and-simple-baby-sunscreen-spray-088b7152", "088b7152"],
+    ["0303162083059", "blue-lizard-sensitive-spray-bb101039", "bb101039"],
     ["0086800112921", "neutrogena-sheer-zinc-kids-mineral-sunscreen-stick-4504a10d", "4504a10d"],
     ["0086800112945", "neutrogena-sheer-zinc-kids-mineral-sunscreen-lotion-c914c4cd", "c914c4cd"],
   ];
@@ -71,9 +74,9 @@ test("one line's lotion, aerosol and stick barcodes each open their own label", 
     expect(b?.id, code).toBe(id);
     expect(b!.evidence.setId.startsWith(setId), code).toBe(true); // its own DailyMed label
   }
-  // Same line, same zinc, two forms: two names a shopper can tell apart.
+  // Same line, same zinc, two forms: two names a shopper can tell apart (the spray found by search, not barcode).
   expect(findLabel(cases[0][1])!.name).toBe("Coppertone Pure and Simple Baby Sunscreen Lotion");
-  expect(findLabel(cases[1][1])!.name).toBe("Coppertone Pure and Simple Baby Sunscreen Spray");
+  expect(findLabel("coppertone-pure-and-simple-baby-sunscreen-spray-088b7152")!.name).toBe("Coppertone Pure and Simple Baby Sunscreen Spray");
 });
 
 test("a scan opens the bottle page, on the tone when one was picked", () => {
