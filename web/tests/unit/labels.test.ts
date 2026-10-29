@@ -35,10 +35,16 @@ test("a real barcode finds its label in any form a scanner reads it", () => {
 });
 
 test("a barcode two labels list, or no label lists, finds nothing", () => {
-  // openFDA lists 0072140028800 on two Coppertone labels.
-  expect(labelByUpc("0072140028800")).toBeUndefined();
+  // openFDA lists 0086800102748 on two kept Neutrogena labels, each as its own.
+  expect(labelByUpc("0086800102748")).toBeUndefined();
   expect(labelByUpc("000000000000")).toBeUndefined();
   expect(labelByUpc("not a code")).toBeUndefined();
+});
+
+test("a sister product's barcode that an older duplicate listed opens the sister product, not the chip", () => {
+  // An older Coppertone Pure and Simple label listed the Waterbabies barcode; the Waterbabies label lists it as its own.
+  expect(labelByUpc("0072140028800")?.id).toBe("coppertone-waterbabies-pure-and-simple-sunscreen-0806bdb9");
+  expect(findLabel("coppertone-pure-and-simple")?.upcs).not.toContain("0072140028800");
 });
 
 test("a scan opens the bottle page, on the tone when one was picked", () => {

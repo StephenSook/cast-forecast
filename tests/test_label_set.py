@@ -98,6 +98,16 @@ def test_tinted_labels_are_left_out(label):
     assert reason(label) == "tinted"
 
 
+def test_a_label_breaking_two_rules_is_counted_under_the_first():
+    tinted_lip = lab(name="Tinted Lip Balm", inactive="Iron Oxides")
+    assert reason(tinted_lip, ["LIPSTICK"]) == "tinted"
+    assert reason(lab(name="Tinted Sunscreen", substances=("ZINC OXIDE", "TITANIUM DIOXIDE"))) == (
+        "not_zinc_only"
+    )
+    assert reason(lab("Zinc Oxide 40%", name="Tinted Sunscreen")) == "outside_model_range"
+    assert reason(lab(name="Mineral Lip Powder"), ["POWDER"]) == "powder"
+
+
 def test_untinted_in_a_name_is_not_tinted():
     assert reason(lab(name="Untinted Mineral Sunscreen")) is None
 
@@ -137,6 +147,15 @@ def test_display_names_drop_claims_and_regulatory_wording():
     assert display_name("Safe Sun Mineral") == "Sun Mineral"
     assert display_name("SPF 50") == "Zinc oxide sunscreen"
     assert len(display_name("Word " * 40)) <= 80
+    # The number before "SPF", and a name left ending on a joining word.
+    assert display_name("FORGE SKIN MINERAL TALLOW SUNSCREEN 30 SPF") == (
+        "Forge Skin Mineral Tallow Sunscreen"
+    )
+    assert display_name("Thrive Bodyshield 50 SPF 50") == "Thrive Bodyshield"
+    assert (
+        display_name("Personalized Day Moisturizer with SPF 30") == "Personalized Day Moisturizer"
+    )
+    assert not display_name(("Coconut and " * 10).strip()).endswith(" and")
 
 
 def test_display_names_carry_no_dash_but_the_hyphen_and_no_curly_quote():
@@ -150,6 +169,11 @@ def test_display_brands_drop_the_company_suffix_and_keep_the_trading_name():
     assert display_brand("Personal Best Products Inc. dba Zealios") == "Zealios"
     assert display_brand("Epic Etailers, LLC (DBA: Beauty by Earth)") == "Beauty by Earth"
     assert display_brand("PML NYC, LLC") == "PML NYC"
+    assert display_brand("fmg Co.Ltd") == "fmg"
+    assert display_brand("Environ Skin Care (PTY)") == "Environ Skin Care"
+    assert display_brand("Atlantic Medical Products , LLC") == display_brand(
+        "Atlantic Medical Products, LLC"
+    )
     assert len(display_brand("Name " * 30)) <= 60
 
 
@@ -210,6 +234,25 @@ def test_dedupe_keeps_the_newest_label_and_gathers_every_barcode():
     assert winner["upc"] == "0000000000024"  # its own
 
 
+def test_dedupe_treats_two_spellings_of_one_labeler_as_one():
+    a = lab(labeler="Atlantic Medical Products , LLC", eff="20240101")
+    b = lab(labeler="Atlantic Medical Products, LLC", eff="20250101")
+    counts, _ = select([a, b], {}, {})
+    assert counts["duplicate"] == 1 and counts["kept"] == 1
+
+
+def test_a_duplicate_does_not_hand_its_kept_label_a_sister_products_barcode():
+    # An older Pure and Simple label lists the Kids barcode; the Kids label lists it as its own.
+    kids_code, own_code = "0000000000017", "0000000000024"
+    old = lab(eff="20240101", upcs=(kids_code, own_code), name="Pure Sunscreen SPF 30")
+    new = lab(eff="20250101", name="Pure Sunscreen SPF 50")
+    kids = lab(eff="20250101", upcs=(kids_code,), name="Pure Kids Sunscreen")
+    _, rows = select([old, new, kids], {}, {})
+    by_set = {r["set_id"]: r for r in rows}
+    assert by_set[new["set_id"]]["upcs"] == [own_code]
+    assert by_set[kids["set_id"]]["upcs"] == [kids_code]
+
+
 def test_a_featured_label_wins_its_group_even_when_older():
     star = lab(set_id="00000000-0000-4000-8000-999999999999", eff="20200101")
     newer = lab(eff="20260101")
@@ -265,3 +308,17 @@ def test_the_committed_data_file_is_what_the_fetch_writes_and_its_counts_add_up(
     assert counts["kept"] == sum(row["excluded"] is None for row in rows)
     assert [r["set_id"] for r in rows if r["featured"]] == list(mod.FEATURED)
     assert all(r["excluded"] is None for r in rows if r["featured"])
+
+
+def test_the_committed_rows_are_what_the_current_rules_derive_from_their_own_fields():
+    # The raw labels are not committed, but everything derived from a row's own fields is checked,
+    # so a change to the naming or barcode rules cannot leave the data file stale under a green CI.
+    rows = json.loads((ROOT / "data" / "bottles" / "fda_labels.json").read_text())["labels"]
+    for r in rows:
+        if not r["featured"]:
+            assert r["name"] == display_name(r["label_name"]), r["set_id"]
+            assert r["brand"] == display_brand(r["manufacturer"]), r["set_id"]
+            assert r["id"] == bottle_id(r["name"], r["set_id"]), r["set_id"]
+        assert all(label_set.valid_upc(u) for u in r["upcs"]), r["set_id"]
+        assert r["upc"] is None or r["upc"] in r["upcs"], r["set_id"]
+        assert (r["excluded"] == "tinted") <= r["tinted"], r["set_id"]

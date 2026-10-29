@@ -105,17 +105,20 @@ def test_the_published_file_does_not_depend_on_the_fits_last_bits():
     # CI's Linux and a Mac fit the label model to different last bits; the committed file must not differ.
     catalogue, _ = build(LABELS)
 
-    def nudged(x):
+    def nudged(x, sign):
         if isinstance(x, float):
-            return x + abs(x) * 1e-12
+            return x + sign * abs(x) * 1e-12
         if isinstance(x, dict):
-            return {k: nudged(v) for k, v in x.items()}
+            return {k: nudged(v, sign) for k, v in x.items()}
         if isinstance(x, list):
-            return [nudged(v) for v in x]
+            return [nudged(v, sign) for v in x]
         return x
 
-    assert nudged(catalogue) != catalogue
-    assert dumps(nudged(catalogue)) == dumps(catalogue)
+    # Both directions: a value a hair above a rounding midpoint here could be a hair below elsewhere.
+    for sign in (1, -1):
+        assert nudged(catalogue, sign) != catalogue
+        assert dumps(nudged(catalogue, sign)) == dumps(catalogue), sign
+        assert dumps_compact(nudged(catalogue, sign)) == dumps_compact(catalogue), sign
 
 
 def test_each_published_blend_still_sends_the_intensity_its_render_was_chosen_for():

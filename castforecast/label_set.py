@@ -3,7 +3,7 @@
 Every label that analysis/bottles/fetch_labels.py pulls (openfda.substance_name has ZINC OXIDE)
 goes through `classify`, which gives the first reason it is left out, or None when it is kept:
 
-The four scan rules (2026-10-29 bottle scan):
+The scan rules (2026-10-29 bottle scan):
 - not_zinc_only: the structured active substances are not exactly ["ZINC OXIDE"]; the model
   knows zinc oxide only.
 - not_otc: product_type is not HUMAN OTC DRUG.
@@ -153,6 +153,7 @@ def classify(label: dict, dosage_forms: list[str]) -> tuple[str | None, float | 
 _DROP = [
     r"\bbroad[\s-]*spectrum\b",
     r"\bsun\s+protection\s+factor\b",
+    r"\b\d+\s*\+?\s*spf\b(?:\s*[-#:]?\s*\d+\s*\+?)?",  # "30 SPF", "50 SPF 50"
     r"\bspf\s*[-#:]?\s*\d+\s*\+?",
     r"\bspf\b",
     r"\bwater\s*(?:and\s+sweat\s+)?resistant\b(?:\s*\(?\s*\d+\s*min(?:utes)?\.?\s*\)?)?",
@@ -163,8 +164,8 @@ _DROP = [
 ]
 _DROP_RE = re.compile("|".join(_DROP), re.IGNORECASE)
 _SUFFIX = re.compile(
-    r"[,\s]+(?:llc|l\.l\.c\.?|inc\.?|incorporated|co\.?|corp\.?|corporation|company|ltd\.?|limited"
-    r"|l\.p\.?|lp|gmbh|s\.a\.?|pty)\.?$",
+    r"[,\s]+(?:llc|l\.l\.c\.?|inc\.?|incorporated|co\.?\s*,?\s*ltd\.?|co\.?|corp\.?|corporation"
+    r"|company|ltd\.?|limited|l\.p\.?|lp|gmbh|s\.a\.?|\(?pty\)?)\.?$",
     re.IGNORECASE,
 )
 
@@ -198,12 +199,17 @@ def _title(word: str, at: int) -> str:
     return word.capitalize()
 
 
+_DANGLING = re.compile(r"(?:\s+(?:and|with|for|of|the|in|on|or|plus|by|to|a))+$", re.IGNORECASE)
+
+
 def display_name(label_name: str) -> str:
-    """The label's brand name without claims or regulatory wording, at most 80 characters."""
+    """The label's brand name without claims or regulatory wording, at most 80 characters, never
+    ending on a dangling "and" or "with" (left when the wording after it was dropped or cut)."""
     s = _tidy(_DROP_RE.sub(" ", label_name))
     s = re.sub(r"\s+", " ", s).strip(" ,;:-/&+")
     if len(s) > 80:
         s = s[:80].rsplit(" ", 1)[0].rstrip(" ,;:-/&+")
+    s = _DANGLING.sub("", s).rstrip(" ,;:-/&+")
     return s or "Zinc oxide sunscreen"
 
 
@@ -301,8 +307,6 @@ def select(
     ids = [r["id"] for r in kept]
     if len(ids) != len(set(ids)):
         raise ValueError("two kept labels share an id")
-    if sum(counts[r] for r in (*REASONS, DUPLICATE, "kept")) != counts["records"]:
-        raise ValueError(f"counts do not add up: {counts}")
     return counts, rows
 
 
@@ -310,14 +314,17 @@ def dedupe(records: list[dict], featured: set[str]) -> None:
     """Marks all but one kept record per (labeler, display name, percent) as duplicates, in place.
 
     Two such labels show the same name and get the same prediction (it depends only on the percent),
-    so the shopper sees one bottle. The kept one is the newest label, or the featured one; its
-    `upcs` gains the duplicates' barcodes, so scanning any of them finds it. Its `upc` stays its own."""
+    so the shopper sees one bottle. The labeler is compared as displayed, so "Acme , LLC" and
+    "Acme, LLC" are one labeler. The kept one is the newest label, or the featured one. Its `upcs`
+    gains the duplicates' barcodes, so scanning one of them finds it, except a barcode another kept
+    label lists as its own (an older label can list a sister product's barcode). Its `upc` stays
+    its own."""
     groups: dict[tuple, list[dict]] = {}
     for r in records:
         if r["excluded"] is None:
             # The name label_set would give it, also for a featured row shown under a shorter name.
             name = display_name(r["label_name"]).lower()
-            key = (r["manufacturer"].lower(), name, r["zinc_oxide_pct"])
+            key = (display_brand(r["manufacturer"]).lower(), name, r["zinc_oxide_pct"])
             groups.setdefault(key, []).append(r)
     for group in groups.values():
         group.sort(
@@ -328,4 +335,13 @@ def dedupe(records: list[dict], featured: set[str]) -> None:
             raise ValueError(f"two featured labels are duplicates: {[r['set_id'] for r in group]}")
         for r in group[1:]:
             r["excluded"] = DUPLICATE
-        group[0]["upcs"] = sorted({u for r in group for u in r["upcs"]})
+    owner = {u: g[0]["set_id"] for g in groups.values() for u in g[0]["upcs"]}
+    for group in groups.values():
+        kept = group[0]
+        extra = {
+            u
+            for r in group[1:]
+            for u in r["upcs"]
+            if owner.get(u, kept["set_id"]) == kept["set_id"]
+        }
+        kept["upcs"] = sorted(set(kept["upcs"]) | extra)
