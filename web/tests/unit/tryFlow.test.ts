@@ -146,3 +146,12 @@ test("a preselected tone (a bottle page's Try it on me) is kept from the start",
   expect(s).toMatchObject({ tone: 45, bottleId: "test-a" });
   expect(canPick(tryReducer(s, { type: "PHOTO_READY", image }))).toBe(true);
 });
+test("the sample face is never uploaded: its pick goes straight to rendering, and a real photo after it uploads again", () => {
+  const sample = ([{ type: "PHOTO_READY", image: { ...image, sample: true } }, { type: "TONE", tone: 55 }] as TryEvent[]).reduce(tryReducer, initialTryState());
+  const picked = tryReducer(sample, { type: "PICK", bottleId: "test-a" });
+  expect(picked).toMatchObject({ phase: "rendering", fileId: null, bottleId: "test-a" });
+  expect(tryReducer(picked, { type: "UPLOADED", fileId: "file-1" })).toBe(picked);
+  const failed = tryReducer(picked, { type: "FAILED", code: "sample_live" });
+  expect(failed).toMatchObject({ phase: "error", code: "sample_live", fileId: null });
+  expect(tryReducer(tryReducer(failed, { type: "PHOTO_READY", image }), { type: "PICK", bottleId: "test-a" }).phase).toBe("uploading");
+});

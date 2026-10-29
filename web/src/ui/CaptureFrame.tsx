@@ -7,6 +7,8 @@ import { SquashButton } from "./SquashButton";
 
 const ACCEPT = "image/jpeg,image/png";
 const FILL = "absolute inset-0 w-full h-full object-contain";
+const SECONDARY =
+  "inline-flex h-[3em] items-center rounded-full border-[3px] border-ink bg-paper px-6 font-extrabold leading-none transition-colors enabled:hover:bg-amber-soft disabled:cursor-not-allowed disabled:opacity-50";
 
 type Props = {
   image: PreparedImage | null;
@@ -20,6 +22,10 @@ type Props = {
   onPreparing?: (preparing: boolean) => void;
   /** The render's image has loaded and is now on screen. */
   onResultLoad?: () => void;
+  /** Loads the sample face; when given, a "Use a sample face" button sits beside Take a selfie and Upload. */
+  onSample?: () => Promise<PreparedImage>;
+  /** A short line under the frame while the render shows, such as the recorded render label. */
+  resultNote?: string | null;
 };
 
 function CameraIcon() {
@@ -38,9 +44,10 @@ function CameraIcon() {
  * or arrives after the frame is gone has its preview URL freed. A render's image stays invisible, with the selfie and
  * the scan line still showing, until it has loaded, so the frame never goes blank while it downloads. Once it shows,
  * the selfie stays underneath and a slider splits the frame: the selfie (before) left of the line, the render (after)
- * right of it. Each new render starts at the middle.
+ * right of it. Each new render starts at the middle. The sample face, when offered, is a third source that joins the
+ * same race: the newest photo of any source wins.
  */
-export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareImage, resultUrl = null, onResultError, onPreparing, onResultLoad }: Props) {
+export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareImage, resultUrl = null, onResultError, onPreparing, onResultLoad, onSample, resultNote = null }: Props) {
   const camera = useRef<HTMLInputElement>(null);
   const upload = useRef<HTMLInputElement>(null);
   const newest = useRef(0);
@@ -59,18 +66,19 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
     };
   }, []);
 
-  const take = async (file: File) => {
+  // `fallback` is the line for a failure that is not an ImageError: an undecodable photo, or a sample face that did not load.
+  const take = async (load: () => Promise<PreparedImage>, fallback: CfErrorCode) => {
     const run = ++newest.current;
     setPreparing(true);
     onPreparing?.(true);
     let prepared: PreparedImage;
     try {
-      prepared = await prepare(file);
+      prepared = await load();
     } catch (e) {
       if (!mounted.current || run !== newest.current) return;
       setPreparing(false);
       onPreparing?.(false);
-      onError(e instanceof ImageError ? e.code : "unsupported_image");
+      onError(e instanceof ImageError ? e.code : fallback);
       return;
     }
     if (!mounted.current || run !== newest.current) {
@@ -85,27 +93,28 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.currentTarget.files?.[0];
     e.currentTarget.value = ""; // so picking the same file again still fires a change
-    if (file) void take(file);
+    if (file) void take(() => prepare(file), "unsupported_image");
   };
 
   const off = busy || preparing;
+  const who = image?.sample ? "The sample face" : "Your selfie";
   return (
     <div className="relative rounded-[2rem] bg-paper border-[3px] border-ink p-4 sm:p-6 min-w-0">
       <div data-testid="capture-frame" className="relative aspect-[3/4] rounded-2xl bg-ink overflow-hidden grid place-items-center">
         {image && !shown && (
           // eslint-disable-next-line @next/next/no-img-element -- a blob: URL that exists only in this tab
-          <img data-testid="selfie-preview" src={image.url} alt="Your selfie" className={FILL} />
+          <img data-testid="selfie-preview" src={image.url} alt={who} className={FILL} />
         )}
         {compare && (
           // eslint-disable-next-line @next/next/no-img-element -- a blob: URL that exists only in this tab
           <img data-testid="before-image" src={image.url} alt="" aria-hidden="true" className={FILL} />
         )}
         {resultUrl && (
-          // eslint-disable-next-line @next/next/no-img-element -- a short-lived YouCam URL; nothing to optimise or cache
+          // eslint-disable-next-line @next/next/no-img-element -- a short-lived YouCam URL (or a recorded copy); nothing to optimise
           <img
             data-testid="result-image"
             src={resultUrl}
-            alt="Your selfie with the bottle's cast"
+            alt={`${who} with the bottle's cast`}
             referrerPolicy="no-referrer"
             aria-hidden={shown ? undefined : true}
             onLoad={() => {
@@ -145,6 +154,12 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
             </span>
           </>
         )}
+        {shown && resultNote && (
+          // On the picture itself, so the label travels with any screenshot of it.
+          <p data-testid="result-note" className="pointer-events-none absolute inset-x-3 bottom-3 rounded-2xl bg-ink px-3 py-1 text-center text-sm font-bold text-paper">
+            {resultNote}
+          </p>
+        )}
         {!image && !resultUrl && (
           <svg role="img" aria-label="Selfie frame" viewBox="0 0 120 160" className="w-2/5 text-paper/70" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round">
             <path d="M10 34V14a4 4 0 0 1 4-4h20M86 10h20a4 4 0 0 1 4 4v20M110 126v20a4 4 0 0 1-4 4H86M34 150H14a4 4 0 0 1-4-4v-20" />
@@ -168,14 +183,14 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
         <SquashButton onClick={() => camera.current?.click()} disabled={off} icon={<CameraIcon />}>
           Take a selfie
         </SquashButton>
-        <button
-          type="button"
-          onClick={() => upload.current?.click()}
-          disabled={off}
-          className="inline-flex h-[3em] items-center rounded-full border-[3px] border-ink bg-paper px-6 font-extrabold leading-none transition-colors enabled:hover:bg-amber-soft disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button type="button" onClick={() => upload.current?.click()} disabled={off} className={SECONDARY}>
           Upload
         </button>
+        {onSample && (
+          <button type="button" onClick={() => void take(onSample, "upstream")} disabled={off} className={SECONDARY}>
+            Use a sample face
+          </button>
+        )}
       </div>
     </div>
   );

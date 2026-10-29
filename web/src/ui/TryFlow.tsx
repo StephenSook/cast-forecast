@@ -6,7 +6,8 @@ import { ApiFailure, readSkinType, renderBottle, searchLabels, uploadSelfie } fr
 import { type Bottle, TONES, type Tone, findBottle, formatValue, toneOf, whiteningDomain } from "@/lib/catalogue";
 import { type PreparedImage, releaseImage } from "@/lib/image";
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
-import { EXPIRED_LINE, type TryEvent, type TryState, canPick, canSuggest, initialTryState, tryReducer } from "@/lib/tryFlow";
+import { SAMPLE, SAMPLE_LIVE_LINE, type Sample, loadSampleFace, recordedReadLine, recordedRenderLine, sampleRender } from "@/lib/sample";
+import { EXPIRED_LINE, type TryCode, type TryEvent, type TryState, canPick, canSuggest, initialTryState, tryReducer } from "@/lib/tryFlow";
 import { Bars } from "./Bars";
 import { BottleChips } from "./BottleChips";
 import { BottleSearch } from "./BottleSearch";
@@ -23,12 +24,22 @@ export const DEEPER_LINE = "The study behind these numbers measured skin down to
 type Api = { upload: typeof uploadSelfie; render: typeof renderBottle; readSkinType: typeof readSkinType; search?: typeof searchLabels };
 const DEFAULT_API: Api = { upload: uploadSelfie, render: renderBottle, readSkinType, search: searchLabels };
 
+/** The sample face: its recorded results and how to load its picture. */
+export type SampleSource = { data: Sample; load: () => Promise<PreparedImage> };
+const DEFAULT_SAMPLE: SampleSource = { data: SAMPLE, load: () => loadSampleFace(SAMPLE) };
+
+function lineOf(code: TryCode): string {
+  return code === "sample_live" ? SAMPLE_LIVE_LINE : MESSAGES[code];
+}
+
 /** The line under the tones once YouCam has read the selfie's skin type. */
 export function suggestedLine(fitzpatrick: string): string {
   return `YouCam reads Fitzpatrick type ${fitzpatrick}. We picked the closest tone; change it if it looks off.`;
 }
 
-function progressLine(phase: TryState["phase"], slow: boolean): string {
+/** On the sample face nothing is rendered or read live, so the wait is only the recorded image loading. */
+function progressLine(phase: TryState["phase"], slow: boolean, sample = false): string {
+  if (sample && phase === "rendering") return "Loading the recorded render.";
   if (phase === "uploading") return slow ? "Still sending. Up to a minute." : "Sending your selfie.";
   if (phase === "rendering") return slow ? "Still rendering. Up to 2 minutes." : "Rendering the cast.";
   if (phase === "reading") return slow ? "Still reading. Up to 2 minutes." : "Reading your skin type.";
@@ -69,8 +80,12 @@ function useWaitClock(busy: boolean): { elapsed: number | null; start(): void } 
  * The chips are the featured `bottles`. Any other label comes from the search field (or `initialBottle`, from a bottle
  * page's "Try it on me") and joins the chips as one more, picked the same way: the same reducer, render call and
  * server checks. `api.search` absent means no search field.
+ *
+ * The sample face (`sample`, null for none) is never sent anywhere: Suggest my tone shows its recorded skin type read,
+ * a featured bottle shows its recorded render at the picked tone, each labelled as recorded, and any other label says
+ * a live render needs the visitor's own selfie. None of it calls `api`, so it spends no unit.
  */
-export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null, initialBottle = null, initialTone = null, api = DEFAULT_API, prepare }: {
+export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null, initialBottle = null, initialTone = null, api = DEFAULT_API, prepare, sample = DEFAULT_SAMPLE }: {
   bottles: readonly Bottle[];
   tones?: readonly Tone[];
   /** The result bar's axis; the whole catalogue's (whiteningDomain) so it matches /compare and the bottle pages. */
@@ -80,6 +95,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   initialTone?: number | null;
   api?: Api;
   prepare?: (f: File) => Promise<PreparedImage>;
+  sample?: SampleSource | null;
 }) {
   const [state, setState] = useState<TryState>(() => initialTryState(initialBottleId ?? initialBottle?.id ?? null, initialTone));
   // The one label picked from search (or handed in) that is not a chip; it shows as the last chip.
@@ -135,6 +151,12 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     wait.start();
     const mine = ++run.current;
     const current = () => mine === run.current;
+    if (picked.image.sample) {
+      // A recording, or the line that a live render needs the visitor's own selfie: no request either way.
+      const recorded = sample ? sampleRender(sample.data, bottleId, tone) : null;
+      send(recorded ? { type: "RENDERED", result: recorded } : { type: "FAILED", code: "sample_live" });
+      return;
+    }
     try {
       let fileId = picked.fileId;
       if (fileId === null) {
@@ -165,6 +187,10 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     wait.start();
     const mine = ++run.current;
     const current = () => mine === run.current;
+    if (started.image.sample) {
+      send(sample ? { type: "SKIN_READ", fitzpatrick: sample.data.skinType.fitzpatrick } : { type: "FAILED", code: "sample_live" });
+      return;
+    }
     try {
       let fileId = started.fileId;
       if (fileId === null) {
@@ -181,7 +207,9 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     }
   };
 
-  const line = state.phase === "error" && state.code ? (state.message ?? MESSAGES[state.code]) : state.expired ? EXPIRED_LINE : "";
+  const line = state.phase === "error" && state.code ? (state.message ?? lineOf(state.code)) : state.expired ? EXPIRED_LINE : "";
+  const onSample = sample !== null && state.image?.sample === true;
+  const recordedOn = state.result?.recordedOn;
   const bottle = revealed && state.result ? findBottle(state.result.bottleId, chips) : undefined;
   const shown = bottle && typeof state.tone === "number" ? toneOf(bottle, state.tone) : undefined;
   const [lo, hi] = domain ?? whiteningDomain(chips);
@@ -198,6 +226,8 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
         onResultError={() => send({ type: "IMAGE_EXPIRED" })}
         onResultLoad={() => setShownUrl(resultUrl)}
         onPreparing={setPreparing}
+        onSample={sample && bottles.length > 0 ? sample.load : undefined}
+        resultNote={recordedOn ? recordedRenderLine(recordedOn) : null}
       />
       <div className="grid gap-4 min-w-0">
         {bottles.length > 0 && (
@@ -213,7 +243,11 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
             Suggest my tone
           </button>
         )}
-        {state.skinType && <p className="max-w-[34rem]">{suggestedLine(state.skinType)}</p>}
+        {state.skinType && (
+          <p className="max-w-[34rem]">
+            {onSample && sample ? recordedReadLine(state.skinType, sample.data.skinType.recordedOn) : suggestedLine(state.skinType)}
+          </p>
+        )}
         {state.tone === "deeper" && <p className="max-w-[34rem] font-bold">{DEEPER_LINE}</p>}
         <BottleChips bottles={chips} selectedId={state.bottleId} disabled={!canPick(state) || preparing} onPick={(id) => void onPick(id)} />
         {api.search && bottles.length > 0 && <BottleSearch search={api.search} onSelect={onFound} disabled={busy || preparing} />}
@@ -224,7 +258,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
         )}
         {/* Always present (a live region announces changes only once it exists); one line reserved, so nothing jumps. */}
         <p role="status" className="font-bold min-h-[1.5em]">
-          {progressLine(waiting && !busy ? "rendering" : state.phase, wait.elapsed !== null && wait.elapsed * 1000 >= SLOW_MS)}
+          {progressLine(waiting && !busy ? "rendering" : state.phase, wait.elapsed !== null && wait.elapsed * 1000 >= SLOW_MS, onSample)}
           {wait.elapsed !== null && (
             <span data-testid="elapsed" aria-hidden="true" className="ml-2 tabular-nums">
               {wait.elapsed} s

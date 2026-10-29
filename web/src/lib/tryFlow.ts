@@ -4,9 +4,13 @@ import type { CfErrorCode } from "@/lib/messages";
 import { type Fitzpatrick, SUGGESTED_TONE } from "@/lib/skinType";
 import type { RenderResult } from "@/lib/types";
 
+/** Why a step failed: an API error code, or `sample_live`, a label with no recording picked on the sample face. */
+export type TryCode = CfErrorCode | "sample_live";
+
 /**
  * The Try screen's state. `message` is the server's own line for a failure when it must be shown verbatim (a 429
- * states the real wait, up to an hour); otherwise the line is MESSAGES[code].
+ * states the real wait, up to an hour); otherwise the line is MESSAGES[code]. On the sample face (`image.sample`)
+ * nothing is uploaded: a pick goes straight to rendering, and its result is a recording.
  */
 export type TryState = {
   /** `reading`: the selfie is being uploaded and read for a skin type, which then suggests a tone. */
@@ -19,7 +23,7 @@ export type TryState = {
   /** YouCam's Fitzpatrick type for this photo, once read. */
   skinType: Fitzpatrick | null;
   result: RenderResult | null;
-  code: CfErrorCode | null;
+  code: TryCode | null;
   message: string | null;
   expired: boolean;
 };
@@ -34,7 +38,7 @@ export type TryEvent =
   | { type: "SKIN_READ"; fitzpatrick: Fitzpatrick }
   | { type: "UPLOADED"; fileId: string }
   | { type: "RENDERED"; result: RenderResult }
-  | { type: "FAILED"; code: CfErrorCode; message?: string }
+  | { type: "FAILED"; code: TryCode; message?: string }
   | { type: "IMAGE_EXPIRED" };
 
 export const EXPIRED_LINE = "That render expired. Pick the bottle again.";
@@ -83,7 +87,15 @@ export function tryReducer(s: TryState, e: TryEvent): TryState {
       return s.phase === "result" ? { ...s, tone: e.tone, phase: "ready", result: null } : { ...s, tone: e.tone };
     case "PICK":
       if (!canPick(s)) return s;
-      return { ...s, phase: s.fileId === null ? "uploading" : "rendering", bottleId: e.bottleId, code: null, message: null, expired: false };
+      // The sample face is never uploaded, so its pick has no upload step.
+      return {
+        ...s,
+        phase: s.fileId === null && !s.image?.sample ? "uploading" : "rendering",
+        bottleId: e.bottleId,
+        code: null,
+        message: null,
+        expired: false,
+      };
     case "SELECT":
       return settled(s) && !canPick(s) ? { ...s, bottleId: e.bottleId } : s;
     case "READ_SKIN":
