@@ -28,6 +28,8 @@
       "name": "Cetaphil Sheer Mineral",
       "brand": "Cetaphil",
       "upc": null,
+      "upcs": [],
+      "featured": true,
       "filter": "mineral",
       "tinted": false,
       "whitening": {
@@ -120,6 +122,8 @@
       "name": "Babo Sheer Zinc",
       "brand": "Babo Botanicals",
       "upc": null,
+      "upcs": [],
+      "featured": true,
       "filter": "mineral",
       "tinted": false,
       "whitening": {
@@ -212,6 +216,10 @@
       "name": "Supergoop Mineral Stick",
       "brand": "Supergoop",
       "upc": "0816218029890",
+      "upcs": [
+        "0816218029890"
+      ],
+      "featured": true,
       "filter": "mineral",
       "tinted": false,
       "whitening": {
@@ -304,6 +312,10 @@
       "name": "Badger Face Mineral",
       "brand": "Badger",
       "upc": "0634084471724",
+      "upcs": [
+        "0634084471724"
+      ],
+      "featured": true,
       "filter": "mineral",
       "tinted": false,
       "whitening": {
@@ -396,6 +408,8 @@
       "name": "Hello Bello Mineral",
       "brand": "Hello Bello",
       "upc": null,
+      "upcs": [],
+      "featured": true,
       "filter": "mineral",
       "tinted": false,
       "whitening": {
@@ -488,6 +502,10 @@
       "name": "Neutrogena Sheer Zinc",
       "brand": "Neutrogena",
       "upc": "0086800110804",
+      "upcs": [
+        "0086800110804"
+      ],
+      "featured": true,
       "filter": "mineral",
       "tinted": false,
       "whitening": {
@@ -580,6 +598,8 @@
       "name": "EltaMD UV AOX Mist",
       "brand": "EltaMD",
       "upc": null,
+      "upcs": [],
+      "featured": true,
       "filter": "mineral",
       "tinted": false,
       "whitening": {
@@ -672,6 +692,14 @@
       "name": "Coppertone Pure and Simple",
       "brand": "Coppertone",
       "upc": "0072140028831",
+      "upcs": [
+        "0041100580733",
+        "0072140028800",
+        "0072140028817",
+        "0072140028824",
+        "0072140028831"
+      ],
+      "featured": true,
       "filter": "mineral",
       "tinted": false,
       "whitening": {

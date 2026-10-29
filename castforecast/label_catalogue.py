@@ -17,7 +17,11 @@ provided it is within `MAX_RENDER_ERROR`. The stored blend is that intensity's s
 the route's inverse gives back the same intensity. A tone with no such intensity has no render and
 the route refuses it. Every render is labelled an approximation.
 
-    python -m castforecast.label_catalogue [labels_json] [out_json]
+Two files, from the same entries: every kept label (data/bottles/fda_labels.json rows with no
+`excluded` reason) goes to web/src/data/labels.json, which only the server reads, and the featured
+ones also go to web/src/data/bottles.json, the short list the browser gets for its chips.
+
+    python -m castforecast.label_catalogue [labels_json] [bottles_json] [all_labels_json]
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ import numpy as np
 
 from castforecast.catalogue import K1B_CURVE, MAX_RENDER_ERROR, _hex
 from castforecast.label_model import predict
+from castforecast.label_set import CATEGORY_REASONS
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", message=r".*SciPy.*related API features")
@@ -39,6 +44,7 @@ with warnings.catch_warnings():
 ROOT = Path(__file__).resolve().parent.parent
 LABELS = ROOT / "data" / "bottles" / "fda_labels.json"
 OUT = ROOT / "web" / "src" / "data" / "bottles.json"
+ALL_OUT = ROOT / "web" / "src" / "data" / "labels.json"
 SCHEMA_VERSION = 2
 PALETTE = "#ffffff"
 TONES = (65.0, 60.0, 55.0, 50.0, 45.0)  # L*, lighter to deeper, inside the study's range
@@ -99,7 +105,7 @@ def _whitening(zinc_oxide_pct: float, tone: float) -> dict:
 
 
 def entry(bottle: dict) -> dict:
-    """One web catalogue entry from one pinned FDA label (data/bottles/fda_labels.json)."""
+    """One web catalogue entry from one kept FDA label (a data/bottles/fda_labels.json row)."""
     zinc = float(bottle["zinc_oxide_pct"])
     tones = []
     for tone in TONES:
@@ -116,8 +122,10 @@ def entry(bottle: dict) -> dict:
         "name": bottle["name"],
         "brand": bottle["brand"],
         "upc": bottle["upc"],
+        "upcs": list(bottle.get("upcs") or ([bottle["upc"]] if bottle["upc"] else [])),
+        "featured": bool(bottle.get("featured")),
         "filter": "mineral",
-        "tinted": False,
+        "tinted": bool(bottle.get("tinted")),
         "whitening": _whitening(zinc, REFERENCE_L),
         "tones": tones,
         "evidence": {
@@ -130,17 +138,35 @@ def entry(bottle: dict) -> dict:
 
 
 def build(labels: Path = LABELS) -> tuple[dict, list[str]]:
-    """The catalogue file, and the ids of bottles left out because no tone has a render."""
+    """The full catalogue (every kept label), and the ids of kept labels with no tone render.
+
+    The data file already leaves those out (label_set's render_error rule is this one), so the list
+    is empty unless the two have drifted. `leftOut` counts the labels the site names as left out."""
+    doc = json.loads(Path(labels).read_text())
     kept, left_out = [], []
-    for bottle in json.loads(Path(labels).read_text())["bottles"]:
+    for bottle in doc["labels"]:
+        if bottle["excluded"] is not None:
+            continue
         e = entry(bottle)
-        (kept if any(t["render"] for t in e["tones"]) else left_out).append(
-            e if e["tones"] else bottle
-        )
+        (kept if any(t["render"] for t in e["tones"]) else left_out).append(e)
     tones = [{"lStar": t, "hex": _hex(s)} for t, s in zip(TONES, SKINS, strict=True)]
-    return {"schemaVersion": SCHEMA_VERSION, "tones": tones, "bottles": kept}, [
-        b["id"] for b in left_out
-    ]
+    counts = doc["counts"]
+    catalogue = {
+        "schemaVersion": SCHEMA_VERSION,
+        "tones": tones,
+        "leftOut": {r: counts[r] for r in CATEGORY_REASONS},
+        "bottles": kept,
+    }
+    return catalogue, [b["id"] for b in left_out]
+
+
+def featured(catalogue: dict) -> dict:
+    """The browser's short list: the featured entries, in the shape bottles.json has always had."""
+    return {
+        "schemaVersion": catalogue["schemaVersion"],
+        "tones": catalogue["tones"],
+        "bottles": [b for b in catalogue["bottles"] if b["featured"]],
+    }
 
 
 # The fit's last bits differ between BLAS builds (a Mac, CI's Linux); no reading needs more places.
@@ -162,14 +188,25 @@ def dumps(catalogue: dict) -> str:
     return json.dumps(_published(catalogue), indent=2) + "\n"
 
 
+def dumps_compact(catalogue: dict) -> str:
+    """The full catalogue with one entry per line: small, and a refetch diffs bottle by bottle."""
+    pub = _published(catalogue)
+    head = json.dumps({k: v for k, v in pub.items() if k != "bottles"}, separators=(",", ":"))
+    rows = ",\n".join(json.dumps(b, separators=(",", ":")) for b in pub["bottles"])
+    return f'{head[:-1]},"bottles":[\n{rows}\n]}}\n'
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     labels = Path(argv[0]) if argv else LABELS
     out = Path(argv[1]) if len(argv) > 1 else OUT
+    all_out = Path(argv[2]) if len(argv) > 2 else ALL_OUT
     catalogue, left_out = build(labels)
-    out.write_text(dumps(catalogue))
+    out.write_text(dumps(featured(catalogue)))
+    all_out.write_text(dumps_compact(catalogue))
     print(
-        f"wrote {out}: {len(catalogue['bottles'])} bottles; left out (no tone renders): {left_out or 'none'}"
+        f"wrote {out} ({len(featured(catalogue)['bottles'])} featured) and {all_out} "
+        f"({len(catalogue['bottles'])} bottles); no tone renders: {left_out or 'none'}"
     )
     return 0
 

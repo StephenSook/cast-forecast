@@ -1,6 +1,8 @@
 """Tests for label-predicted catalogue entries (castforecast/label_catalogue.py)."""
 
 import json
+import re
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -8,6 +10,7 @@ import pytest
 from castforecast.catalogue import K1B_CURVE, MAX_RENDER_ERROR
 from castforecast.k1_render import coverage_for_alpha
 from castforecast.label_catalogue import (
+    ALL_OUT,
     LABELS,
     OUT,
     REFERENCE_L,
@@ -20,10 +23,30 @@ from castforecast.label_catalogue import (
     _rendered,
     build,
     dumps,
+    dumps_compact,
     entry,
+    featured,
     tone_render,
 )
-from castforecast.label_model import LIGHTNESS_RANGE, predict
+from castforecast.label_model import LIGHTNESS_RANGE, ZINC_RANGE, predict
+from castforecast.label_set import CATEGORY_REASONS
+
+README = Path(__file__).resolve().parent.parent / "README.md"
+FEATURED_IDS = [
+    "cetaphil-sheer-mineral-face",
+    "babo-sheer-zinc",
+    "supergoop-mineral-sheer-stick",
+    "badger-face-mineral",
+    "hello-bello-mineral",
+    "neutrogena-sheer-zinc",
+    "eltamd-uv-aox-mist",
+    "coppertone-pure-and-simple",
+]
+
+
+def _kept_rows():
+    return [r for r in json.loads(LABELS.read_text())["labels"] if r["excluded"] is None]
+
 
 LABEL = {
     "id": "x",
@@ -38,10 +61,44 @@ LABEL = {
 
 def test_the_committed_catalogue_is_what_build_writes_from_the_pinned_labels():
     catalogue, left_out = build(LABELS)
-    assert OUT.read_text() == dumps(catalogue), "run: python -m castforecast.label_catalogue"
+    run = "run: python -m castforecast.label_catalogue"
+    assert OUT.read_text() == dumps(featured(catalogue)), run
+    assert ALL_OUT.read_text() == dumps_compact(catalogue), run
     assert left_out == []
     assert catalogue["schemaVersion"] == SCHEMA_VERSION
     assert [t["lStar"] for t in catalogue["tones"]] == list(TONES)
+
+
+def test_every_kept_label_is_in_the_full_catalogue_and_only_featured_ones_reach_the_browser():
+    full = json.loads(ALL_OUT.read_text())
+    assert [b["id"] for b in full["bottles"]] == [r["id"] for r in _kept_rows()]
+    ids = [b["id"] for b in full["bottles"]]
+    assert len(ids) == len(set(ids))
+    short = json.loads(OUT.read_text())
+    # The eight the site shipped first keep their ids and their order (pages, a film and the README link them).
+    assert [b["id"] for b in short["bottles"]] == FEATURED_IDS
+    assert all(b["featured"] for b in short["bottles"])
+    assert short["bottles"] == [b for b in full["bottles"] if b["featured"]]
+    assert set(short) == {"schemaVersion", "tones", "bottles"}  # the shape bottles.json always had
+
+
+def test_the_left_out_counts_are_the_data_files():
+    counts = json.loads(LABELS.read_text())["counts"]
+    assert json.loads(ALL_OUT.read_text())["leftOut"] == {r: counts[r] for r in CATEGORY_REASONS}
+
+
+def test_the_readmes_render_bound_is_the_catalogues():
+    # README: "every bottle and tone lands within X L* (Y for every prediction above zero ...)".
+    bottles = json.loads(ALL_OUT.read_text())["bottles"]
+    tones = [t for b in bottles for t in b["tones"]]
+    every = max(t["render"]["errorL"] for t in tones)
+    above_zero = max(t["render"]["errorL"] for t in tones if t["whitening"]["value"] > 0)
+    m = re.search(
+        r"lands within ([\d.]+) L\* \(([\d.]+) for every prediction above zero", README.read_text()
+    )
+    assert m, "README no longer states the render bound"
+    assert float(m.group(1)) == np.ceil(every * 100) / 100
+    assert float(m.group(2)) == np.ceil(above_zero * 100) / 100
 
 
 def test_the_published_file_does_not_depend_on_the_fits_last_bits():
@@ -62,21 +119,25 @@ def test_the_published_file_does_not_depend_on_the_fits_last_bits():
 
 
 def test_each_published_blend_still_sends_the_intensity_its_render_was_chosen_for():
-    zinc = {b["id"]: b["zinc_oxide_pct"] for b in json.loads(LABELS.read_text())["bottles"]}
-    for b in json.loads(OUT.read_text())["bottles"]:
+    zinc = {b["id"]: b["zinc_oxide_pct"] for b in _kept_rows()}
+    chosen = {
+        (z, t): tone_render(z, t)["colorIntensity"] for z in set(zinc.values()) for t in TONES
+    }
+    for b in json.loads(ALL_OUT.read_text())["bottles"]:
         for t in b["tones"]:
             intensity, _, reachable = coverage_for_alpha(K1B_CURVE, t["render"]["blend"])
-            chosen = tone_render(zinc[b["id"]], t["lStar"])["colorIntensity"]
-            assert (intensity, reachable) == (chosen, True), (b["id"], t["lStar"])
+            want = chosen[(zinc[b["id"]], t["lStar"])]
+            assert (intensity, reachable) == (want, True), (b["id"], t["lStar"])
 
 
-def test_every_pinned_label_is_zinc_oxide_only_and_inside_the_study_range():
-    labels = json.loads(LABELS.read_text())["bottles"]
+def test_every_kept_label_is_zinc_oxide_only_and_inside_the_study_range():
+    labels = _kept_rows()
     assert len(labels) >= 5
     for b in labels:
         text = b["active_ingredient_text"].lower()
-        assert "zinc oxide" in text and "titanium" not in text
-        assert 5.0 <= b["zinc_oxide_pct"] <= 25.0
+        assert "zinc oxide" in text and "titanium" not in text, b["set_id"]
+        assert ZINC_RANGE[0] <= b["zinc_oxide_pct"] <= ZINC_RANGE[1]
+        assert b["tinted"] is False
 
 
 def test_the_tones_sit_inside_the_studys_lightness_range_lighter_first():
