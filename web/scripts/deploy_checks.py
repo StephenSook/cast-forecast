@@ -150,6 +150,25 @@ def gates_ok(body: dict) -> tuple[bool, str]:
     return True, "ok"
 
 
+def _whole(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def credits_ok(body, headroom: int) -> tuple[bool, str]:
+    """For the daily production watch: /api/credits must read a whole balance at least `headroom`
+    units above its floor, so a judge's renders and skin-type reads are not refused as paused."""
+    if (
+        not isinstance(body, dict)
+        or not _whole(body.get("balance"))
+        or not _whole(body.get("floor"))
+    ):
+        return False, "credits answer has no whole balance and floor"
+    spare = body["balance"] - body["floor"]
+    if spare < headroom:
+        return False, f"credits low: {spare} units above the floor, under {headroom}"
+    return True, f"credits ok: {body['balance']} units, {spare} above the floor"
+
+
 def ignored_ok(porcelain: str) -> tuple[bool, str]:
     count = 0
     for line in porcelain.splitlines():
@@ -402,7 +421,9 @@ def _done(ok: bool, msg: str) -> int:
 
 def main(argv: list[str]) -> int:
     if not argv:
-        print("usage: deploy_checks.py link|ci|ignored|scan|nokey|deployed|serving|release ...")
+        print(
+            "usage: deploy_checks.py link|ci|ignored|scan|nokey|deployed|serving|release|credits ..."
+        )
         return 2
     cmd, args = argv[0], argv[1:]
     if cmd == "link" and len(args) == 1:
@@ -488,6 +509,16 @@ def main(argv: list[str]) -> int:
         # 401 protection setting), so callers must not treat it as a bad release.
         print("release not verified: this is not a release failure; do not roll back on it")
         return 4
+    if cmd == "credits" and len(args) == 2:
+        try:
+            headroom = int(args[1])
+        except ValueError:
+            print("headroom must be an integer")
+            return 2
+        status, body = _get(args[0].rstrip("/") + "/api/credits")
+        if status != 200:
+            return _done(False, f"credits unreadable (status {status})")
+        return _done(*credits_ok(_json(body), headroom))
     print(f"bad arguments for {cmd}")
     return 2
 
