@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { crc32 } from "node:zlib";
@@ -164,9 +164,29 @@ test.each([1, 2, 3])("a write that fails at write %i leaves the earlier recordin
   };
   expect(() => publishSample({ ...dir, rec, write })).toThrow("ENOSPC");
   expect(writes).toBe(failAt);
+  expectEarlierIntact(dir);
+});
+
+// Rename 1 sets the old folder aside, rename 2 installs the new one, rename 3 replaces the manifest: a failure at any
+// of them is undone, so the earlier folder and manifest are back.
+test.each([1, 2, 3])("a rename that fails at rename %i is undone, leaving the earlier recording and manifest in place", async (failAt) => {
+  const { run } = setup();
+  const rec = await run();
+  const dir = earlier();
+  let renames = 0;
+  const rename = (from: string, to: string) => {
+    if (++renames === failAt) throw Object.assign(new Error("EIO: i/o error, rename"), { code: "EIO" });
+    renameSync(from, to);
+  };
+  expect(() => publishSample({ ...dir, rec, rename })).toThrow("EIO");
+  expect(renames).toBe(failAt);
+  expectEarlierIntact(dir);
+});
+
+function expectEarlierIntact(dir: ReturnType<typeof earlier>): void {
   expect(readdirSync(join(dir.publicDir, "sample"))).toEqual(["renders"]);
   expect(readdirSync(join(dir.publicDir, "sample", "renders"))).toEqual(["test-a-55.png"]);
   expect(readFileSync(join(dir.publicDir, "sample", "renders", "test-a-55.png"), "utf8")).toBe(dir.old);
   expect(readFileSync(dir.manifestPath, "utf8")).toBe("old manifest");
   expect(existsSync(`${dir.manifestPath}.next`)).toBe(false);
-});
+}

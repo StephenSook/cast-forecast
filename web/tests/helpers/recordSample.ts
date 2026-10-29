@@ -129,16 +129,19 @@ export async function recordSample(o: {
  * are written to a fresh `renders.next` folder and the manifest to `<manifest>.next`; a failed write removes both and
  * leaves the published folder and manifest exactly as they were. Only then is the old folder renamed aside, the new
  * one renamed into place and the manifest renamed over the old one (renames in the same folder, each all or nothing),
- * and the old folder removed. If the manifest rename fails, the old folder is put back. `write` is a test seam.
- * Called only after recordSample has returned, so a failed run never reaches here.
+ * and the old folder removed. If any of those three renames fails, every step already taken is undone, so the old
+ * folder and manifest are back in place. `write` and `rename` are test seams for the forward steps; the undo always
+ * uses the real rename. Called only after recordSample has returned, so a failed run never reaches here.
  */
 export function publishSample(o: {
   publicDir: string;
   manifestPath: string;
   rec: SampleRecording;
   write?: (path: string, data: Uint8Array | string) => void;
+  rename?: (from: string, to: string) => void;
 }): void {
   const write = o.write ?? ((p: string, d: Uint8Array | string) => writeFileSync(p, d));
+  const rename = o.rename ?? renameSync;
   const dir = join(o.publicDir, "sample", "renders");
   const next = `${dir}.next`;
   const prev = `${dir}.prev`;
@@ -157,14 +160,19 @@ export function publishSample(o: {
     throw e;
   }
   rmSync(prev, { recursive: true, force: true });
-  const hadOld = existsSync(dir);
-  if (hadOld) renameSync(dir, prev);
-  renameSync(next, dir);
+  let setAside = false;
+  let installed = false;
   try {
-    renameSync(manifestNext, o.manifestPath);
+    if (existsSync(dir)) {
+      rename(dir, prev);
+      setAside = true;
+    }
+    rename(next, dir);
+    installed = true;
+    rename(manifestNext, o.manifestPath);
   } catch (e) {
-    renameSync(dir, next);
-    if (hadOld) renameSync(prev, dir);
+    if (installed) renameSync(dir, next);
+    if (setAside) renameSync(prev, dir);
     clearStaging();
     throw e;
   }
