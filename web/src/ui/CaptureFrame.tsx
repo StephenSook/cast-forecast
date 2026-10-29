@@ -154,12 +154,6 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
             </span>
           </>
         )}
-        {shown && resultNote && (
-          // On the picture itself, so the label travels with any screenshot of it.
-          <p data-testid="result-note" className="pointer-events-none absolute inset-x-3 bottom-3 rounded-2xl bg-ink px-3 py-1 text-center text-sm font-bold text-paper">
-            {resultNote}
-          </p>
-        )}
         {!image && !resultUrl && (
           <svg role="img" aria-label="Selfie frame" viewBox="0 0 120 160" className="w-2/5 text-paper/70" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round">
             <path d="M10 34V14a4 4 0 0 1 4-4h20M86 10h20a4 4 0 0 1 4 4v20M110 126v20a4 4 0 0 1-4 4H86M34 150H14a4 4 0 0 1-4-4v-20" />
@@ -175,6 +169,13 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
           />
         )}
       </div>
+      {shown && resultNote && (
+        // Right under the picture and inside its card, so the label travels with any capture of the frame, and the
+        // picture's corners stay free for the Before and After labels.
+        <p data-testid="result-note" className="mt-3 rounded-2xl bg-ink px-3 py-1.5 text-center text-sm font-bold text-paper">
+          {resultNote}
+        </p>
+      )}
       {/* Visually hidden, not display:none: some phone browsers ignore a programmatic click on a display:none file
           input. The buttons below are what people and screen readers use, so the inputs stay out of both. */}
       <input ref={camera} data-testid="camera-input" type="file" accept={ACCEPT} capture="user" disabled={off} tabIndex={-1} aria-hidden="true" className="sr-only" onChange={onChange} />
