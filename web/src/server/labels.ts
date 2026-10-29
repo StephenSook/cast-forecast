@@ -12,9 +12,12 @@ import { normalizeUpc, upcIndex } from "@/lib/upc";
 export const LABELS: readonly Bottle[] = loadCatalogueFile(labelsJson).bottles;
 
 const Count = z.number().int().min(0);
-/** How many labels each category rule left out (data/bottles/fda_labels.json counts), for the evidence page. */
+/**
+ * How many labels each category rule left out (data/bottles/fda_labels.json counts), for the evidence page. Strict, so
+ * a new rule in castforecast/label_set.py fails here instead of going unlisted.
+ */
 export const LEFT_OUT = z
-  .object({ tinted: Count, powder: Count, lip: Count, render_error: Count })
+  .strictObject({ tinted: Count, powder: Count, lip: Count, zinc_too_low: Count, render_error: Count })
   .parse((labelsJson as { leftOut?: unknown }).leftOut);
 
 // The chips and the server must agree: every featured bottle is in the full catalogue, entry for entry.

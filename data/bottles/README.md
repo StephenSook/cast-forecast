@@ -15,6 +15,7 @@ Categories the model cannot speak for:
 - `tinted`: iron oxides in the ingredients (as label text or SPL data writes them), or "tint" in the name. The model has no tint term, and iron oxides hide cast.
 - `powder`: a powder dosage form, or "powder" in the name. The model was never tested on a powder.
 - `lip`: a lipstick dosage form, or "lip" in the name. The tones are skin tones.
+- `zinc_too_low`: the model predicts a negative whitening (a darkening) on one of the five tones. Below about 6.3 percent zinc the straight-line fit's intercept goes under zero; that is an artifact of the fit, not an effect, and the site never shows a negative cast.
 - `render_error`: no skin tone has a render within 1.0 L* of its prediction, the bound every render keeps.
 
 Then `duplicate`: labels from one labeler (compared as displayed, so two spellings of one company match) with the same display name and the same percent get the same prediction, so one is kept (the newest, or a featured one) and the others' barcodes are added to its `upcs`, except a barcode another kept label lists as its own.

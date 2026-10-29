@@ -88,17 +88,23 @@ def test_the_left_out_counts_are_the_data_files():
 
 
 def test_the_readmes_render_bound_is_the_catalogues():
-    # README: "every bottle and tone lands within X L* (Y for every prediction above zero ...)".
+    # README: "every bottle and tone lands within X L*; that is a mismatch under the fitted curve".
     bottles = json.loads(ALL_OUT.read_text())["bottles"]
-    tones = [t for b in bottles for t in b["tones"]]
-    every = max(t["render"]["errorL"] for t in tones)
-    above_zero = max(t["render"]["errorL"] for t in tones if t["whitening"]["value"] > 0)
-    m = re.search(
-        r"lands within ([\d.]+) L\* \(([\d.]+) for every prediction above zero", README.read_text()
-    )
+    every = max(t["render"]["errorL"] for b in bottles for t in b["tones"])
+    m = re.search(r"every bottle and tone lands within ([\d.]+) L\*;", README.read_text())
     assert m, "README no longer states the render bound"
     assert float(m.group(1)) == np.ceil(every * 100) / 100
-    assert float(m.group(2)) == np.ceil(above_zero * 100) / 100
+
+
+def test_no_shipped_label_predicts_a_negative_cast_on_any_tone():
+    # A darkening is the straight-line fit's intercept, not an effect; those labels are left out.
+    for path in (ALL_OUT, OUT):
+        bottles = json.loads(path.read_text())["bottles"]
+        assert bottles
+        for b in bottles:
+            assert b["whitening"]["value"] >= 0, b["id"]
+            assert all(t["whitening"]["value"] >= 0 for t in b["tones"]), b["id"]
+    assert json.loads(LABELS.read_text())["counts"]["zinc_too_low"] > 0  # the rule is live
 
 
 def test_the_published_file_does_not_depend_on_the_fits_last_bits():

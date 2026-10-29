@@ -57,8 +57,8 @@ test("the fact line carries the counts and the 7 character release", () => {
 });
 
 test("the left-out line names each category with its count, and the render bound, all passed in", () => {
-  expect(leftOutLine({ tinted: 3, powder: 2, lip: 1, render_error: 0 }, 1)).toBe(
-    "Not predicted: tinted (3), powders (2), lip products (1), and any render more than 1 L* off its prediction (0).",
+  expect(leftOutLine({ tinted: 3, powder: 2, lip: 1, zinc_too_low: 4, render_error: 0 }, 1)).toBe(
+    "Not predicted: tinted (3), powders (2), lip products (1), zinc too low to predict a cast (4), and any render more than 1 L* off its prediction (0).",
   );
 });
 

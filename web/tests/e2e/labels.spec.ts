@@ -111,5 +111,5 @@ test("the evidence page counts every label and names what is left out, from the 
   const data = JSON.parse(readFileSync("../data/bottles/fda_labels.json", "utf8")).counts;
   await page.goto("/evidence");
   await expect(page.getByText(`Bottles: ${data.kept}.`, { exact: false })).toBeVisible();
-  await expect(page.getByText(`Not predicted: tinted (${data.tinted}), powders (${data.powder}), lip products (${data.lip}), and any render more than 1 L* off its prediction (${data.render_error}).`)).toBeVisible();
+  await expect(page.getByText(`Not predicted: tinted (${data.tinted}), powders (${data.powder}), lip products (${data.lip}), zinc too low to predict a cast (${data.zinc_too_low}), and any render more than 1 L* off its prediction (${data.render_error}).`)).toBeVisible();
 });

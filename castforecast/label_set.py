@@ -18,6 +18,9 @@ Then the categories the model cannot speak for:
   iron oxides hide cast, so a tinted bottle's prediction would be wrong in a known direction.
 - powder: a powder dosage form or "powder" in the name. The model was never tested on a powder.
 - lip: a lipstick dosage form or "lip" in the name. The tones are skin tones, not lips.
+- zinc_too_low: the label model predicts a negative whitening (a darkening) on some tone. Below
+  about 6.3 percent zinc its intercept goes under zero; that is an artifact of a straight-line fit,
+  not an effect, and the site never shows a negative cast.
 - render_error: no tone has a render within the catalogue's bound (MAX_RENDER_ERROR, 1.0 L*), the
   same rule castforecast.label_catalogue applies.
 
@@ -33,7 +36,7 @@ import re
 import unicodedata
 
 from castforecast.fda_label import zinc_oxide_pct
-from castforecast.label_model import ZINC_RANGE
+from castforecast.label_model import ZINC_RANGE, predict
 
 # In the order they are tried; a label is counted under the first that applies.
 SCAN_REASONS = (
@@ -43,7 +46,7 @@ SCAN_REASONS = (
     "unreadable_percent",
     "outside_model_range",
 )
-CATEGORY_REASONS = ("tinted", "powder", "lip", "render_error")
+CATEGORY_REASONS = ("tinted", "powder", "lip", "zinc_too_low", "render_error")
 REASONS = SCAN_REASONS + CATEGORY_REASONS
 DUPLICATE = "duplicate"
 
@@ -121,6 +124,13 @@ def renders(zinc: float) -> bool:
     return any(tone_render(zinc, t) is not None for t in TONES)
 
 
+def predicts_no_darkening(zinc: float) -> bool:
+    """True when the label model's whitening is zero or more on every one of the site's tones."""
+    from castforecast.label_catalogue import TONES  # see renders()
+
+    return all(predict(zinc, t) >= 0 for t in TONES)
+
+
 def classify(label: dict, dosage_forms: list[str]) -> tuple[str | None, float | None]:
     """(first reason the label is left out or None, its zinc oxide percent when it could be read)."""
     substances = [s.strip().upper() for s in _openfda(label, "substance_name")]
@@ -142,6 +152,8 @@ def classify(label: dict, dosage_forms: list[str]) -> tuple[str | None, float | 
         return "powder", zinc
     if is_lip(label, dosage_forms):
         return "lip", zinc
+    if not predicts_no_darkening(zinc):
+        return "zinc_too_low", zinc
     if not renders(zinc):
         return "render_error", zinc
     return None, zinc

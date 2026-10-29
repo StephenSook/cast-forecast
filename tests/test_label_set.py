@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from castforecast import label_set
+from castforecast import label_model, label_set
 from castforecast.label_set import (
     CATEGORY_REASONS,
     DUPLICATE,
@@ -82,6 +82,18 @@ def test_a_plain_zinc_only_lotion_is_kept_with_its_percent():
 )
 def test_the_scan_rules_refuse_in_order(label, want):
     assert reason(label) == want
+
+
+def test_a_percent_too_low_for_the_model_to_predict_any_cast_is_left_out():
+    # The fit's intercept is below zero: under about 6.3 percent it predicts a darkening.
+    cut = -label_model.A / label_model.C
+    assert 6.0 < cut < 7.0
+    assert reason(lab("Zinc Oxide 5%")) == "zinc_too_low"
+    assert reason(lab("Zinc Oxide 6%")) == "zinc_too_low"
+    assert reason(lab("Zinc Oxide 6.4%")) is None
+    for tone in (65.0, 60.0, 55.0, 50.0, 45.0):
+        assert label_model.predict(6.4, tone) > 0 > label_model.predict(6.0, tone)
+    assert reason(lab("Zinc Oxide 5%", name="Tinted Sunscreen")) == "tinted"  # first rule wins
 
 
 @pytest.mark.parametrize(

@@ -16,7 +16,15 @@ test("the server holds every kept label, the chips are the featured ones, entry 
 });
 
 test("the left-out counts are the data file's", () => {
-  expect(LEFT_OUT).toEqual({ tinted: counts.tinted, powder: counts.powder, lip: counts.lip, render_error: counts.render_error });
+  expect(LEFT_OUT).toEqual({ tinted: counts.tinted, powder: counts.powder, lip: counts.lip, zinc_too_low: counts.zinc_too_low, render_error: counts.render_error });
+});
+
+test("no label the server holds predicts a negative cast on any tone", () => {
+  expect(counts.zinc_too_low).toBeGreaterThan(0); // the rule that keeps them out is live
+  for (const b of LABELS) {
+    expect(b.whitening.value, b.id).toBeGreaterThanOrEqual(0);
+    for (const t of b.tones) expect(t.whitening.value, `${b.id} L* ${t.lStar}`).toBeGreaterThanOrEqual(0);
+  }
 });
 
 test("every label renders on at least one tone, within the bound the render route enforces", () => {
