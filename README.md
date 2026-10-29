@@ -9,7 +9,7 @@ Why: in a 2024 dermatology survey, 25% of skin of color respondents named white 
 ## How it works
 1. Take a selfie or upload one.
 2. Pick the swatch closest to your skin, or tap **Suggest my tone**: YouCam's AI Fitzpatrick Skin Type Analysis reads the selfie, and the app preselects the swatch it maps that type to. It is a suggestion; you can change it.
-3. Tap a bottle. YouCam Makeup VTO renders that bottle's predicted cast on your face. Drag the slider to compare before and after.
+3. Tap a bottle, or find yours by name. YouCam Makeup VTO renders that bottle's predicted cast on your face. Drag the slider to compare before and after.
 
 ## Where each number comes from
 - **The bottle:** its zinc oxide percentage, read from its FDA label on DailyMed. Every zinc-only sunscreen label on openFDA that the model can speak for, each pinned by label set id in [`data/bottles/fda_labels.json`](data/bottles/fda_labels.json), with every label left out and why ([`data/bottles/README.md`](data/bottles/README.md)): tinted, powder and lip products are not predicted. A label is used only when its listed active ingredient is exactly zinc oxide and its text gives one plain percentage.

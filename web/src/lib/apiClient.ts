@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { BottleSchema } from "@/lib/catalogue";
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
 import { isFitzpatrick } from "@/lib/skinType";
 import type { RenderResult, SkinTypeResult } from "@/lib/types";
@@ -100,6 +102,28 @@ export async function readSkinType(fileId: string, f: typeof fetch = fetch): Pro
   );
   if (!isRecord(body) || !isFitzpatrick(body.fitzpatrick)) throw new ApiFailure("upstream");
   return { fitzpatrick: body.fitzpatrick };
+}
+
+const SearchAnswer = z.object({ total: z.number().int().min(0), bottles: z.array(BottleSchema).max(50) });
+export type SearchAnswer = z.infer<typeof SearchAnswer>;
+
+/**
+ * Labels whose name or brand match `query`, best first, as full catalogue entries (so a result renders exactly like a
+ * chip). Free: no YouCam call. Every failure, an aborted request included, is an ApiFailure.
+ */
+export async function searchLabels(query: string, signal?: AbortSignal, f: typeof fetch = fetch): Promise<SearchAnswer> {
+  let res: Response;
+  let body: unknown;
+  try {
+    res = await f(`/api/labels?${new URLSearchParams({ q: query })}`, { signal, credentials: "same-origin" });
+    body = await res.json();
+  } catch (e) {
+    throw transportFailure(e);
+  }
+  if (!res.ok) throw errorFrom(res, body);
+  const parsed = SearchAnswer.safeParse(body);
+  if (!parsed.success) throw new ApiFailure("upstream");
+  return parsed.data;
 }
 
 /** Renders the bottle's cast on an uploaded selfie. */

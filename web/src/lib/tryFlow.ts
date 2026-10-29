@@ -28,6 +28,8 @@ export type TryEvent =
   | { type: "PHOTO_READY"; image: PreparedImage }
   | { type: "TONE"; tone: number | "deeper" }
   | { type: "PICK"; bottleId: string }
+  /** A bottle chosen before a render can start (no photo or tone yet): it is marked picked, nothing is sent. */
+  | { type: "SELECT"; bottleId: string }
   | { type: "READ_SKIN" }
   | { type: "SKIN_READ"; fitzpatrick: Fitzpatrick }
   | { type: "UPLOADED"; fileId: string }
@@ -37,13 +39,13 @@ export type TryEvent =
 
 export const EXPIRED_LINE = "That render expired. Pick the bottle again.";
 
-export function initialTryState(bottleId: string | null = null): TryState {
+export function initialTryState(bottleId: string | null = null, tone: number | null = null): TryState {
   return {
     phase: "empty",
     image: null,
     fileId: null,
     bottleId,
-    tone: null,
+    tone,
     skinType: null,
     result: null,
     code: null,
@@ -82,6 +84,8 @@ export function tryReducer(s: TryState, e: TryEvent): TryState {
     case "PICK":
       if (!canPick(s)) return s;
       return { ...s, phase: s.fileId === null ? "uploading" : "rendering", bottleId: e.bottleId, code: null, message: null, expired: false };
+    case "SELECT":
+      return settled(s) && !canPick(s) ? { ...s, bottleId: e.bottleId } : s;
     case "READ_SKIN":
       // A shown render may belong to a tone the suggestion replaces, so it goes, as for TONE.
       if (!canSuggest(s)) return s;

@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ApiFailure, readSkinType, renderBottle, uploadSelfie } from "@/lib/apiClient";
+import { ApiFailure, readSkinType, renderBottle, searchLabels, uploadSelfie } from "@/lib/apiClient";
 import { type Bottle, TONES, type Tone, findBottle, formatValue, toneOf, whiteningDomain } from "@/lib/catalogue";
 import { type PreparedImage, releaseImage } from "@/lib/image";
 import { type CfErrorCode, MESSAGES } from "@/lib/messages";
 import { EXPIRED_LINE, type TryEvent, type TryState, canPick, canSuggest, initialTryState, tryReducer } from "@/lib/tryFlow";
 import { Bars } from "./Bars";
 import { BottleChips } from "./BottleChips";
+import { BottleSearch } from "./BottleSearch";
 import { CaptureFrame } from "./CaptureFrame";
 import { ResultBlock } from "./ResultBlock";
 import { ToneSwatches } from "./ToneSwatches";
@@ -19,8 +20,8 @@ const SLOW_MS = 10_000;
 /** Shown when the shopper's skin is deeper than any tone the study measured. */
 export const DEEPER_LINE = "The study behind these numbers measured skin down to L* 44. Deeper skin has no prediction yet.";
 
-type Api = { upload: typeof uploadSelfie; render: typeof renderBottle; readSkinType: typeof readSkinType };
-const DEFAULT_API: Api = { upload: uploadSelfie, render: renderBottle, readSkinType };
+type Api = { upload: typeof uploadSelfie; render: typeof renderBottle; readSkinType: typeof readSkinType; search?: typeof searchLabels };
+const DEFAULT_API: Api = { upload: uploadSelfie, render: renderBottle, readSkinType, search: searchLabels };
 
 /** The line under the tones once YouCam has read the selfie's skin type. */
 export function suggestedLine(fitzpatrick: string): string {
@@ -64,15 +65,26 @@ function useWaitClock(busy: boolean): { elapsed: number | null; start(): void } 
  * synchronously (a ref mirrors the state), so a double tap starts one render, and a newer photo or pick makes any
  * answer still in flight for an older one count for nothing. No pick starts while a new photo is being prepared, and
  * the result shows only once the render's image has loaded.
+ *
+ * The chips are the featured `bottles`. Any other label comes from the search field (or `initialBottle`, from a bottle
+ * page's "Try it on me") and joins the chips as one more, picked the same way: the same reducer, render call and
+ * server checks. `api.search` absent means no search field.
  */
-export function TryFlow({ bottles, tones = TONES, initialBottleId = null, api = DEFAULT_API, prepare }: {
+export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null, initialBottle = null, initialTone = null, api = DEFAULT_API, prepare }: {
   bottles: readonly Bottle[];
   tones?: readonly Tone[];
+  /** The result bar's axis; the whole catalogue's (whiteningDomain) so it matches /compare and the bottle pages. */
+  domain?: readonly [number, number];
   initialBottleId?: string | null;
+  initialBottle?: Bottle | null;
+  initialTone?: number | null;
   api?: Api;
   prepare?: (f: File) => Promise<PreparedImage>;
 }) {
-  const [state, setState] = useState<TryState>(() => initialTryState(initialBottleId));
+  const [state, setState] = useState<TryState>(() => initialTryState(initialBottleId ?? initialBottle?.id ?? null, initialTone));
+  // The one label picked from search (or handed in) that is not a chip; it shows as the last chip.
+  const [found, setFound] = useState<Bottle | null>(initialBottle);
+  const chips = found && !bottles.some((b) => b.id === found.id) ? [...bottles, found] : bottles;
   const live = useRef(state);
   const run = useRef(0);
   // A photo being prepared will replace the current one, so the chips are off meanwhile and no pick can start on the
@@ -139,6 +151,13 @@ export function TryFlow({ bottles, tones = TONES, initialBottleId = null, api = 
     }
   };
 
+  // A search result is picked exactly like a chip; before a render can start, it is only marked picked.
+  const onFound = (b: Bottle) => {
+    if (!bottles.some((c) => c.id === b.id)) setFound(b);
+    if (canPick(live.current) && !preparing) void onPick(b.id);
+    else send({ type: "SELECT", bottleId: b.id });
+  };
+
   const onSuggest = async () => {
     const before = live.current;
     const started = send({ type: "READ_SKIN" });
@@ -163,9 +182,9 @@ export function TryFlow({ bottles, tones = TONES, initialBottleId = null, api = 
   };
 
   const line = state.phase === "error" && state.code ? (state.message ?? MESSAGES[state.code]) : state.expired ? EXPIRED_LINE : "";
-  const bottle = revealed && state.result ? findBottle(state.result.bottleId, bottles) : undefined;
+  const bottle = revealed && state.result ? findBottle(state.result.bottleId, chips) : undefined;
   const shown = bottle && typeof state.tone === "number" ? toneOf(bottle, state.tone) : undefined;
-  const [lo, hi] = whiteningDomain(bottles);
+  const [lo, hi] = domain ?? whiteningDomain(chips);
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] items-start">
@@ -196,7 +215,8 @@ export function TryFlow({ bottles, tones = TONES, initialBottleId = null, api = 
         )}
         {state.skinType && <p className="max-w-[34rem]">{suggestedLine(state.skinType)}</p>}
         {state.tone === "deeper" && <p className="max-w-[34rem] font-bold">{DEEPER_LINE}</p>}
-        <BottleChips bottles={bottles} selectedId={state.bottleId} disabled={!canPick(state) || preparing} onPick={(id) => void onPick(id)} />
+        <BottleChips bottles={chips} selectedId={state.bottleId} disabled={!canPick(state) || preparing} onPick={(id) => void onPick(id)} />
+        {api.search && bottles.length > 0 && <BottleSearch search={api.search} onSelect={onFound} disabled={busy || preparing} />}
         {line && (
           <p role="alert" className="max-w-[34rem] rounded-2xl border-2 border-ink bg-paper p-4 font-bold">
             {line}

@@ -1,7 +1,8 @@
 import "server-only";
-import { type Bottle, CATALOGUE } from "@/lib/catalogue";
+import type { Bottle } from "@/lib/catalogue";
 import { type BalanceCache, createBalanceCache } from "@/server/credits";
 import { type ServerEnv, readServerEnv } from "@/server/env";
+import { LABELS } from "@/server/labels";
 import { type Limiter, createLimiter } from "@/server/limits";
 import { type YouCam, createYouCam } from "@/server/youcam";
 
@@ -26,7 +27,8 @@ export function defaultDeps(): RouteDeps {
     env: readServerEnv(),
     youcam: (key) => createYouCam({ key }),
     limiter,
-    catalogue: CATALOGUE,
+    // Every kept label, so a bottle found by search renders through the same checks as a chip.
+    catalogue: LABELS,
     balance,
     now: () => Date.now(),
   };

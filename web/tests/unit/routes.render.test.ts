@@ -3,7 +3,9 @@ import * as renderRoute from "@/app/api/render/route";
 import { CATALOGUE, RENDER_MAX_ERROR_L } from "@/lib/catalogue";
 import { colorIntensityForBlend } from "@/lib/curve";
 import { MESSAGES } from "@/lib/messages";
+import { defaultDeps } from "@/server/deps";
 import { mapYouCamError } from "@/server/errors";
+import { LABELS } from "@/server/labels";
 import { makeupVtoPayload } from "@/server/payload";
 import { BODY_READ_DEADLINE_MS } from "@/server/routes/common";
 import { makeCreditsHandler } from "@/server/routes/credits";
@@ -181,6 +183,32 @@ test("every shipped bottle renders on every tone within the bound, at the whole 
       expect(target.predictedBlend).toBeCloseTo(t.render!.blend, 6);           // the file publishes to 6 places
     }
   }
+});
+// Every kept FDA label, the same check for the bottles only search reaches.
+test("every label in the full catalogue renders on every tone within the bound, at the whole intensity it was chosen for", () => {
+  expect(LABELS.length).toBeGreaterThan(CATALOGUE.length);
+  for (const b of LABELS) {
+    for (const t of b.tones) {
+      expect(t.render, `${b.id} ${t.lStar}`).not.toBeNull();
+      expect(t.render!.errorL).toBeLessThanOrEqual(RENDER_MAX_ERROR_L);
+      const target = colorIntensityForBlend(t.render!.blend);
+      expect(target.reachable).toBe(true);
+      expect(target.predictedBlend).toBeCloseTo(t.render!.blend, 6);
+    }
+  }
+});
+test("a label found by search, not a chip, renders through the same route and checks", async () => {
+  const found = LABELS.find((b) => !b.featured && b.id === "blue-lizard-sheer-sunscreen-3368f1cb")!;
+  const { deps, ff } = testDeps({ catalogue: LABELS, balance: 879, routes: okRender });
+  const res = await makeRenderHandler(deps)(jsonPost("/api/render", { fileId: "file-1", bottleId: found.id, tone: 45 }, cookieFor(["file-1"])));
+  expect(res.status).toBe(200);
+  const render = found.tones.find((t) => t.lStar === 45)!.render!;
+  const intensity = colorIntensityForBlend(render.blend).colorIntensity;
+  expect(JSON.parse(ff.calls.find((c) => c.url.endsWith("/task/makeup-vto"))!.body as string)).toEqual(makeupVtoPayload("file-1", render.paletteHex, intensity));
+  expect(await res.json()).toMatchObject({ bottleId: found.id, colorIntensity: intensity });
+});
+test("the shipped render route reads the full catalogue", () => {
+  expect(defaultDeps().catalogue).toBe(LABELS);
 });
 test("carry 4: an unknown bottle id makes zero fetch calls", async () => {
   const { deps, ff } = testDeps({ catalogue: [testEntry()], balance: 879, routes: okRender });
