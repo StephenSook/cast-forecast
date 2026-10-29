@@ -17,6 +17,7 @@
     "test:bundle": "vitest run --config vitest.bundle.config.ts",
     "test:keyscan": "vitest run --config vitest.keyscan.config.ts",
     "e2e": "playwright test",
+    "e2e:live": "playwright test -c playwright.live.config.ts",
     "sync:gates": "node scripts/sync-gates.mjs"
   },
   "dependencies": {
