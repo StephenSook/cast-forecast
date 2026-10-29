@@ -9,6 +9,9 @@ import {
   LIST_TTL_MS,
   MAX_BODY_BYTES,
   MODERN_VERSIONS,
+  ORIGIN_REFUSED,
+  POST_ONLY,
+  RATE_LIMITED,
   SERVER_INFO,
   SUPPORTED_VERSIONS,
   decodeHeaderValue,
@@ -302,7 +305,7 @@ test("content type, Accept and Origin are checked before the body", async () => 
   for (const accept of ["text/event-stream", "text/html", "application/json;q=0"]) await rpcErrorOf(await send(rpc("ping"), { Accept: accept }), 406, -32600);
   for (const accept of ["application/json, text/event-stream", "*/*", "application/*", ""]) expect((await send(rpc("ping"), { Accept: accept })).status).toBe(200);
   for (const origin of ["https://evil.test", "null", "http://cf.test"]) {
-    const b = await rpcErrorOf(await send(rpc("ping"), { Origin: origin }), 403, -32000);
+    const b = await rpcErrorOf(await send(rpc("ping"), { Origin: origin }), 403, ORIGIN_REFUSED);
     expect(b).not.toHaveProperty("id");
   }
   expect((await send(rpc("ping"), { Origin: "https://cf.test" })).status).toBe(200);
@@ -313,7 +316,9 @@ test("GET and DELETE are 405 with Allow: POST", async () => {
     const res = await h();
     expect(res.status).toBe(405);
     expect(res.headers.get("allow")).toBe("POST");
-    expect((await answer(res)).error!.message).toMatch(/llms\.txt/);
+    const b = await answer(res);
+    expect(b.error!.code).toBe(POST_ONLY);
+    expect(b.error!.message).toMatch(/llms\.txt/);
   }
   expect(mcpRoute.runtime).toBe("nodejs");
   expect(mcpRoute.dynamic).toBe("force-dynamic");
@@ -324,9 +329,18 @@ test("the limiter counts every POST by IP and answers 429 with Retry-After past 
   const send = server();
   for (let i = 0; i < RULES.mcp.perIp; i++) expect((await send(rpc("ping", undefined, i))).status).toBe(200);
   const res = await send(rpc("ping"));
-  const b = await rpcErrorOf(res, 429, -32000);
+  const b = await rpcErrorOf(res, 429, RATE_LIMITED);
   expect(res.headers.get("retry-after")).toBe("3600");
   expect(b.error!.message).toBe("Too many requests. Try again in 60 minutes.");
+});
+
+// 2026-07-28 basic/index, Error Codes: -32768 to -32000 is JSON-RPC's; -32000 to -32019 is legacy and -32020 to
+// -32099 is the spec's own, so this server's codes sit outside the whole range.
+test("the server's own error codes are outside the reserved JSON-RPC range", () => {
+  for (const code of [ORIGIN_REFUSED, POST_ONLY, RATE_LIMITED]) {
+    expect(Number.isInteger(code)).toBe(true);
+    expect(code < -32768 || code > -32000, String(code)).toBe(true);
+  }
 });
 
 // Protocol versions.

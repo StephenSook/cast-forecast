@@ -33,8 +33,11 @@ const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
 const HEADER_MISMATCH = -32020;
 const UNSUPPORTED_PROTOCOL_VERSION = -32022;
-/** Implementation-defined (the spec leaves -32000 to -32019 to servers): origin, rate and method refusals. */
-const REFUSED = -32000;
+// This server's own refusals. The spec reserves -32768 to -32000 (-32000 to -32019 are legacy, not for new
+// implementations), so application codes sit outside it: -31000 less the HTTP status they come with.
+export const ORIGIN_REFUSED = -31403;
+export const POST_ONLY = -31405;
+export const RATE_LIMITED = -31429;
 
 const VERSION_KEY = "io.modelcontextprotocol/protocolVersion";
 const CAPABILITIES_KEY = "io.modelcontextprotocol/clientCapabilities";
@@ -70,7 +73,7 @@ function rpcResult(id: Id, era: Era, result: Json): Response {
 
 /** GET (the old standalone SSE stream) and DELETE (the old session end): 405, as the spec asks, with a pointer. */
 export async function methodNotAllowed(): Promise<Response> {
-  return rpcError(405, undefined, REFUSED, "POST one JSON-RPC message to this endpoint. See /llms.txt.", undefined, { Allow: "POST" });
+  return rpcError(405, undefined, POST_ONLY, "POST one JSON-RPC message to this endpoint. See /llms.txt.", undefined, { Allow: "POST" });
 }
 
 /** True when there is no Origin, or it is this site's own (spec: an invalid Origin is answered 403). */
@@ -117,12 +120,12 @@ function logUnexpected(e: unknown): void {
 /** POST handler. The limiter runs before the body is read, so a refused caller costs no read. */
 export function makeMcpHandler(deps: () => RouteDeps): (req: Request) => Promise<Response> {
   return async (req) => {
-    if (!originAllowed(req)) return rpcError(403, undefined, REFUSED, "Origin not allowed.");
+    if (!originAllowed(req)) return rpcError(403, undefined, ORIGIN_REFUSED, "Origin not allowed.");
     const d = deps();
     const limit = d.limiter.take("mcp", null, clientIp(req), d.now());
     if (!limit.ok) {
       const wait = { "Retry-After": String(limit.retryAfterS) };
-      return rpcError(429, undefined, REFUSED, `Too many requests. Try again in ${waitText(limit.retryAfterS)}.`, undefined, wait);
+      return rpcError(429, undefined, RATE_LIMITED, `Too many requests. Try again in ${waitText(limit.retryAfterS)}.`, undefined, wait);
     }
     if (mediaType(req) !== "application/json") return rpcError(415, undefined, INVALID_REQUEST, "Send Content-Type: application/json.");
     if (!acceptsJson(req.headers.get("accept"))) return rpcError(406, undefined, INVALID_REQUEST, "This server answers in application/json.");
