@@ -1,9 +1,10 @@
 """Fetch the FDA drug labels behind the catalogue and write data/bottles/fda_labels.json.
 
 Each bottle is pinned by its label's set id (openFDA mirrors DailyMed's structured product
-labels). The script refuses a label unless zinc oxide is its only active ingredient and the
-percentage can be read from the label text, and it keeps the active-ingredient text verbatim so
-anyone can check the number against https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=...
+labels). castforecast.fda_label refuses a label unless its structured active substances are exactly
+zinc oxide and its text holds one plain percentage; the script keeps the active-ingredient text
+verbatim so anyone can check the number against
+https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=...
 
 Usage: python analysis/bottles/fetch_labels.py [out_json]
 """
@@ -13,7 +14,6 @@ from __future__ import annotations
 import datetime
 import json
 import os
-import re
 import sys
 import time
 import urllib.parse
@@ -59,13 +59,12 @@ BOTTLES = {
         "Coppertone",
     ),
 }
-OTHER_ACTIVES = re.compile(
-    r"titanium|avobenzone|octinoxate|homosalate|octisalate|octocrylene|oxybenzone|ensulizole|meradimate|ecamsule",
-    re.IGNORECASE,
-)
-PERCENT = re.compile(r"zinc\s*oxide[^0-9%]{0,40}?(\d{1,2}(?:\.\d{1,3})?)\s*%", re.IGNORECASE)
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "data", "bottles", "fda_labels.json")
+ROOT = os.path.dirname(os.path.dirname(HERE))
+OUT = os.path.join(ROOT, "data", "bottles", "fda_labels.json")
+sys.path.insert(0, ROOT)
+
+from castforecast.fda_label import zinc_oxide_pct
 
 
 def fetch(set_id: str) -> dict:
@@ -85,11 +84,10 @@ def main(argv: list[str]) -> int:
     for set_id, (bid, name, brand) in BOTTLES.items():
         label = fetch(set_id)
         actives = " ".join(label.get("active_ingredient", [])).strip()
-        if OTHER_ACTIVES.search(actives):
-            raise SystemExit(f"{bid}: zinc oxide is not the only active ingredient: {actives!r}")
-        found = PERCENT.findall(actives)
-        if len(set(found)) != 1:
-            raise SystemExit(f"{bid}: cannot read one zinc oxide percentage from {actives!r}")
+        try:
+            zinc = zinc_oxide_pct(label)
+        except ValueError as e:
+            raise SystemExit(f"{bid}: {e}") from e
         of = label.get("openfda", {})
         upcs = of.get("upc") or []
         bottles.append(
@@ -103,7 +101,7 @@ def main(argv: list[str]) -> int:
                 "set_id": set_id,
                 "label_effective": label.get("effective_time"),
                 "active_ingredient_text": actives,
-                "zinc_oxide_pct": float(found[0]),
+                "zinc_oxide_pct": zinc,
             }
         )
         time.sleep(0.3)
