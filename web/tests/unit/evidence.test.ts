@@ -22,13 +22,14 @@ test("the render count and the dE00 bar are read from the summary, never hardcod
 
 test("steps print the curl and link the study table and the labels", () => {
   const steps = evidenceSteps("https://x.test", 8);
-  expect(steps.map((s) => s.title)).toEqual(["Read the gates", "Check the render mapping", "The data", "Read the code"]);
-  expect(steps[1].code).toBe("curl -s https://x.test/api/gates");
-  expect(steps[2].href).toBe(DATA_URL);
-  expect(steps[2].body).toContain("each of the 8 bottles");
+  expect(steps.map((s) => s.title)).toEqual(["Read the gates", "Check the prediction", "Check the render mapping", "The data", "Read the code"]);
+  expect(steps[1].code).toBe("curl -s https://x.test/api/label-model");
+  expect(steps[2].code).toBe("curl -s https://x.test/api/gates");
+  expect(steps[3].href).toBe(DATA_URL);
+  expect(steps[3].body).toContain("each of the 8 bottles");
   expect(DATA_URL).toBe("https://github.com/StephenSook/cast-forecast/tree/main/data");
   expect(steps[0].href).toContain("/docs/gates/README.md");
-  expect(steps[3].href).toBe("https://github.com/StephenSook/cast-forecast");
+  expect(steps[4].href).toBe("https://github.com/StephenSook/cast-forecast");
 });
 
 // docs/gates/gate1-results.md discloses that Gate 1's first rows were printed before its rule, so "written before its data" is false.
