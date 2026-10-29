@@ -43,8 +43,8 @@ export function makeRenderHandler(deps: () => RouteDeps): (req: Request) => Prom
     const session = readSession(req.headers.get("cookie"), secret, now);
     if (!session || !session.files.includes(body.fileId)) return errorResponse("session_missing", 401);
 
-    // A bottle whose blend the K1b curve cannot reach would render a weaker cast than measured, and one whose render
-    // misses its own film by more than RENDER_MAX_ERROR_L would show the wrong cast: both refused like an unknown one.
+    // A bottle whose blend the K1b curve cannot reach would render a weaker cast than predicted, and one whose render
+    // misses its own prediction by more than RENDER_MAX_ERROR_L would show the wrong cast: both refused like an unknown one.
     const bottle = findBottle(body.bottleId, d.catalogue);
     const target = bottle && bottle.render.errorL <= RENDER_MAX_ERROR_L ? colorIntensityForBlend(bottle.render.blend) : null;
     if (!bottle || !target?.reachable) return errorResponse("unknown_bottle", 404);

@@ -1,1 +1,205 @@
-{"schemaVersion": 1, "bottles": []}
+{
+  "schemaVersion": 1,
+  "bottles": [
+    {
+      "id": "cetaphil-sheer-mineral-face",
+      "name": "Cetaphil Sheer Mineral",
+      "brand": "Cetaphil",
+      "upc": null,
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#ffffff",
+        "blend": 0.026500000000000003,
+        "errorL": 0.45402238831860764
+      },
+      "whitening": {
+        "value": 2.1841928886488198,
+        "low": -0.16580711135118031,
+        "high": 4.534192888648819,
+        "unit": "L*"
+      },
+      "evidence": {
+        "source": "fda-label",
+        "setId": "0d09b812-b3ca-4214-bed7-7e21ee3288b7",
+        "labelEffective": "2023-11-14",
+        "zincOxidePct": 12.0
+      }
+    },
+    {
+      "id": "babo-sheer-zinc",
+      "name": "Babo Sheer Zinc",
+      "brand": "Babo Botanicals",
+      "upc": null,
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#ffffff",
+        "blend": 0.046400000000000004,
+        "errorL": 0.6181079946924628
+      },
+      "whitening": {
+        "value": 3.7170675081710334,
+        "low": 1.3670675081710333,
+        "high": 6.067067508171034,
+        "unit": "L*"
+      },
+      "evidence": {
+        "source": "fda-label",
+        "setId": "08f0436b-85b6-5099-e063-6294a90a4c2e",
+        "labelEffective": "2025-10-09",
+        "zincOxidePct": 16.0
+      }
+    },
+    {
+      "id": "supergoop-mineral-sheer-stick",
+      "name": "Supergoop Mineral Stick",
+      "brand": "Supergoop",
+      "upc": "0816218029890",
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#ffffff",
+        "blend": 0.046400000000000004,
+        "errorL": 0.6181079946924628
+      },
+      "whitening": {
+        "value": 3.7170675081710334,
+        "low": 1.3670675081710333,
+        "high": 6.067067508171034,
+        "unit": "L*"
+      },
+      "evidence": {
+        "source": "fda-label",
+        "setId": "0beed72e-51df-d15a-e063-6394a90af559",
+        "labelEffective": "2025-12-17",
+        "zincOxidePct": 16.0
+      }
+    },
+    {
+      "id": "badger-face-mineral",
+      "name": "Badger Face Mineral",
+      "brand": "Badger",
+      "upc": "0634084471724",
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#ffffff",
+        "blend": 0.0606,
+        "errorL": 0.8130304145516654
+      },
+      "whitening": {
+        "value": 4.770918809092555,
+        "low": 2.4209188090925546,
+        "high": 7.120918809092554,
+        "unit": "L*"
+      },
+      "evidence": {
+        "source": "fda-label",
+        "setId": "14a9b605-f1f0-00e5-e063-6394a90a5a51",
+        "labelEffective": "2026-03-31",
+        "zincOxidePct": 18.75
+      }
+    },
+    {
+      "id": "hello-bello-mineral",
+      "name": "Hello Bello Mineral",
+      "brand": "Hello Bello",
+      "upc": null,
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#ffffff",
+        "blend": 0.06720000000000001,
+        "errorL": 0.8891683035016156
+      },
+      "whitening": {
+        "value": 5.249942127693247,
+        "low": 2.899942127693247,
+        "high": 7.599942127693247,
+        "unit": "L*"
+      },
+      "evidence": {
+        "source": "fda-label",
+        "setId": "01cc205b-a345-262a-e063-6394a90a955c",
+        "labelEffective": "2025-01-08",
+        "zincOxidePct": 20.0
+      }
+    },
+    {
+      "id": "neutrogena-sheer-zinc",
+      "name": "Neutrogena Sheer Zinc",
+      "brand": "Neutrogena",
+      "upc": "0086800110804",
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#ffffff",
+        "blend": 0.07590000000000001,
+        "errorL": 0.8163614465487621
+      },
+      "whitening": {
+        "value": 5.863091975502132,
+        "low": 3.513091975502132,
+        "high": 8.213091975502133,
+        "unit": "L*"
+      },
+      "evidence": {
+        "source": "fda-label",
+        "setId": "525f7bae-44b8-44e4-93ea-32995eca2566",
+        "labelEffective": "2025-02-13",
+        "zincOxidePct": 21.6
+      }
+    },
+    {
+      "id": "eltamd-uv-aox-mist",
+      "name": "EltaMD UV AOX Mist",
+      "brand": "EltaMD",
+      "upc": null,
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#ffffff",
+        "blend": 0.0363,
+        "errorL": 0.6136293069594423
+      },
+      "whitening": {
+        "value": 2.950630198409927,
+        "low": 0.6006301984099269,
+        "high": 5.300630198409927,
+        "unit": "L*"
+      },
+      "evidence": {
+        "source": "fda-label",
+        "setId": "1062efb1-a638-4323-88f8-f2f98a5b996e",
+        "labelEffective": "2023-11-09",
+        "zincOxidePct": 14.0
+      }
+    },
+    {
+      "id": "coppertone-pure-and-simple",
+      "name": "Coppertone Pure and Simple",
+      "brand": "Coppertone",
+      "upc": "0072140028831",
+      "filter": "mineral",
+      "tinted": false,
+      "render": {
+        "paletteHex": "#ffffff",
+        "blend": 0.0896,
+        "errorL": 0.9695342069674648
+      },
+      "whitening": {
+        "value": 6.813474239605903,
+        "low": 4.463474239605903,
+        "high": 9.163474239605904,
+        "unit": "L*"
+      },
+      "evidence": {
+        "source": "fda-label",
+        "setId": "081484f8-58f5-f2a4-e063-6394a90a3379",
+        "labelEffective": "2025-12-31",
+        "zincOxidePct": 24.08
+      }
+    }
+  ]
+}

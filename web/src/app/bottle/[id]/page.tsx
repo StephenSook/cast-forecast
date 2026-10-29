@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CATALOGUE, findBottle, formatWhitening } from "@/lib/catalogue";
-import { measuredLine } from "@/lib/compare";
+import { CATALOGUE, findBottle, formatWhitening, labelUrl } from "@/lib/catalogue";
+import { evidenceLine } from "@/lib/compare";
 import { ResultBlock } from "@/ui/ResultBlock";
 import { SquashButton } from "@/ui/SquashButton";
 
@@ -27,7 +27,7 @@ export default async function BottlePage({ params }: PageProps<"/bottle/[id]">) 
       <div className="mt-8">
         <ResultBlock
           word={formatWhitening(bottle)}
-          line={measuredLine(bottle)}
+          line={evidenceLine(bottle)}
           tone="amber"
         />
       </div>
@@ -36,6 +36,9 @@ export default async function BottlePage({ params }: PageProps<"/bottle/[id]">) 
         <Link href="/evidence" className="font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">
           See the evidence
         </Link>
+        <a href={labelUrl(bottle)} target="_blank" rel="noreferrer" className="font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">
+          Read the FDA label<span className="sr-only"> (opens in a new tab)</span>
+        </a>
       </div>
     </section>
   );

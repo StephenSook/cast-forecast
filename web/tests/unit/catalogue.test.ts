@@ -1,12 +1,20 @@
 import { expect, test } from "vitest";
 import bottlesJson from "@/data/bottles.json";
-import { CATALOGUE, formatWhitening, loadCatalogue, whiteningDomain } from "@/lib/catalogue";
+import { CATALOGUE, formatWhitening, labelUrl, loadCatalogue, RENDER_MAX_ERROR_L, whiteningDomain } from "@/lib/catalogue";
 import { catalogueFile, testEntry } from "../helpers/entries";
 
-test("shipped catalogue is version 1, empty, and parses", () => {
+test("shipped catalogue is version 1 and parses; every bottle cites an FDA label and renders within the bound", () => {
   expect(bottlesJson.schemaVersion).toBe(1);
-  expect(loadCatalogue(bottlesJson)).toEqual([]);
+  const bottles = loadCatalogue(bottlesJson);
+  expect(bottles.length).toBeGreaterThanOrEqual(5);
+  for (const b of bottles) {
+    expect(b.evidence.source).toBe("fda-label");
+    expect(labelUrl(b)).toBe(`https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=${b.evidence.setId}`);
+    expect(b.render.errorL).toBeLessThanOrEqual(RENDER_MAX_ERROR_L);
+  }
 });
+test("schema rejects a zinc oxide percent above the 25 percent label limit", () =>
+  expect(() => loadCatalogue(catalogueFile([testEntry({ evidence: { ...testEntry().evidence, zincOxidePct: 30 } })]))).toThrow());
 test("loadCatalogue rejects another schemaVersion", () => expect(() => loadCatalogue({ schemaVersion: 2, bottles: [] })).toThrow());
 test("loadCatalogue rejects the unversioned bare array", () => expect(() => loadCatalogue([])).toThrow());
 test("no shipped id starts with test-", () => expect(CATALOGUE.filter((b) => b.id.startsWith("test-"))).toEqual([]));

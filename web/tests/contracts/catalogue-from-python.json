@@ -20,9 +20,10 @@
         "unit": "L*"
       },
       "evidence": {
-        "csvRowId": "test-row-1",
-        "measuredAt": "2026-10-28",
-        "photos": 2
+        "source": "fda-label",
+        "setId": "00000000-0000-4000-8000-000000000001",
+        "labelEffective": "2026-10-28",
+        "zincOxidePct": 20
       }
     },
     {
@@ -44,9 +45,10 @@
         "unit": "L*"
       },
       "evidence": {
-        "csvRowId": "test-row-2",
-        "measuredAt": "2026-10-28",
-        "photos": 2
+        "source": "fda-label",
+        "setId": "00000000-0000-4000-8000-000000000002",
+        "labelEffective": "2026-10-28",
+        "zincOxidePct": 20
       }
     }
   ]

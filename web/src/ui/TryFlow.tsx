@@ -167,7 +167,7 @@ export function TryFlow({ bottles, initialBottleId = null, api = DEFAULT_API, pr
                 rows={[{ label: bottle.name, value: bottle.whitening.value, low: bottle.whitening.low, high: bottle.whitening.high }]}
                 domain={[lo, hi]}
                 format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${bottle.whitening.unit}`}
-                ariaLabel="Measured white cast"
+                ariaLabel="Predicted white cast"
               />
             )}
             <Link href="/evidence" className="justify-self-start font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">

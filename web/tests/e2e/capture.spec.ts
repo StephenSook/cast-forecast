@@ -26,10 +26,10 @@ test("a tall narrow photo shows the too small line", async ({ page }) => {
   await page.goto("/"); await page.getByTestId("upload-input").setInputFiles(FIX + "tall-1080x4000.jpg");
   await expect(page.getByRole("main").getByRole("alert")).toHaveText("That photo is too small.");
 });
-test("nothing is uploaded while the catalogue is empty", async ({ page }) => {
+test("nothing is uploaded until a bottle is tapped", async ({ page }) => {
   await page.goto("/"); await page.getByTestId("upload-input").setInputFiles(FIX + "plain-640x480.jpg");
   await expect(page.getByTestId("selfie-preview")).toBeVisible();
-  await expect(page.getByText("No bottles measured yet.")).toBeVisible();
+  await expect(page.locator("main button[aria-pressed]").first()).toBeVisible();
   expect(uploads).toEqual([]);
 });
 // The inputs are visually hidden rather than display:none, so a programmatic click opens the picker on phones too.

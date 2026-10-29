@@ -2,10 +2,10 @@ import { githubDocUrl, type K1bSummary } from "@/lib/gates";
 import { siteUrl } from "@/lib/site";
 import type { JudgeStep } from "@/ui/JudgeSteps";
 
-/** The per-bottle measurements CSV. null until the first measured bottle publishes it. */
-export const MEASUREMENTS_CSV_URL: string | null = null;
-
 const REPO = "https://github.com/StephenSook/cast-forecast";
+
+/** The study table behind the predictions and the pinned FDA labels, on GitHub. */
+export const DATA_URL = `${REPO}/tree/main/data`;
 
 /** The four K1b numbers on /evidence. Every figure, the render count and the dE00 bar included, comes from `k`. */
 export function evidenceTiles(k: K1bSummary): { value: string; label: string }[] {
@@ -19,12 +19,13 @@ export function evidenceTiles(k: K1bSummary): { value: string; label: string }[]
 
 /** The numbered "check it yourself" cards. `base` is the site origin the printed curl points at. */
 export function evidenceSteps(base: string, bottles: number): JudgeStep[] {
-  const csv: JudgeStep = MEASUREMENTS_CSV_URL
-    ? { title: "Measurements", body: "The per-bottle CSV, one row per measured bottle.", href: MEASUREMENTS_CSV_URL, cta: "Download the CSV", external: true }
-    : {
-        title: "Measurements",
-        body: bottles > 0 ? "The per-bottle CSV is not published yet." : "The per-bottle CSV publishes with the first measured bottle.",
-      };
+  const data: JudgeStep = {
+    title: "The data",
+    body: `The 13-volunteer study table every prediction is fitted on (CC BY 4.0), and the FDA label behind each of the ${bottles} bottles.`,
+    href: DATA_URL,
+    cta: "data/ on GitHub",
+    external: true,
+  };
   return [
     {
       title: "Read the gates",
@@ -34,7 +35,7 @@ export function evidenceSteps(base: string, bottles: number): JudgeStep[] {
       external: true,
     },
     { title: "Check the render mapping", body: "Recomputes the K1b inverse from the published curve.", code: `curl -s ${base}/api/gates` },
-    csv,
+    data,
     {
       title: "Read the code",
       body: "Lint, types, tests, build and a bundle scan run on every push.",
@@ -47,7 +48,7 @@ export function evidenceSteps(base: string, bottles: number): JudgeStep[] {
 
 /** One line of counts for the evidence page. */
 export function factLine(bottles: number, gates: number, release: string): string {
-  return `Bottles measured: ${bottles}. Gates on record: ${gates}. Release ${release.slice(0, 7)}.`;
+  return `Bottles: ${bottles}. Gates on record: ${gates}. Release ${release.slice(0, 7)}.`;
 }
 
 /** The pinned y axis of the K1b chart (blend strength). A curve above it shows the "data unavailable" card. */

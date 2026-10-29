@@ -71,7 +71,7 @@ test("empty catalogue: the selfie stays local and nothing is uploaded", async ()
   const { api, addPhoto } = setup({ bottles: [] });
   await addPhoto();
   expect(screen.getByTestId("selfie-preview")).toHaveAttribute("src", "blob:a");
-  expect(screen.getByText("No bottles measured yet.")).toBeInTheDocument();
+  expect(screen.getByText("No bottles yet.")).toBeInTheDocument();
   expect(api.upload).not.toHaveBeenCalled();
 });
 test("initialBottleId preselects the chip and still waits for a tap", async () => {
@@ -218,7 +218,7 @@ test("the chips are off the moment the change event returns, so a tap right afte
   await act(async () => gate.resolve({ ...image, url: "blob:b" }));
 });
 
-test("the result shows the measured cast for the bottle and a link to the evidence", async () => {
+test("the result shows the predicted cast for the bottle and a link to the evidence", async () => {
   const { user, addPhoto, chip } = setup();
   await addPhoto(); await user.click(chip("Test entry A"));
   expect(await screen.findByTestId("result-image")).toHaveAttribute("src", "https://out.example/r.png");
@@ -226,7 +226,7 @@ test("the result shows the measured cast for the bottle and a link to the eviden
   const block = screen.getByTestId("result");
   expect(within(block).getByText("+2.4 L*")).toBeInTheDocument();
   expect(within(block).getByText("Test entry A")).toBeInTheDocument();
-  expect(screen.getByRole("list", { name: "Measured white cast" })).toHaveTextContent("1.9 L* to +2.9 L*");
+  expect(screen.getByRole("list", { name: "Predicted white cast" })).toHaveTextContent("1.9 L* to +2.9 L*");
   expect(screen.getByRole("link", { name: "See the evidence" })).toHaveAttribute("href", "/evidence");
   expect(screen.queryByTestId("scan-line")).toBeNull();
   expect(screen.queryByTestId("selfie-preview")).toBeNull();

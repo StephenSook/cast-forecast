@@ -20,9 +20,9 @@ test("ignores clicks while disabled", async () => {
   expect(screen.getByRole("button", { name: "Test entry A" })).toBeDisabled();
   await userEvent.setup().click(screen.getByRole("button", { name: "Test entry A" })); expect(onPick).not.toHaveBeenCalled();
 });
-test("empty list shows No bottles measured yet. and an Evidence link", () => {
+test("empty list shows No bottles yet. and an Evidence link", () => {
   render(<BottleChips bottles={[]} selectedId={null} disabled={false} onPick={vi.fn()} />);
-  expect(screen.getByText("No bottles measured yet.")).toBeInTheDocument();
+  expect(screen.getByText("No bottles yet.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Evidence" })).toHaveAttribute("href", "/evidence");
   expect(screen.queryAllByRole("button")).toHaveLength(0);
 });

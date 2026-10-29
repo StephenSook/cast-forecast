@@ -3,7 +3,7 @@ import bottlesJson from "@/data/bottles.json";
 
 export const CATALOGUE_SCHEMA_VERSION = 1;
 
-/** Largest L* gap, on any reference skin, between a bottle's render and its measured film (castforecast/catalogue.py). */
+/** Largest L* gap, on any reference skin, between a bottle's render as sent and its predicted whitening (castforecast/label_catalogue.py). */
 export const RENDER_MAX_ERROR_L = 1.0;
 
 export const BottleSchema = z.object({
@@ -27,9 +27,10 @@ export const BottleSchema = z.object({
     })
     .refine((w) => w.low <= w.value && w.value <= w.high, { message: "whitening needs low <= value <= high" }),
   evidence: z.object({
-    csvRowId: z.string().min(1),
-    measuredAt: z.iso.date(),
-    photos: z.number().int().min(1),
+    source: z.literal("fda-label"),
+    setId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+    labelEffective: z.iso.date(),
+    zincOxidePct: z.number().gt(0).max(25),
   }),
 });
 
@@ -52,6 +53,11 @@ export function loadCatalogue(raw: unknown): Bottle[] {
 }
 
 export const CATALOGUE: readonly Bottle[] = loadCatalogue(bottlesJson);
+
+/** The bottle's FDA drug label on DailyMed, where its zinc oxide percentage comes from. */
+export function labelUrl(b: Bottle): string {
+  return `https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=${b.evidence.setId}`;
+}
 
 export function findBottle(id: string, list: readonly Bottle[] = CATALOGUE): Bottle | undefined {
   return list.find((b) => b.id === id);
