@@ -436,3 +436,12 @@ test("Mcp-Name values decode from the base64 sentinel, and a malformed sentinel 
   expect(decodeHeaderValue("=?base64?abc?=")).toBeNull();
   expect(decodeHeaderValue("=?base64?/w==?=")).toBeNull(); // not UTF-8
 });
+
+// Codex review: the default TextDecoder dropped a leading BOM, so "\uFEFFpredict_cast" matched "predict_cast".
+test("a base64 Mcp-Name keeps a leading BOM, so it does not match a body without one", async () => {
+  const bom = `=?base64?${Buffer.from("\uFEFFpredict_cast", "utf8").toString("base64")}?=`;
+  expect(bom).toBe("=?base64?77u/cHJlZGljdF9jYXN0?=");
+  expect(decodeHeaderValue(bom)).toBe("\uFEFFpredict_cast");
+  const callBody = rpc("tools/call", { name: "predict_cast", arguments: { bottle_id: CATALOGUE[0].id, skin_lightness: 55 }, _meta: META });
+  await rpcErrorOf(await server()(callBody, modernHeaders("tools/call", bom)), 400, -32020);
+});

@@ -108,7 +108,8 @@ export function decodeHeaderValue(raw: string | null): string | null {
   if (!m) return raw;
   if (m[1].length % 4 !== 0) return null;
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(m[1], "base64"));
+    // ignoreBOM keeps a leading U+FEFF, so a name that differs from the body only by one still fails the comparison.
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.from(m[1], "base64"));
   } catch {
     return null;
   }
