@@ -143,8 +143,23 @@ def build(labels: Path = LABELS) -> tuple[dict, list[str]]:
     ]
 
 
+# The fit's last bits differ between BLAS builds (a Mac, CI's Linux); no reading needs more places.
+PUBLISHED_DECIMALS = 6
+
+
+def _published(x):
+    """`x` with every float rounded to `PUBLISHED_DECIMALS`, so the file is the same on every machine."""
+    if isinstance(x, float):
+        return round(x, PUBLISHED_DECIMALS)
+    if isinstance(x, dict):
+        return {k: _published(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_published(v) for v in x]
+    return x
+
+
 def dumps(catalogue: dict) -> str:
-    return json.dumps(catalogue, indent=2) + "\n"
+    return json.dumps(_published(catalogue), indent=2) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:

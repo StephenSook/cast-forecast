@@ -44,6 +44,32 @@ def test_the_committed_catalogue_is_what_build_writes_from_the_pinned_labels():
     assert [t["lStar"] for t in catalogue["tones"]] == list(TONES)
 
 
+def test_the_published_file_does_not_depend_on_the_fits_last_bits():
+    # CI's Linux and a Mac fit the label model to different last bits; the committed file must not differ.
+    catalogue, _ = build(LABELS)
+
+    def nudged(x):
+        if isinstance(x, float):
+            return x + abs(x) * 1e-12
+        if isinstance(x, dict):
+            return {k: nudged(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [nudged(v) for v in x]
+        return x
+
+    assert nudged(catalogue) != catalogue
+    assert dumps(nudged(catalogue)) == dumps(catalogue)
+
+
+def test_each_published_blend_still_sends_the_intensity_its_render_was_chosen_for():
+    zinc = {b["id"]: b["zinc_oxide_pct"] for b in json.loads(LABELS.read_text())["bottles"]}
+    for b in json.loads(OUT.read_text())["bottles"]:
+        for t in b["tones"]:
+            intensity, _, reachable = coverage_for_alpha(K1B_CURVE, t["render"]["blend"])
+            chosen = tone_render(zinc[b["id"]], t["lStar"])["colorIntensity"]
+            assert (intensity, reachable) == (chosen, True), (b["id"], t["lStar"])
+
+
 def test_every_pinned_label_is_zinc_oxide_only_and_inside_the_study_range():
     labels = json.loads(LABELS.read_text())["bottles"]
     assert len(labels) >= 5

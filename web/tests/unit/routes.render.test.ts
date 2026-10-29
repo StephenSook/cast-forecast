@@ -178,7 +178,7 @@ test("every shipped bottle renders on every tone within the bound, at the whole 
       expect(t.render!.errorL).toBeLessThanOrEqual(RENDER_MAX_ERROR_L);
       const target = colorIntensityForBlend(t.render!.blend);
       expect(target.reachable).toBe(true);
-      expect(target.predictedBlend).toBeCloseTo(t.render!.blend, 9);
+      expect(target.predictedBlend).toBeCloseTo(t.render!.blend, 6);           // the file publishes to 6 places
     }
   }
 });
