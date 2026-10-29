@@ -107,8 +107,18 @@ test("a download that is not an image throws, naming the bottle and tone but no 
     () => null,
     (e: unknown) => e as Error,
   );
-  expect(err?.message).toBe("render for test-a at L* 55 is neither JPEG nor PNG");
+  expect(err?.message).toBe("render for test-a at L* 55 is not a PNG");
   for (const secret of ["file-1", "t1", "out.example"]) expect(err?.message).not.toContain(secret);
+});
+
+// The app cannot fully decode a JPEG, so none is trusted: an empty one (start and end markers only) and the real,
+// whole sample face are both refused.
+test.each([
+  ["an empty JPEG", new Uint8Array([0xff, 0xd8, 0xff, 0xd9])],
+  ["a whole JPEG", new Uint8Array(readFileSync("public/sample/face.jpg"))],
+])("%s download stops the run: only a PNG that decodes is recorded", async (_name, jpeg) => {
+  const { run } = setup({ download: async () => jpeg });
+  await expect(run()).rejects.toThrow("render for test-a at L* 55 is not a PNG");
 });
 
 test("a truncated PNG download is refused even though it still starts like a PNG", async () => {

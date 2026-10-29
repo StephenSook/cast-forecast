@@ -22,7 +22,7 @@ export const SampleSchema = z.object({
       tone: z.number(),
       colorIntensity: z.number().int().min(0).max(100),
       predictedBlend: z.number(),
-      src: z.string().regex(/^\/sample\/renders\/[a-z0-9-]+\.(jpg|png)$/),
+      src: z.string().regex(/^\/sample\/renders\/[a-z0-9-]+\.png$/),
       recordedOn: IsoDate,
     }),
   ),

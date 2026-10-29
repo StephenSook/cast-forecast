@@ -53,14 +53,12 @@ test("each recording used the colorIntensity the live route sends for that bottl
   }
 });
 
-test("every recording is a whole image file that exists, and no file in the renders folder is unlisted", () => {
+test("every recording is a PNG that exists and decodes in full, and no file in the renders folder is unlisted", () => {
   const files = readdirSync("public/sample/renders").sort();
   expect(files).toEqual(SAMPLE.renders.map((r) => r.src.replace("/sample/renders/", "")).sort());
   for (const r of SAMPLE.renders) {
     const b = new Uint8Array(readFileSync(`public${r.src}`));
-    // A PNG must check out chunk by chunk and inflate to its full image; a JPEG must walk to its end marker.
-    const whole = r.src.endsWith(".png") ? pngIntact(b) !== null : stripMetadata(b) !== null;
-    expect(whole, r.src).toBe(true);
+    expect(pngIntact(b), r.src).not.toBeNull();
     expect(b.length, r.src).toBeGreaterThan(50_000);
   }
 });
@@ -85,6 +83,7 @@ test("the manifest refuses another version and two recordings of one bottle at o
   expect(() => loadSample({ ...SAMPLE, schemaVersion: 2 })).toThrow();
   expect(() => loadSample({ ...SAMPLE, renders: [SAMPLE.renders[0], SAMPLE.renders[0]] })).toThrow(/two recordings/);
   expect(() => loadSample({ ...SAMPLE, renders: [{ ...SAMPLE.renders[0], src: "https://elsewhere.example/r.png" }] })).toThrow();
+  expect(() => loadSample({ ...SAMPLE, renders: [{ ...SAMPLE.renders[0], src: "/sample/renders/x-55.jpg" }] })).toThrow(); // PNG only
 });
 
 test("the recorded labels name the API and the date, in few words and within the copy rules", () => {

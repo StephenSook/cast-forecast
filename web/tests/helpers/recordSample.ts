@@ -16,10 +16,9 @@ const ORIGIN = "http://record.local";
 /** A finished recording, held in memory until every task and download has succeeded. Paths are under public/. */
 export type SampleRecording = { manifest: Sample; files: Map<string, Uint8Array>; before: number; after: number };
 
-function imageKind(b: Uint8Array): "jpg" | "png" | null {
-  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
-  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
-  return null;
+/** Starts like a PNG (its first four signature bytes). Whether it decodes is pngIntact's question. */
+function isPng(b: Uint8Array): boolean {
+  return b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
 }
 
 /**
@@ -98,15 +97,13 @@ export async function recordSample(o: {
       if (res.status !== 200 || typeof imageUrl !== "string" || typeof colorIntensity !== "number" || typeof predictedBlend !== "number") {
         throw new Error(`render refused for ${b.id} at L* ${tone}: ${String(codeOf(out))}`);
       }
-      const raw = await o.download(imageUrl);
-      const kind = imageKind(raw);
-      if (!kind) throw new Error(`render for ${b.id} at L* ${tone} is neither JPEG nor PNG`);
-      // A JPEG goes through the upload route's own allowlist strip, which walks every scan to the end marker and keeps
-      // only the image data, so a truncated one fails it. A PNG is kept as returned once every chunk checks out and its
-      // image data inflates to the full image (pngIntact), so a truncated or corrupted download is never recorded.
-      const bytes = kind === "jpg" ? stripMetadata(raw) : pngIntact(raw) ? raw : null;
-      if (!bytes) throw new Error(`render for ${b.id} at L* ${tone} is a damaged ${kind === "jpg" ? "JPEG" : "PNG"}`);
-      const src = `/sample/renders/${b.id}-${tone}.${kind}`;
+      const bytes = await o.download(imageUrl);
+      // Only a PNG is recorded, and only once it decodes in full (pngIntact), so a truncated or corrupted download never
+      // replaces a working recording. YouCam returns PNG renders; this app has no full JPEG decoder to check one with,
+      // so any other format stops the run instead of being trusted.
+      if (!isPng(bytes)) throw new Error(`render for ${b.id} at L* ${tone} is not a PNG`);
+      if (!pngIntact(bytes)) throw new Error(`render for ${b.id} at L* ${tone} is a damaged PNG`);
+      const src = `/sample/renders/${b.id}-${tone}.png`;
       files.set(src, bytes);
       renders.push({ bottleId: b.id, tone, colorIntensity, predictedBlend, src, recordedOn: o.recordedOn });
       log(`recorded ${b.id} at L* ${tone} (colorIntensity ${colorIntensity}, ${bytes.length} bytes)`);
