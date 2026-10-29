@@ -53,13 +53,16 @@ test("/api/label-model recomputes Gate 1's held-out error", async ({ request }) 
   expect(body.heldOut.benchmark.maeL).toBeCloseTo(2.35, 2);
 });
 
-// The agent card's curl, run as printed: it must answer the shipped catalogue's own number for that bottle and tone.
+// The agent card's curl, run as printed: at the URL it prints, which must be this page's own origin (Codex review: a
+// fixed "/api/mcp" passed whatever host the card named), answering the shipped catalogue's number for that bottle and tone.
 test("the predict_cast curl on /evidence runs against this server and answers the catalogue's number", async ({ page }) => {
   await page.goto("/evidence");
   const line = (await page.locator("code", { hasText: "/api/mcp" }).textContent())!;
-  expect(line).toMatch(/^curl -s https?:\/\/\S+\/api\/mcp -H 'Content-Type: application\/json' -d '\{.*\}'$/);
+  expect(line).toMatch(/^curl -s \S+ -H 'Content-Type: application\/json' -d '\{.*\}'$/);
+  const url = /^curl -s (\S+) /.exec(line)![1];
+  expect(url).toBe(`${new URL(page.url()).origin}/api/mcp`);
   const body = /-d '(.*)'$/.exec(line)![1];
-  const res = await page.request.post("/api/mcp", { data: body, headers: { "Content-Type": "application/json" } });
+  const res = await page.request.post(url, { data: body, headers: { "Content-Type": "application/json" } });
   expect(res.status()).toBe(200);
   expect(res.headers()["cache-control"]).toBe("no-store");
   expect(res.headers()["x-content-type-options"]).toBe("nosniff");
@@ -81,7 +84,12 @@ test("/api/mcp is POST only, and /llms.txt prints the same curl", async ({ reque
   expect(llms.headers()["content-type"]).toBe("text/plain; charset=utf-8");
   const text = await llms.text();
   expect(text).toMatch(/^# Cast Forecast\n/);
-  expect(text).toMatch(/^curl -s https?:\/\/\S+\/api\/mcp -H 'Content-Type: application\/json' -d '.*predict_cast.*'$/m);
+  // Every curl names the origin llms.txt was served from.
+  const origin = new URL(llms.url()).origin;
+  const urls = [...text.matchAll(/^curl -s (\S+) /gm)].map((m) => m[1]);
+  expect(urls.length).toBeGreaterThanOrEqual(5);
+  for (const u of urls) expect(u).toBe(`${origin}/api/mcp`);
+  expect(text).toMatch(/^curl -s \S+ -H 'Content-Type: application\/json' -d '.*predict_cast.*'$/m);
 });
 
 test("evidence step cards never clip at 390", async ({ page }) => {
