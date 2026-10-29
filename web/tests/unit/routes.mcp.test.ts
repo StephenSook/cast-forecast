@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import * as mcpRoute from "@/app/api/mcp/route";
-import { CATALOGUE, RETAIL_ERROR_L, type Whitening, labelUrl } from "@/lib/catalogue";
+import { type Bottle, CATALOGUE, RETAIL_ERROR_L, type Whitening, labelUrl } from "@/lib/catalogue";
 import { LIGHTNESS_RANGE, ZINC_RANGE } from "@/lib/labelModel";
 import { RULES } from "@/server/limits";
 import { labelModelPayload } from "@/server/routes/labelModel";
@@ -35,11 +35,11 @@ type Result = {
   isError?: boolean;
   [key: string]: unknown;
 };
-type Body = { jsonrpc: string; id?: string | number; result?: Result; error?: { code: number; message: string; data?: unknown } };
+type Body = { jsonrpc: string; id?: string | number | null; result?: Result; error?: { code: number; message: string; data?: unknown } };
 
 /** A handler over the shipped catalogue, a fresh limiter and a fake clock. `send` POSTs one body (a string as is). */
-function server() {
-  const { deps } = testDeps({ catalogue: CATALOGUE });
+function server(catalogue: readonly Bottle[] = CATALOGUE) {
+  const { deps } = testDeps({ catalogue });
   const handler = makeMcpHandler(deps);
   return (body: unknown, headers: Headers = {}) =>
     handler(new Request(ENDPOINT, { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body), headers: { "Content-Type": "application/json", ...headers } }));
@@ -334,10 +334,31 @@ test("under 2025-03-26 a batch is answered entry by entry, notifications left ou
   expect(await quiet.text()).toBe("");
   // Bad entries answer for themselves; the good ones still run.
   const mixed = (await (await send([5, [rpc("ping")], { jsonrpc: "2.0", id: 7, method: "initialize", params: { protocolVersion: "2025-03-26" } }, call("nope", {}, 8), rpc("ping", undefined, 9)])).json()) as Body[];
-  expect(mixed.map((r) => [r.id, r.error?.code])).toEqual([[undefined, -32600], [undefined, -32600], [7, -32600], [8, -32602], [9, undefined]]);
+  // Codex review, round 2: JSON-RPC 2.0 answers an id it cannot read with id null, which a batch entry needs.
+  expect(mixed.map((r) => [r.id, r.error?.code])).toEqual([[null, -32600], [null, -32600], [7, -32600], [8, -32602], [9, undefined]]);
   expect(mixed[2].error!.message).toBe("initialize may not be part of a batch.");
-  await rpcErrorOf(await send([]), 400, -32600);
+  expect((await rpcErrorOf(await send([]), 400, -32600)).id).toBeNull();
   await rpcErrorOf(await send([rpc("ping")], { "MCP-Protocol-Version": "1999-01-01" }), 400, -32022);
+});
+
+// Codex review, round 2: one entry throwing lost every other entry's answer.
+test("an entry that fails inside answers -32603 with its own id, and the rest of the batch still runs", async () => {
+  const broken = [] as Bottle[];
+  Object.defineProperty(broken, "map", { value: () => { throw new Error("boom"); } });
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const send = server(broken);
+    const res = await send([rpc("ping", undefined, 1), call("list_bottles", {}, 2), rpc("ping", undefined, 3)]);
+    expect(res.status).toBe(200);
+    const replies = (await res.json()) as Body[];
+    expect(replies.map((r) => [r.id, r.error?.code])).toEqual([[1, undefined], [2, -32603], [3, undefined]]);
+    expect(replies[1].error!.message).toBe("Internal error.");
+    // Alone, the same failure is a 500 with the request's id.
+    expect((await rpcErrorOf(await send(call("list_bottles", {}, "x")), 500, -32603)).id).toBe("x");
+    expect(logged).toHaveBeenCalledWith("[api/mcp] unexpected failure: Error");
+  } finally {
+    logged.mockRestore();
+  }
 });
 
 test("an unknown method is -32601: 200 under the handshake, 404 under 2026-07-28", async () => {

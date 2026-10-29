@@ -65,8 +65,8 @@ function json(status: number, body: unknown, headers: Record<string, string> = {
   return Response.json(body, { status, headers: { ...NO_STORE, ...headers } });
 }
 
-/** A JSON-RPC error response; `id` is left out when the request's id is unknown or unusable. */
-function rpcError(status: number, id: Id | undefined, code: number, message: string, data?: unknown, headers?: Record<string, string>): Response {
+/** A JSON-RPC error response; `id` is left out when undefined (the request's id is unknown or unusable). */
+function rpcError(status: number, id: Id | null | undefined, code: number, message: string, data?: unknown, headers?: Record<string, string>): Response {
   const error = data === undefined ? { code, message } : { code, message, data };
   return json(status, id === undefined ? { jsonrpc: "2.0", error } : { jsonrpc: "2.0", id, error }, headers);
 }
@@ -162,17 +162,22 @@ export function makeMcpHandler(deps: () => RouteDeps): (req: Request) => Promise
       return Array.isArray(message) ? await batch(message, req.headers, d) : dispatch(message, req.headers, d);
     } catch (e) {
       logUnexpected(e);
-      const id = isObject(message) && (typeof message.id === "string" || typeof message.id === "number") ? message.id : undefined;
-      return rpcError(500, id, INTERNAL_ERROR, "Internal error.");
+      return rpcError(500, idOf(message), INTERNAL_ERROR, "Internal error.");
     }
   };
 }
+
+/** A message's id when it is a usable one (a string or a finite number), else undefined. */
+const idOf = (m: unknown): Id | undefined =>
+  isObject(m) && (typeof m.id === "string" || (typeof m.id === "number" && Number.isFinite(m.id))) ? m.id : undefined;
 
 /**
  * A JSON-RPC batch. 2025-03-26 requires a server to receive them (base protocol, Batching) and 2025-06-18 removed
  * them, so they are read only under 2025-03-26, which is also what a request without the header is. Each message is
  * answered as if it came alone, in order; a notification gets no entry, and initialize may not be batched (lifecycle).
  * Only notifications: 202. The body cap bounds the batch, and the limiter counts it as one POST.
+ * That revision is plain JSON-RPC 2.0 here, so an entry whose id cannot be read answers with id null (a single
+ * message leaves it out, as 2025-11-25 and 2026-07-28 allow), and one entry failing inside never loses the others.
  */
 async function batch(messages: unknown[], headers: Headers, d: RouteDeps): Promise<Response> {
   const version = headers.get("mcp-protocol-version") ?? UNDECLARED_VERSION;
@@ -182,14 +187,23 @@ async function batch(messages: unknown[], headers: Headers, d: RouteDeps): Promi
     }
     return rpcError(400, undefined, INVALID_REQUEST, `Batches are part of ${BATCH_VERSION} only: send one message per POST.`);
   }
-  if (messages.length === 0) return rpcError(400, undefined, INVALID_REQUEST, "Invalid request: an empty batch.");
+  if (messages.length === 0) return rpcError(400, null, INVALID_REQUEST, "Invalid request: an empty batch.");
   const replies: unknown[] = [];
   for (const m of messages) {
-    const res =
-      isObject(m) && m.method === "initialize" && has(m, "id")
-        ? rpcError(400, typeof m.id === "string" || (typeof m.id === "number" && Number.isFinite(m.id)) ? m.id : undefined, INVALID_REQUEST, "initialize may not be part of a batch.")
-        : dispatch(m, headers, d);
-    if (res.status !== 202) replies.push(await res.json());
+    let res: Response;
+    try {
+      res =
+        isObject(m) && m.method === "initialize" && has(m, "id")
+          ? rpcError(400, idOf(m), INVALID_REQUEST, "initialize may not be part of a batch.")
+          : dispatch(m, headers, d);
+    } catch (e) {
+      logUnexpected(e);
+      res = rpcError(500, idOf(m), INTERNAL_ERROR, "Internal error.");
+    }
+    if (res.status === 202) continue;
+    const reply: unknown = await res.json();
+    if (isObject(reply) && has(reply, "error") && !has(reply, "id")) reply.id = null;
+    replies.push(reply);
   }
   return replies.length === 0 ? new Response(null, { status: 202, headers: NO_STORE }) : json(200, replies);
 }
