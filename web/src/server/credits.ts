@@ -31,8 +31,9 @@ export type BalanceCache = {
  * is subtracted from the value it returns. If YouCam had already counted that spend, it is subtracted twice until
  * the next read: the cache then under-reports, which only refuses a task early.
  * There is one cache per server instance (deps.ts), so the floor it enforces is per instance and best effort, not a
- * shared guarantee: instances never see each other's holds, and near the floor each can admit about one task on the
- * balance it last read. The YouCam account balance is the hard stop.
+ * shared guarantee: instances never see each other's holds, so each can spend the whole margin above the floor that
+ * it last read, and together they can go below the floor by up to that margin per instance. The YouCam account
+ * balance is the hard stop.
  */
 export function createBalanceCache(ttlMs = 30_000): BalanceCache {
   let value: number | null = null;

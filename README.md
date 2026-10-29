@@ -8,13 +8,13 @@ Why: in a 2024 dermatology survey, 25% of skin of color respondents named white 
 
 ## How it works
 1. Take a selfie or upload one.
-2. Pick the swatch closest to your skin, or tap **Suggest my tone**: YouCam's AI Fitzpatrick Skin Type Analysis reads the selfie and picks one. You can change it.
+2. Pick the swatch closest to your skin, or tap **Suggest my tone**: YouCam's AI Fitzpatrick Skin Type Analysis reads the selfie, and the app preselects the swatch it maps that type to. It is a suggestion; you can change it.
 3. Tap a bottle. YouCam Makeup VTO renders that bottle's predicted cast on your face. Drag the slider to compare before and after.
 
 ## Where each number comes from
 - **The bottle:** its zinc oxide percentage, read from its FDA label on DailyMed. Eight zinc-only sunscreens, each pinned by label set id in [`data/bottles/fda_labels.json`](data/bottles/fda_labels.json). A label is used only when its listed active ingredient is exactly zinc oxide and its text gives one plain percentage.
 - **The prediction:** the PLOS ONE 2025 study's own label score, `dL* = (a + c × ZnO%) × (100 − L* before)`, fitted on the study's raw data. In a strict held-out test (Gate 1) it missed by 1.61 L* on average (1.80 on the study's darker skin tones). Each result shows a ±2.35 L* band, the test's error on the study's one differently formulated product, because retail bottles are formulated differently too. CI recomputes the 1.61 from the committed table, [`data/plos2025/cells.csv`](data/plos2025/cells.csv).
-- **The picture:** a white foundation layer at the whole colorIntensity whose shown lightening, on the K1b curve, comes closest to the prediction (all 40 bottle and tone renders within 0.16 L*).
+- **The picture:** a white foundation layer at the whole colorIntensity whose lightening, on the curve fitted to 16 K1b renders of one person (R² 0.98, checked with 3 more; PASS 5 of 5), comes closest to the prediction. Calculated on that curve, every bottle and tone lands within 0.16 L*; that is a mismatch under the fitted curve, not a measurement of each render.
 
 ## YouCam APIs
 | API | Category | Used for |
@@ -26,7 +26,7 @@ Why: in a 2024 dermatology survey, 25% of skin of color respondents named white 
 
 ## What it does not do
 - Nothing here was measured on a bottle in person. Gate 2 (cards and a forearm) was written down and never run, so every number is a prediction from the label.
-- Skin deeper than the study measured (L* below 44) gets no prediction, and the app says so.
+- The study measured skin down to about L* 44. Picking Deeper gets no prediction and a line that says why. The app does not measure the selfie's L*: the tone is the shopper's choice (or the suggestion), so a numeric tone picked for deeper skin would still get that tone's prediction.
 - It shows appearance only. It says nothing about sun protection.
 
 ## Gates
@@ -76,11 +76,11 @@ pnpm e2e
 
 Try-on routes (`/api/upload`, `/api/render`, `/api/skin-type`) answer "paused" until the server holds a YouCam key; `/evidence` works without one. `/api/tone` (a 20-unit skin tone analysis that no page calls) answers 404 unless the server sets `TONE_ENABLED=1`, which is for local runs only: the deploy scripts refuse it, like `SCAN_ENABLED`. CI also runs `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm test:bundle`, which scans the built client JavaScript for key names and the YouCam host.
 
-Privacy (web app): the selfie leaves the browser only when you tap a bottle or Suggest my tone. The server then removes EXIF (GPS included), XMP, IPTC, embedded thumbnails and comments, keeps the colour profile, and sends that copy to YouCam to render. The app stores no photo. Result links are YouCam's and last about 2 hours (the page treats one as expired 5 minutes early), as does the session cookie.
+Privacy (web app): the selfie leaves the browser only when you tap a bottle or Suggest my tone. The server then removes EXIF (GPS included), XMP, IPTC, embedded thumbnails and comments, keeps the colour profile, and sends that copy to YouCam to render or read the skin type. The app stores no photo. Result links are YouCam's and last about 2 hours, as does the session cookie; a render that no longer loads is shown as expired.
 
 #### Limits
 - The credit floor (`CREDIT_FLOOR`, default 100 units) and the per-session and per-IP request limits are per server instance and best effort. Each instance keeps its own cached balance, unit holds and request counts in memory; instances do not share them, and a cold start forgets the counts.
-- Near the floor, instances running at the same time can each admit a task on the balance they last read, so the account can end up below the floor by about one task per instance (1 unit for a render, 10 for a skin-type read, 20 for a tone analysis).
+- Each instance checks the floor against its own balance, cached for up to 30 seconds, minus its own holds. Instances running at the same time can each spend the whole margin they last read, so the account can fall below the floor by up to that margin per instance (a render costs 1 unit, a skin-type read 10, a tone analysis 20).
 - The YouCam account balance is the hard stop: with too few units YouCam refuses the task (`CreditInsufficiency`, answered as `credits_low`).
 
 ### Deploy
