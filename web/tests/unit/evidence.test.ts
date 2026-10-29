@@ -1,4 +1,6 @@
 import { expect, test } from "vitest";
+import { predictCastCurl, predictExample } from "@/lib/agent";
+import { CATALOGUE, TONES } from "@/lib/catalogue";
 import { cellParts, CURVE_Y_MAX, curveLabel, curvePoints, DATA_URL, evidenceSteps, evidenceTiles, factLine, originFrom } from "@/lib/evidence";
 import { K1B } from "@/lib/gates";
 
@@ -22,14 +24,25 @@ test("the render count and the dE00 bar are read from the summary, never hardcod
 
 test("steps print the curl and link the study table and the labels", () => {
   const steps = evidenceSteps("https://x.test", 8);
-  expect(steps.map((s) => s.title)).toEqual(["Read the gates", "Check the prediction", "Check the render mapping", "The data", "Read the code"]);
+  expect(steps.map((s) => s.title)).toEqual(["Read the gates", "Check the prediction", "Ask it as an agent", "Check the render mapping", "The data", "Read the code"]);
   expect(steps[1].code).toBe("curl -s https://x.test/api/label-model");
-  expect(steps[2].code).toBe("curl -s https://x.test/api/gates");
-  expect(steps[3].href).toBe(DATA_URL);
-  expect(steps[3].body).toContain("each of the 8 bottles");
+  expect(steps[2].code).toBe(predictCastCurl("https://x.test"));
+  expect(steps[2].href).toBe("/llms.txt");
+  expect(steps[3].code).toBe("curl -s https://x.test/api/gates");
+  expect(steps[4].href).toBe(DATA_URL);
+  expect(steps[4].body).toContain("each of the 8 bottles");
   expect(DATA_URL).toBe("https://github.com/StephenSook/cast-forecast/tree/main/data");
   expect(steps[0].href).toContain("/docs/gates/README.md");
-  expect(steps[4].href).toBe("https://github.com/StephenSook/cast-forecast");
+  expect(steps[5].href).toBe("https://github.com/StephenSook/cast-forecast");
+});
+
+test("the agent step prints one predict_cast call on the first bottle and the middle tone", () => {
+  const ex = predictExample();
+  expect(ex).toEqual({ bottle_id: CATALOGUE[0].id, skin_lightness: TONES[2].lStar });
+  expect(predictCastCurl("https://x.test")).toBe(
+    "curl -s https://x.test/api/mcp -H 'Content-Type: application/json' -d " +
+      `'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"predict_cast","arguments":{"bottle_id":"${CATALOGUE[0].id}","skin_lightness":${TONES[2].lStar}}}}'`,
+  );
 });
 
 // docs/gates/gate1-results.md discloses that Gate 1's first rows were printed before its rule, so "written before its data" is false.
