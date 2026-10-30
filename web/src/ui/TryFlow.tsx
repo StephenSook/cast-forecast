@@ -19,6 +19,8 @@ import { ToneSwatches } from "./ToneSwatches";
 
 /** After this long in flight the status line says the wait can be long, and how long. */
 const SLOW_MS = 10_000;
+/** How far the page may have moved since a pick and still count as the shopper staying put, for the scroll to a result. */
+const SCROLL_SLACK_PX = 48;
 
 /** Shown when the shopper's skin is deeper than any tone the study measured. */
 export const DEEPER_LINE = "The study behind these numbers measured skin down to L* 44. Deeper skin has no prediction yet.";
@@ -140,11 +142,17 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
 
   // Once a render shows, its number is brought into view if it is not fully on screen (on a phone it sits far below the
   // frame), by the least scroll that shows it, clear of the floating nav (scroll-mt), and with no animation under
-  // reduced motion. A render already in view, as beside the frame on a wide screen, scrolls nothing.
+  // reduced motion. A render already in view, as beside the frame on a wide screen, scrolls nothing. A live render can
+  // take up to two minutes, so the page moves only if the shopper has not scrolled away meanwhile (by wheel, touch or
+  // keys alike): `scrollAtPick` holds where the page was when the pick went out, and is spent on the first result.
   const resultRef = useRef<HTMLDivElement>(null);
+  const scrollAtPick = useRef<number | null>(null);
   useEffect(() => {
     const el = resultRef.current;
     if (!revealed || !el || typeof el.scrollIntoView !== "function") return;
+    const from = scrollAtPick.current;
+    scrollAtPick.current = null;
+    if (from === null || Math.abs(window.scrollY - from) > SCROLL_SLACK_PX) return;
     const clearOfNav = Number.parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
     const box = el.getBoundingClientRect();
     if (box.top >= clearOfNav && box.bottom <= window.innerHeight) return;
@@ -166,6 +174,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     if (picked === before || !picked.image || typeof picked.tone !== "number") return;
     const tone = picked.tone;
     wait.start();
+    scrollAtPick.current = window.scrollY;
     const mine = ++run.current;
     const current = () => mine === run.current;
     if (picked.image.sample) {

@@ -61,3 +61,49 @@ test("with motion allowed the scroll is smooth", async () => {
   const scroll = await renderResult(1200);
   expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "nearest" });
 });
+
+/** A live render held open until `land` is called, with the page's scroll position under the test's control. */
+async function slowLiveRender() {
+  const scroll = vi.fn();
+  Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, writable: true, value: scroll });
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    if ((this as HTMLElement).dataset?.testid === "result-panel") return { top: 1200, bottom: 1500, left: 0, right: 300, width: 300, height: 300, x: 0, y: 1200, toJSON: () => ({}) } as DOMRect;
+    return original.call(this);
+  };
+  let y = 0;
+  vi.spyOn(window, "scrollY", "get").mockImplementation(() => y);
+  let finish: (v: { imageUrl: string; bottleId: string; colorIntensity: number; predictedBlend: number; expiresAt: number }) => void = () => undefined;
+  const api = {
+    upload: vi.fn(async () => ({ fileId: "file-1" })),
+    render: vi.fn(() => new Promise<{ imageUrl: string; bottleId: string; colorIntensity: number; predictedBlend: number; expiresAt: number }>((resolve) => (finish = resolve))),
+    readSkinType: vi.fn(),
+  };
+  const own = { blob: new Blob(["x"], { type: "image/jpeg" }), width: 640, height: 480, url: "blob:own" };
+  const user = userEvent.setup();
+  render(<TryFlow bottles={chips} api={api} prepare={async () => own} sample={null} />);
+  await user.upload(screen.getByTestId("upload-input"), new File(["x"], "a.jpg", { type: "image/jpeg" }));
+  await user.click(screen.getByRole("button", { name: "Skin L* 55" }));
+  y = 300; // where the page is when the pick goes out
+  await user.click(screen.getByRole("button", { name: "Test entry A" }));
+  await vi.waitFor(() => expect(api.render).toHaveBeenCalledTimes(1));
+  const land = async () => {
+    finish({ imageUrl: "https://out.example/r.png", bottleId: "test-a", colorIntensity: 49, predictedBlend: 0.17, expiresAt: Date.now() + 6_000_000 });
+    fireEvent.load(await screen.findByTestId("result-image"));
+    await screen.findByTestId("result-panel");
+  };
+  return { scroll, land, moveTo: (to: number) => (y = to) };
+}
+
+test("a slow live render that lands after the shopper scrolled elsewhere does not move the page", async () => {
+  const { scroll, land, moveTo } = await slowLiveRender();
+  moveTo(1600); // read on down while the render was in flight
+  await land();
+  expect(scroll).not.toHaveBeenCalled();
+});
+
+test("a slow live render that lands while the shopper stayed put is brought into view", async () => {
+  const { scroll, land, moveTo } = await slowLiveRender();
+  moveTo(320); // a nudge, within the slack
+  await land();
+  expect(scroll).toHaveBeenCalledTimes(1);
+});
