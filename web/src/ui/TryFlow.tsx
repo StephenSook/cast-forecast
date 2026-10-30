@@ -19,8 +19,8 @@ import { ToneSwatches } from "./ToneSwatches";
 
 /** After this long in flight the status line says the wait can be long, and how long. */
 const SLOW_MS = 10_000;
-/** How far the page may have moved since a pick and still count as the shopper staying put, for the scroll to a result. */
-const SCROLL_SLACK_PX = 48;
+/** Keys that scroll the page when no control has focus; pressing one while a render is in flight is the shopper scrolling. */
+const SCROLL_KEYS: ReadonlySet<string> = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 
 /** Shown when the shopper's skin is deeper than any tone the study measured. */
 export const DEEPER_LINE = "The study behind these numbers measured skin down to L* 44. Deeper skin has no prediction yet.";
@@ -143,16 +143,43 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   // Once a render shows, its number is brought into view if it is not fully on screen (on a phone it sits far below the
   // frame), by the least scroll that shows it, clear of the floating nav (scroll-mt), and with no animation under
   // reduced motion. A render already in view, as beside the frame on a wide screen, scrolls nothing. A live render can
-  // take up to two minutes, so the page moves only if the shopper has not scrolled away meanwhile (by wheel, touch or
-  // keys alike): `scrollAtPick` holds where the page was when the pick went out, and is spent on the first result.
+  // take up to two minutes, so the page moves only if the shopper has not scrolled it themselves meanwhile: `scroll`
+  // is armed by a pick and spent on its result, and any wheel, touch drag, scroll key or scrollbar press while a request
+  // is in flight cancels it. The page's own movement (it shortens when the old result goes, and the browser clamps the
+  // scroll) is not the shopper's and cancels nothing.
   const resultRef = useRef<HTMLDivElement>(null);
-  const scrollAtPick = useRef<number | null>(null);
+  const scroll = useRef<{ armed: boolean; cancelled: boolean }>({ armed: false, cancelled: false });
+  useEffect(() => {
+    if (!waiting) return;
+    const cancel = () => {
+      scroll.current.cancelled = true;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      // Keys typed into a field or pressed on a control (a slider's arrows, a button's Space) do not scroll the page.
+      const control = e.target instanceof Element && e.target.closest("input, textarea, select, button, [contenteditable]");
+      if (!control && SCROLL_KEYS.has(e.key)) cancel();
+    };
+    // A press on the page's own scrollbar lands on the root element.
+    const onPress = (e: PointerEvent) => {
+      if (e.target === document.documentElement) cancel();
+    };
+    window.addEventListener("wheel", cancel, { passive: true });
+    window.addEventListener("touchmove", cancel, { passive: true });
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPress);
+    return () => {
+      window.removeEventListener("wheel", cancel);
+      window.removeEventListener("touchmove", cancel);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPress);
+    };
+  }, [waiting]);
   useEffect(() => {
     const el = resultRef.current;
     if (!revealed || !el || typeof el.scrollIntoView !== "function") return;
-    const from = scrollAtPick.current;
-    scrollAtPick.current = null;
-    if (from === null || Math.abs(window.scrollY - from) > SCROLL_SLACK_PX) return;
+    const { armed, cancelled } = scroll.current;
+    scroll.current = { armed: false, cancelled: false };
+    if (!armed || cancelled) return;
     const clearOfNav = Number.parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
     const box = el.getBoundingClientRect();
     if (box.top >= clearOfNav && box.bottom <= window.innerHeight) return;
@@ -174,7 +201,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     if (picked === before || !picked.image || typeof picked.tone !== "number") return;
     const tone = picked.tone;
     wait.start();
-    scrollAtPick.current = window.scrollY;
+    scroll.current = { armed: true, cancelled: false };
     const mine = ++run.current;
     const current = () => mine === run.current;
     if (picked.image.sample) {

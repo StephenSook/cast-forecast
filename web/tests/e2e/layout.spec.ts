@@ -83,6 +83,22 @@ test("phone: after a render the result is scrolled into view", async ({ page }, 
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(before); // the page moved to the result
 });
 
+test("phone: a second render near the end of the page is brought into view too", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "phone layout only");
+  await sampleResult(page);
+  await settled(page);
+  const vh = (page.viewportSize() as { height: number }).height;
+  // Back up to the chips and pick another: the old result goes while the new one loads, so the page shortens under the
+  // shopper and the browser clamps the scroll. That is not the shopper scrolling, so the new result is still shown.
+  await page.locator("main button[aria-pressed]", { hasText: "Babo" }).click();
+  await expect(page.getByTestId("result")).toContainText("Babo");
+  await expect(async () => {
+    const result = await box(page, "result");
+    expect(result.y).toBeGreaterThanOrEqual(0);
+    expect(result.y + result.height).toBeLessThanOrEqual(vh);
+  }).toPass({ timeout: 5_000 });
+});
+
 test("phone: with the frame scrolled to the top, the nav does not cover the Before and After labels", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone layout only");
   await sampleResult(page);

@@ -94,16 +94,29 @@ async function slowLiveRender() {
   return { scroll, land, moveTo: (to: number) => (y = to) };
 }
 
-test("a slow live render that lands after the shopper scrolled elsewhere does not move the page", async () => {
-  const { scroll, land, moveTo } = await slowLiveRender();
-  moveTo(1600); // read on down while the render was in flight
+// The shopper scrolling while the render is in flight, by each kind of input.
+test.each([
+  ["a mouse wheel", () => fireEvent.wheel(window, { deltaY: 400 })],
+  ["a touch drag", () => fireEvent.touchMove(window, { touches: [{ clientX: 10, clientY: 10 }] })],
+  ["Page Down", () => fireEvent.keyDown(document.body, { key: "PageDown" })],
+  ["a press on the page's scrollbar", () => fireEvent.pointerDown(document.documentElement)],
+])("a slow live render that lands after the shopper scrolled away (%s) does not move the page", async (_how, scrollAway) => {
+  const { scroll, land } = await slowLiveRender();
+  scrollAway();
   await land();
   expect(scroll).not.toHaveBeenCalled();
 });
 
-test("a slow live render that lands while the shopper stayed put is brought into view", async () => {
+test("the page moving by itself (it shortened, and the browser clamped the scroll) cancels nothing", async () => {
   const { scroll, land, moveTo } = await slowLiveRender();
-  moveTo(320); // a nudge, within the slack
+  moveTo(40); // 260 px up with no input from the shopper
+  await land();
+  expect(scroll).toHaveBeenCalledTimes(1);
+});
+
+test("keys on a control (Space on a button) are not the shopper scrolling", async () => {
+  const { scroll, land } = await slowLiveRender();
+  fireEvent.keyDown(screen.getByRole("button", { name: "Suggest my tone" }), { key: " " });
   await land();
   expect(scroll).toHaveBeenCalledTimes(1);
 });
