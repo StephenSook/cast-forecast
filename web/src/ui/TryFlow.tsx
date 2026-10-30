@@ -64,9 +64,10 @@ function lineOf(code: TryCode): string {
   return code === "sample_live" ? SAMPLE_LIVE_LINE : MESSAGES[code];
 }
 
-/** The line under the tones once YouCam has read the selfie's skin type. It names the tone picked, so it is heard. */
+/** The line under the tones once YouCam has read the selfie's skin type. It names the tone picked, so it is heard.
+ * "Starting" because the type maps to a tone by class (lib/skinType.ts), not a colour match. */
 export function suggestedLine(fitzpatrick: Fitzpatrick): string {
-  return `YouCam reads Fitzpatrick type ${fitzpatrick}. We picked the closest tone (${toneWord(SUGGESTED_TONE[fitzpatrick])}); change it if it looks off.`;
+  return `YouCam reads Fitzpatrick type ${fitzpatrick}. Suggested starting tone: ${toneWord(SUGGESTED_TONE[fitzpatrick])}. Change it if it looks off.`;
 }
 
 /** On the sample face nothing is rendered or read live, so the wait is only the recorded image loading. */

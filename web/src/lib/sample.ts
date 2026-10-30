@@ -63,7 +63,7 @@ export function recordedRenderLine(recordedOn: string): string {
 /** The line under the tones once the sample face's recorded skin type read is shown. */
 export function recordedReadLine(fitzpatrick: Fitzpatrick, recordedOn: string): string {
   const tone = toneWord(SUGGESTED_TONE[fitzpatrick]);
-  return `Recorded read (YouCam Fitzpatrick Skin Type, ${shortDate(recordedOn)}): type ${fitzpatrick}. We picked the closest tone (${tone}); change it if it looks off.`;
+  return `Recorded read (YouCam Fitzpatrick Skin Type, ${shortDate(recordedOn)}): type ${fitzpatrick}. Suggested starting tone: ${tone}. Change it if it looks off.`;
 }
 
 /** The recorded render of `bottleId` at `tone` as a RenderResult, or null when there is none. It never expires. */
