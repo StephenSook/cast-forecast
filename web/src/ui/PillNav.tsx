@@ -24,12 +24,21 @@ const onScroll = (notify: () => void) => {
 // `!` because the global a:focus-visible rule in globals.css is unlayered and would win over a plain utility.
 const RING_INSIDE = "focus-visible:outline-offset-[-6px]!";
 
-/** Pill nav (adapted from Lullabuy src/ui/Nav.tsx): brand pill, three links on desktop, Compare and Evidence pills on phones. */
+/**
+ * Below md the pills sit on a full-width paper band (blurred, ink rule underneath) that takes taps, so page content
+ * scrolled up under the nav is covered instead of showing through between the pills.
+ */
+const PHONE_BAND = "max-md:top-0 max-md:inset-x-0 max-md:p-3 max-md:pointer-events-auto max-md:bg-paper/85 max-md:backdrop-blur max-md:border-b-2 max-md:border-ink";
+
+/**
+ * Pill nav (adapted from Lullabuy src/ui/Nav.tsx): brand pill, three links on desktop, Compare and Evidence pills on
+ * phones. From md the pills float over the page as before; on phones they sit on PHONE_BAND.
+ */
 export function PillNav() {
   const pathname = usePathname();
   const scrolled = useSyncExternalStore(onScroll, () => window.scrollY > 50, () => false);
   return (
-    <header className="fixed top-3 inset-x-3 z-50 flex items-center justify-between gap-3 pointer-events-none">
+    <header data-testid="site-nav" className={`fixed top-3 inset-x-3 z-50 flex items-center justify-between gap-3 pointer-events-none ${PHONE_BAND}`}>
       <Link
         href="/"
         className={`pointer-events-auto flex items-center gap-2 rounded-full bg-paper/90 backdrop-blur px-3 py-2 shadow-[0_2px_0_var(--ink)] border-2 border-ink ${RING_INSIDE}`}

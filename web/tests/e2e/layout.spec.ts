@@ -75,7 +75,7 @@ test("lg width, tall window: the frame stays in view (sticky) while the page scr
 async function faceAndNumberTogether(page: Page): Promise<void> {
   const vh = (page.viewportSize() as { height: number }).height;
   await settled(page);
-  const nav = (await page.locator("header").first().boundingBox()) as Box;
+  const nav = (await page.getByTestId("site-nav").boundingBox()) as Box;
   const slot = (await page.getByTestId("frame-slot").boundingBox()) as Box;
   const word = (await page.getByTestId("result-word").boundingBox()) as Box;
   const picture = await box(page, "capture-frame");
@@ -108,6 +108,33 @@ test("phone: a second render is shown with the face too", async ({ page }, info)
   await page.locator("main button[aria-pressed]", { hasText: "Babo" }).click();
   await expect(page.getByTestId("result")).toContainText("Babo");
   await faceAndNumberTogether(page);
+});
+
+test("phone: the nav sits on a band that covers what scrolls under it; from md it floats as before", async ({ page }, info) => {
+  await page.goto("/");
+  const nav = page.getByTestId("site-nav");
+  const style = await nav.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { bg: s.backgroundColor, top: el.getBoundingClientRect().top, left: el.getBoundingClientRect().left, width: el.getBoundingClientRect().width };
+  });
+  const vw = (page.viewportSize() as { width: number }).width;
+  if (info.project.name === "phone") {
+    expect(style.bg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(style.top).toBe(0);
+    expect(style.left).toBe(0);
+    expect(Math.round(style.width)).toBe(vw);
+    // Scrolled into the controls, the Suggest my tone button slides under the band, not between the pills.
+    const suggest = page.getByRole("button", { name: "Suggest my tone" });
+    await suggest.evaluate((el) => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 30, behavior: "instant" }));
+    const b = (await suggest.boundingBox()) as Box;
+    expect(b.y).toBeLessThan(40); // it really is under the nav now
+    const hit = await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-testid="site-nav"]')), [b.x + 20, b.y + b.height / 2]);
+    expect(hit, "the band, not the page, is on top where they overlap").toBe(true);
+  } else {
+    expect(style.bg).toBe("rgba(0, 0, 0, 0)");
+    expect(Math.round(style.top)).toBe(12);
+    expect(Math.round(style.left)).toBe(12);
+  }
 });
 
 test("phone: with the frame scrolled to the top, the nav does not cover the Before and After labels", async ({ page }, info) => {
