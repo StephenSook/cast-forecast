@@ -13,6 +13,7 @@ import { Bars } from "./Bars";
 import { BottleChips } from "./BottleChips";
 import { BottleSearch } from "./BottleSearch";
 import { CaptureFrame } from "./CaptureFrame";
+import { prefersReducedMotion } from "./motion/gsap";
 import { ResultBlock } from "./ResultBlock";
 import { ToneSwatches } from "./ToneSwatches";
 
@@ -136,6 +137,19 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   // Still waiting while the render's image downloads: the clock and the rendering line keep going until it shows.
   const waiting = busy || (resultUrl !== null && !revealed);
   const wait = useWaitClock(waiting);
+
+  // Once a render shows, its number is brought into view if it is not fully on screen (on a phone it sits far below the
+  // frame), by the least scroll that shows it, clear of the floating nav (scroll-mt), and with no animation under
+  // reduced motion. A render already in view, as beside the frame on a wide screen, scrolls nothing.
+  const resultRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = resultRef.current;
+    if (!revealed || !el || typeof el.scrollIntoView !== "function") return;
+    const clearOfNav = Number.parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+    const box = el.getBoundingClientRect();
+    if (box.top >= clearOfNav && box.bottom <= window.innerHeight) return;
+    el.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "nearest" });
+  }, [revealed, resultUrl]);
 
   const onImage = (image: PreparedImage) => {
     run.current++;
@@ -291,7 +305,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
         </p>
       </div>
       {bottle && shown && (
-        <div data-testid="result-panel" className="grid gap-4 min-w-0 lg:col-start-2 xl:col-start-3 xl:row-start-1">
+        <div ref={resultRef} data-testid="result-panel" className="grid gap-4 min-w-0 scroll-mt-24 lg:col-start-2 xl:col-start-3 xl:row-start-1">
           <ResultBlock word={formatValue(shown.whitening)} line={`${bottle.name} on skin of L* ${shown.lStar}. Predicted from the label; the picture is an approximation.`} />
           {hi > lo && (
             <Bars

@@ -38,6 +38,18 @@ test("desktop: the result sits beside the frame and both are on screen without s
   expect(await page.getByTestId("result").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
 
+test("phone: after a render the result is scrolled into view", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "phone layout only");
+  const before = await sampleResult(page);
+  const vh = (page.viewportSize() as { height: number }).height;
+  await expect(async () => {
+    const result = await box(page, "result");
+    expect(result.y).toBeGreaterThanOrEqual(0);
+    expect(result.y + result.height).toBeLessThanOrEqual(vh);
+  }).toPass({ timeout: 5_000 });
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(before); // the page moved to the result
+});
+
 test("phone: with the frame scrolled to the top, the nav does not cover the Before and After labels", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone layout only");
   await sampleResult(page);
