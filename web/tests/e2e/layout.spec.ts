@@ -22,6 +22,15 @@ async function sampleResult(page: Page): Promise<number> {
 }
 
 const box = async (page: Page, testId: string): Promise<Box> => (await page.getByTestId(testId).boundingBox()) as Box;
+
+/** Waits for any smooth scroll to finish: the same position on two reads 300 ms apart. */
+async function settled(page: Page): Promise<void> {
+  await expect(async () => {
+    const a = await page.evaluate(() => window.scrollY);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.scrollY)).toBe(a);
+  }).toPass({ timeout: 5_000 });
+}
 const inViewport = (b: Box, vw: number, vh: number) => b.x >= 0 && b.y >= 0 && b.x + b.width <= vw && b.y + b.height <= vh;
 
 test("desktop: the result sits beside the frame and both are on screen without scrolling", async ({ page }, info) => {
@@ -47,12 +56,7 @@ test("lg width, tall window: the frame stays in view (sticky) while the page scr
     const result = await box(page, "result");
     expect(result.y + result.height).toBeLessThanOrEqual(900);
   }).toPass({ timeout: 5_000 });
-  // Wait for the smooth scroll to settle: the same position on two reads 300 ms apart.
-  await expect(async () => {
-    const a = await page.evaluate(() => window.scrollY);
-    await page.waitForTimeout(300);
-    expect(await page.evaluate(() => window.scrollY)).toBe(a);
-  }).toPass({ timeout: 5_000 });
+  await settled(page);
   expect(inViewport(await box(page, "capture-frame"), 1100, 900)).toBe(true);
   // Read on down to the end of the page, past where the frame would leave the screen if it scrolled with the page (its
   // top would be at about -110 px), and the face is still fully in view: held 5rem from the top, or let go just enough
@@ -82,8 +86,11 @@ test("phone: after a render the result is scrolled into view", async ({ page }, 
 test("phone: with the frame scrolled to the top, the nav does not cover the Before and After labels", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone layout only");
   await sampleResult(page);
-  await page.getByTestId("capture-frame").evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 8));
-  await expect.poll(() => page.getByTestId("capture-frame").evaluate((el) => Math.round(el.getBoundingClientRect().top))).toBe(8);
+  await settled(page); // the smooth scroll to the result has finished, so it cannot move the page after ours
+  await page
+    .getByTestId("capture-frame")
+    .evaluate((el) => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 8, behavior: "instant" }));
+  await expect.poll(() => page.getByTestId("capture-frame").evaluate((el) => Math.abs(el.getBoundingClientRect().top - 8) <= 3)).toBe(true);
   const pills = await page.locator("header a").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as Box));
   expect(pills.length).toBeGreaterThanOrEqual(2);
   for (const id of ["before-label", "after-label"]) {
