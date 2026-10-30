@@ -32,11 +32,13 @@ export function ResultBlock({ word, line, tone = "paper", children }: { word: st
       ref={root}
       data-testid="result"
       aria-live="polite"
-      className={`rounded-[2rem] sm:rounded-[3rem] border-[3px] border-ink p-6 sm:p-10 grid content-center gap-4 min-w-0 ${TONE[tone]}`}
+      className={`@container rounded-[2rem] sm:rounded-[3rem] border-[3px] border-ink p-6 sm:p-10 grid content-center gap-4 min-w-0 ${TONE[tone]}`}
     >
+      {/* Sized by the viewport as before, but never wider than the block itself (28cqi), so the word still fits when the
+          block is a narrow column beside the selfie; the line drops to text-lg when the block is under 28rem. */}
       <div className="min-w-0">
-        <p className="display text-[clamp(3.2rem,12vw,11rem)] break-words">{word}</p>
-        <p className="mt-2 text-lg sm:text-2xl font-bold max-w-[34em]">{line}</p>
+        <p className="display text-[length:min(clamp(3.2rem,12vw,11rem),28cqi)] break-words">{word}</p>
+        <p className="mt-2 text-lg @md:text-2xl font-bold max-w-[34em]">{line}</p>
       </div>
       {children}
     </div>

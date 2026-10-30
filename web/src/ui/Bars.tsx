@@ -34,7 +34,8 @@ export function barsProblem(rows: readonly BarRow[], domain: readonly [number, n
 
 /**
  * Horizontal bars on one shared domain (pattern from Lullabuy src/app/trust/page.tsx:27-46). The track is
- * decoration; each row's text carries the value and its interval. On phones the bar takes its own line.
+ * decoration; each row's text carries the value and its interval. Where the list is under 32rem wide (a phone, or the
+ * narrow result column beside the selfie on a wide screen) the bar takes its own line; the list is its own container.
  */
 export function Bars({ rows, domain, format, ariaLabel }: {
   rows: readonly BarRow[];
@@ -43,12 +44,12 @@ export function Bars({ rows, domain, format, ariaLabel }: {
   ariaLabel: string;
 }) {
   return (
-    <ul className="grid gap-3" aria-label={ariaLabel}>
+    <ul className="@container grid gap-3" aria-label={ariaLabel}>
       {rows.map((r, i) => {
         const g = barGeometry(r, domain);
         const interval = r.low !== undefined && r.high !== undefined ? ([r.low, r.high] as const) : null;
         return (
-          <li key={`${i}-${r.label}`} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+          <li key={`${i}-${r.label}`} className="grid grid-cols-[minmax(0,1fr)_auto] @lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
             {r.href ? (
               <Link href={r.href} className="text-sm font-bold min-w-0 break-words underline decoration-2 underline-offset-4 decoration-amber">
                 {r.label}
@@ -56,7 +57,7 @@ export function Bars({ rows, domain, format, ariaLabel }: {
             ) : (
               <span className="text-sm font-bold min-w-0 break-words">{r.label}</span>
             )}
-            <span className="relative h-7 rounded-full border-2 border-ink bg-paper overflow-hidden col-span-2 order-last sm:col-span-1 sm:order-none" aria-hidden="true">
+            <span className="relative h-7 rounded-full border-2 border-ink bg-paper overflow-hidden col-span-2 order-last @lg:col-span-1 @lg:order-none" aria-hidden="true">
               <span data-bar-fill className="absolute inset-y-0 bg-amber" style={{ left: `${g.start}%`, width: `${g.end - g.start}%` }} />
               <span className="absolute inset-y-0 w-[3px] bg-ink" style={{ left: `calc(${g.mark}% - 1.5px)` }} />
             </span>

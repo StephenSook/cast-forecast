@@ -225,21 +225,26 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   const shown = bottle && typeof state.tone === "number" ? toneOf(bottle, state.tone) : undefined;
   const [lo, hi] = domain ?? whiteningDomain(chips);
 
+  // One column on phones. From lg the frame sits left with the controls right and the result under them; from xl the
+  // result gets its own column beside the controls, so the face and the number are on screen together at once. Where
+  // the window is tall enough the frame stays in view while the page scrolls down to the result.
   return (
-    <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] items-start">
-      <CaptureFrame
-        image={state.image}
-        busy={busy}
-        onImage={onImage}
-        onError={onImageError}
-        prepare={prepare}
-        resultUrl={resultUrl}
-        onResultError={() => send({ type: "IMAGE_EXPIRED" })}
-        onResultLoad={() => setShownUrl(resultUrl)}
-        onPreparing={setPreparing}
-        onSample={sample && bottles.length > 0 ? sample.load : undefined}
-        resultNote={recordedOn ? recordedRenderLine(recordedOn) : null}
-      />
+    <div className="mt-8 grid gap-6 items-start lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="min-w-0 lg:row-span-2 xl:row-span-1 lg:[@media(min-height:46rem)]:sticky lg:[@media(min-height:46rem)]:top-20">
+        <CaptureFrame
+          image={state.image}
+          busy={busy}
+          onImage={onImage}
+          onError={onImageError}
+          prepare={prepare}
+          resultUrl={resultUrl}
+          onResultError={() => send({ type: "IMAGE_EXPIRED" })}
+          onResultLoad={() => setShownUrl(resultUrl)}
+          onPreparing={setPreparing}
+          onSample={sample && bottles.length > 0 ? sample.load : undefined}
+          resultNote={recordedOn ? recordedRenderLine(recordedOn) : null}
+        />
+      </div>
       <div className="grid gap-4 min-w-0">
         {bottles.length > 0 && (
           <ToneSwatches tones={tones} selected={state.tone} disabled={busy || preparing} onPick={(tone) => send({ type: "TONE", tone })} />
@@ -284,23 +289,23 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
             </span>
           )}
         </p>
-        {bottle && shown && (
-          <>
-            <ResultBlock word={formatValue(shown.whitening)} line={`${bottle.name} on skin of L* ${shown.lStar}. Predicted from the label; the picture is an approximation.`} />
-            {hi > lo && (
-              <Bars
-                rows={[{ label: bottle.name, value: shown.whitening.value, low: shown.whitening.low, high: shown.whitening.high }]}
-                domain={[lo, hi]}
-                format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${shown.whitening.unit}`}
-                ariaLabel="Predicted white cast"
-              />
-            )}
-            <Link href="/evidence" className="justify-self-start font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">
-              See the evidence
-            </Link>
-          </>
-        )}
       </div>
+      {bottle && shown && (
+        <div data-testid="result-panel" className="grid gap-4 min-w-0 lg:col-start-2 xl:col-start-3 xl:row-start-1">
+          <ResultBlock word={formatValue(shown.whitening)} line={`${bottle.name} on skin of L* ${shown.lStar}. Predicted from the label; the picture is an approximation.`} />
+          {hi > lo && (
+            <Bars
+              rows={[{ label: bottle.name, value: shown.whitening.value, low: shown.whitening.low, high: shown.whitening.high }]}
+              domain={[lo, hi]}
+              format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${shown.whitening.unit}`}
+              ariaLabel="Predicted white cast"
+            />
+          )}
+          <Link href="/evidence" className="justify-self-start font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">
+            See the evidence
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
