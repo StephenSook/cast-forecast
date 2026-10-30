@@ -71,9 +71,12 @@ test("lg width, tall window: the frame stays in view (sticky) while the page scr
   expect(inViewport(await box(page, "capture-frame"), 1100, 900)).toBe(true);
 });
 
-/** On a phone: the face (top of the frame) just under the nav band, and the big number on screen right below it. */
-async function faceAndNumberTogether(page: Page): Promise<void> {
-  const vh = (page.viewportSize() as { height: number }).height;
+/**
+ * On a phone: the face (top of the frame) just under the nav band, the whole picture on screen, and the big number on
+ * screen too: right below the picture, or (`beside`, a phone held sideways) to its right.
+ */
+async function faceAndNumberTogether(page: Page, where: "below" | "beside" = "below"): Promise<void> {
+  const { width: vw, height: vh } = page.viewportSize() as { width: number; height: number };
   await settled(page);
   const nav = (await page.getByTestId("site-nav").boundingBox()) as Box;
   const slot = (await page.getByTestId("frame-slot").boundingBox()) as Box;
@@ -81,8 +84,10 @@ async function faceAndNumberTogether(page: Page): Promise<void> {
   const picture = await box(page, "capture-frame");
   expect(slot.y, "the frame's top sits just under the nav").toBeGreaterThanOrEqual(nav.y + nav.height - 1);
   expect(slot.y).toBeLessThanOrEqual(nav.y + nav.height + 24);
-  expect(word.y, "the number is right under the picture").toBeGreaterThan(picture.y + picture.height);
-  expect(word.y + word.height, "and on screen").toBeLessThanOrEqual(vh);
+  expect(inViewport(picture, vw, vh), `the whole picture is on screen ${JSON.stringify(picture)}`).toBe(true);
+  if (where === "below") expect(word.y, "the number is right under the picture").toBeGreaterThan(picture.y + picture.height);
+  else expect(word.x, "the number is beside the picture").toBeGreaterThan(picture.x + picture.width);
+  expect(inViewport(word, vw, vh), `the whole number is on screen ${JSON.stringify(word)}`).toBe(true);
 }
 
 test("phone: after a render the face and the number show together, the number right under the picture", async ({ page }, info) => {
@@ -110,6 +115,17 @@ for (const [w, h] of [
     await page.setViewportSize({ width: w, height: h });
     await sampleResult(page);
     await faceAndNumberTogether(page);
+  });
+}
+
+// A phone held sideways is too short to stack them, so the number sits beside the picture.
+for (const motion of ["reduce", "no-preference"] as const) {
+  test(`phone sideways 844 x 390 (${motion} motion): the face and the number show together, side by side`, async ({ page }, info) => {
+    test.skip(info.project.name !== "phone", "phone layout only");
+    await page.emulateMedia({ reducedMotion: motion });
+    await page.setViewportSize({ width: 844, height: 390 });
+    await sampleResult(page);
+    await faceAndNumberTogether(page, "beside");
   });
 }
 

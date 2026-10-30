@@ -9,6 +9,16 @@ const ACCEPT = "image/jpeg,image/png";
 const FILL = "absolute inset-0 w-full h-full object-contain";
 const SECONDARY =
   "inline-flex h-[3em] items-center rounded-full border-[3px] border-ink bg-paper px-6 font-extrabold leading-none transition-colors enabled:hover:bg-amber-soft disabled:cursor-not-allowed disabled:opacity-50";
+/**
+ * The picture, then its label and the result. Below lg they stack, the picture capped at the screen height less
+ * 17rem (never under 14rem). Below lg on a screen under 32rem tall (a phone held sideways) the picture takes the screen
+ * height less 8rem and sits left, with the label and the result beside it. Written out in full so Tailwind sees each class.
+ */
+const PICTURE_AND_RESULT =
+  "grid max-lg:[@media(max-height:32rem)]:grid-cols-[auto_minmax(0,1fr)] max-lg:[@media(max-height:32rem)]:gap-x-4 max-lg:[@media(max-height:32rem)]:items-start";
+const PICTURE =
+  "relative aspect-[3/4] max-lg:max-h-[max(14rem,calc(100svh_-_17rem))] max-lg:[@media(max-height:32rem)]:max-h-none max-lg:[@media(max-height:32rem)]:h-[calc(100svh_-_8rem)] max-lg:[@media(max-height:32rem)]:w-auto max-lg:[@media(max-height:32rem)]:row-span-2 rounded-2xl bg-ink overflow-hidden grid place-items-center";
+const NOTE_SHORT = "max-lg:[@media(max-height:32rem)]:mt-0";
 
 type Props = {
   image: PreparedImage | null;
@@ -104,11 +114,10 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
     <div className="relative rounded-[2rem] bg-paper border-[3px] border-ink p-4 sm:p-6 min-w-0">
       {/* Below lg the picture is never taller than the screen less about 17rem (the nav, the label and the top of the
           result under it), so on a short phone the face and the number still fit on screen together; the photo keeps
-          its shape (object-contain) inside the shorter box. */}
-      <div
-        data-testid="capture-frame"
-        className="relative aspect-[3/4] max-lg:max-h-[max(14rem,calc(100svh_-_17rem))] rounded-2xl bg-ink overflow-hidden grid place-items-center"
-      >
+          its shape (object-contain) inside the shorter box. On a screen too short for that (a phone held sideways),
+          the picture takes the screen's height less the nav and sits beside its label and the result. */}
+      <div className={PICTURE_AND_RESULT}>
+      <div data-testid="capture-frame" className={PICTURE}>
         {image && !shown && (
           // eslint-disable-next-line @next/next/no-img-element -- a blob: URL that exists only in this tab
           <img data-testid="selfie-preview" src={image.url} alt={who} className={FILL} />
@@ -182,11 +191,12 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
       {shown && resultNote && (
         // Right under the picture and inside its card, so the label travels with any capture of the frame, and the
         // picture's corners stay free for the Before and After labels.
-        <p data-testid="result-note" className="mt-3 rounded-2xl bg-ink px-3 py-1.5 text-center text-sm font-bold text-paper">
+        <p data-testid="result-note" className={`mt-3 ${NOTE_SHORT} rounded-2xl bg-ink px-3 py-1.5 text-center text-sm font-bold text-paper`}>
           {resultNote}
         </p>
       )}
       {below}
+      </div>
       {/* Visually hidden, not display:none: some phone browsers ignore a programmatic click on a display:none file
           input. The buttons below are what people and screen readers use, so the inputs stay out of both. */}
       <input ref={camera} data-testid="camera-input" type="file" accept={ACCEPT} capture="user" disabled={off} tabIndex={-1} aria-hidden="true" className="sr-only" onChange={onChange} />
