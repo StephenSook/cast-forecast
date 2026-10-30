@@ -50,7 +50,7 @@ test("desktop: the result sits beside the frame and both are on screen without s
 test("lg width, tall window: the frame stays in view (sticky) while the page scrolls down to the result", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "desktop layout only");
   await page.setViewportSize({ width: 1100, height: 900 });
-  const before = await sampleResult(page);
+  await sampleResult(page);
   // The result is under the controls here, so the page scrolls to it ...
   await expect(async () => {
     const result = await box(page, "result");
@@ -71,32 +71,102 @@ test("lg width, tall window: the frame stays in view (sticky) while the page scr
   expect(inViewport(await box(page, "capture-frame"), 1100, 900)).toBe(true);
 });
 
-test("phone: after a render the result is scrolled into view", async ({ page }, info) => {
+/**
+ * On a phone: the face (top of the frame) just under the nav band, the whole picture on screen, and the big number on
+ * screen too: right below the picture, or (`beside`, a phone held sideways) to its right.
+ */
+async function faceAndNumberTogether(page: Page, where: "below" | "beside" = "below"): Promise<void> {
+  const { width: vw, height: vh } = page.viewportSize() as { width: number; height: number };
+  await settled(page);
+  const nav = (await page.getByTestId("site-nav").boundingBox()) as Box;
+  const slot = (await page.getByTestId("frame-slot").boundingBox()) as Box;
+  const word = (await page.getByTestId("result-word").boundingBox()) as Box;
+  const picture = await box(page, "capture-frame");
+  expect(slot.y, "the frame's top sits just under the nav").toBeGreaterThanOrEqual(nav.y + nav.height - 1);
+  expect(slot.y).toBeLessThanOrEqual(nav.y + nav.height + 24);
+  expect(inViewport(picture, vw, vh), `the whole picture is on screen ${JSON.stringify(picture)}`).toBe(true);
+  if (where === "below") expect(word.y, "the number is right under the picture").toBeGreaterThan(picture.y + picture.height);
+  else expect(word.x, "the number is beside the picture").toBeGreaterThan(picture.x + picture.width);
+  expect(inViewport(word, vw, vh), `the whole number is on screen ${JSON.stringify(word)}`).toBe(true);
+}
+
+test("phone: after a render the face and the number show together, the number right under the picture", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone layout only");
   const before = await sampleResult(page);
-  const vh = (page.viewportSize() as { height: number }).height;
-  await expect(async () => {
-    const result = await box(page, "result");
-    expect(result.y).toBeGreaterThanOrEqual(0);
-    expect(result.y + result.height).toBeLessThanOrEqual(vh);
-  }).toPass({ timeout: 5_000 });
-  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(before); // the page moved to the result
+  // The result sits in the frame card, between the picture's label and the photo buttons.
+  const note = await box(page, "result-note");
+  const result = await box(page, "result");
+  const takeSelfie = (await page.getByRole("button", { name: /Take a selfie/ }).boundingBox()) as Box;
+  expect(result.y).toBeGreaterThan(note.y + note.height - 1);
+  expect(result.y + result.height).toBeLessThan(takeSelfie.y);
+  await faceAndNumberTogether(page);
+  // The pick was made down at the chips; the page moved back up to the face.
+  expect(await page.evaluate(() => window.scrollY)).toBeLessThan(before);
 });
 
-test("phone: a second render near the end of the page is brought into view too", async ({ page }, info) => {
+// Short phones: the picture shrinks so the face and the number still fit on screen together, stacked (portrait).
+for (const [w, h] of [
+  [390, 600],
+  [430, 600],
+  [360, 560],
+  [375, 500],
+  [320, 480],
+] as const) {
+  test(`phone ${w} x ${h}: the face and the number show together on a short screen`, async ({ page }, info) => {
+    test.skip(info.project.name !== "phone", "phone layout only");
+    await page.setViewportSize({ width: w, height: h });
+    await sampleResult(page);
+    await faceAndNumberTogether(page);
+  });
+}
+
+// A phone held sideways is too short to stack them, so the number sits beside the picture.
+for (const motion of ["reduce", "no-preference"] as const) {
+  test(`phone sideways 844 x 390 (${motion} motion): the face and the number show together, side by side`, async ({ page }, info) => {
+    test.skip(info.project.name !== "phone", "phone layout only");
+    await page.emulateMedia({ reducedMotion: motion });
+    await page.setViewportSize({ width: 844, height: 390 });
+    await sampleResult(page);
+    await faceAndNumberTogether(page, "beside");
+  });
+}
+
+test("phone: a second render is shown with the face too", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone layout only");
   await sampleResult(page);
   await settled(page);
-  const vh = (page.viewportSize() as { height: number }).height;
   // Back up to the chips and pick another: the old result goes while the new one loads, so the page shortens under the
-  // shopper and the browser clamps the scroll. That is not the shopper scrolling, so the new result is still shown.
+  // shopper and the browser can clamp the scroll. That is not the shopper scrolling, so the new result is still shown.
   await page.locator("main button[aria-pressed]", { hasText: "Babo" }).click();
   await expect(page.getByTestId("result")).toContainText("Babo");
-  await expect(async () => {
-    const result = await box(page, "result");
-    expect(result.y).toBeGreaterThanOrEqual(0);
-    expect(result.y + result.height).toBeLessThanOrEqual(vh);
-  }).toPass({ timeout: 5_000 });
+  await faceAndNumberTogether(page);
+});
+
+test("phone: the nav sits on a band that covers what scrolls under it; from md it floats as before", async ({ page }, info) => {
+  await page.goto("/");
+  const nav = page.getByTestId("site-nav");
+  const style = await nav.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { bg: s.backgroundColor, top: el.getBoundingClientRect().top, left: el.getBoundingClientRect().left, width: el.getBoundingClientRect().width };
+  });
+  const vw = (page.viewportSize() as { width: number }).width;
+  if (info.project.name === "phone") {
+    expect(style.bg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(style.top).toBe(0);
+    expect(style.left).toBe(0);
+    expect(Math.round(style.width)).toBe(vw);
+    // Scrolled into the controls, the Suggest my tone button slides under the band, not between the pills.
+    const suggest = page.getByRole("button", { name: "Suggest my tone" });
+    await suggest.evaluate((el) => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 30, behavior: "instant" }));
+    const b = (await suggest.boundingBox()) as Box;
+    expect(b.y).toBeLessThan(40); // it really is under the nav now
+    const hit = await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-testid="site-nav"]')), [b.x + 20, b.y + b.height / 2]);
+    expect(hit, "the band, not the page, is on top where they overlap").toBe(true);
+  } else {
+    expect(style.bg).toBe("rgba(0, 0, 0, 0)");
+    expect(Math.round(style.top)).toBe(12);
+    expect(Math.round(style.left)).toBe(12);
+  }
 });
 
 test("phone: with the frame scrolled to the top, the nav does not cover the Before and After labels", async ({ page }, info) => {
