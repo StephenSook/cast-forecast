@@ -38,6 +38,35 @@ test("desktop: the result sits beside the frame and both are on screen without s
   expect(await page.getByTestId("result").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
 
+test("lg width, tall window: the frame stays in view (sticky) while the page scrolls down to the result", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "desktop layout only");
+  await page.setViewportSize({ width: 1100, height: 900 });
+  const before = await sampleResult(page);
+  // The result is under the controls here, so the page scrolls to it ...
+  await expect(async () => {
+    const result = await box(page, "result");
+    expect(result.y + result.height).toBeLessThanOrEqual(900);
+  }).toPass({ timeout: 5_000 });
+  // Wait for the smooth scroll to settle: the same position on two reads 300 ms apart.
+  await expect(async () => {
+    const a = await page.evaluate(() => window.scrollY);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.scrollY)).toBe(a);
+  }).toPass({ timeout: 5_000 });
+  expect(inViewport(await box(page, "capture-frame"), 1100, 900)).toBe(true);
+  // Read on down to the end of the page, past where the frame would leave the screen if it scrolled with the page (its
+  // top would be at about -110 px), and the face is still fully in view: held 5rem from the top, or let go just enough
+  // to stay inside the grid near its end.
+  const end = await page.evaluate(() => (document.scrollingElement as Element).scrollHeight - window.innerHeight);
+  expect(end).toBeGreaterThan(350);
+  await page.evaluate((y) => window.scrollTo({ top: y, behavior: "instant" }), end);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(end);
+  const card = (await page.getByTestId("capture-frame").evaluate((el) => (el.parentElement as HTMLElement).getBoundingClientRect().top)) as number;
+  expect(card).toBeGreaterThanOrEqual(0);
+  expect(card).toBeLessThanOrEqual(80);
+  expect(inViewport(await box(page, "capture-frame"), 1100, 900)).toBe(true);
+});
+
 test("phone: after a render the result is scrolled into view", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone layout only");
   const before = await sampleResult(page);
