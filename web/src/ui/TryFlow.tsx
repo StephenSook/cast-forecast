@@ -13,11 +13,29 @@ import { Bars } from "./Bars";
 import { BottleChips } from "./BottleChips";
 import { BottleSearch } from "./BottleSearch";
 import { CaptureFrame } from "./CaptureFrame";
+import { prefersReducedMotion } from "./motion/gsap";
 import { ResultBlock } from "./ResultBlock";
 import { ToneSwatches } from "./ToneSwatches";
 
 /** After this long in flight the status line says the wait can be long, and how long. */
 const SLOW_MS = 10_000;
+/** Keys that can scroll the page; pressing one while a render is in flight can be the shopper scrolling. */
+const SCROLL_KEYS: ReadonlySet<string> = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+/** Text fields, selects and sliders, which use every scroll key themselves. Button-like inputs are not fields. */
+const FIELD = "textarea, select, [contenteditable], input:not([type=button]):not([type=submit]):not([type=reset]):not([type=checkbox])";
+
+/**
+ * True when this key press scrolls the page itself rather than acting on the focused element: a scroll key that no
+ * handler took (defaultPrevented, as the search list's arrows are), not pressed in a field or on a slider, and not Space
+ * on a button, checkbox or summary (which presses it). PageDown, arrows, Home and End on a button do scroll the page,
+ * and so does Space on a link (a link is followed with Enter), so they count.
+ */
+export function keyScrollsPage(e: KeyboardEvent): boolean {
+  if (e.defaultPrevented || !SCROLL_KEYS.has(e.key)) return false;
+  const target = e.target instanceof Element ? e.target : null;
+  if (target?.closest(FIELD)) return false;
+  return !(e.key === " " && target?.closest("button, input, summary"));
+}
 
 /** Shown when the shopper's skin is deeper than any tone the study measured. */
 export const DEEPER_LINE = "The study behind these numbers measured skin down to L* 44. Deeper skin has no prediction yet.";
@@ -137,6 +155,52 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   const waiting = busy || (resultUrl !== null && !revealed);
   const wait = useWaitClock(waiting);
 
+  // Once a render shows, its number is brought into view if it is not fully on screen (on a phone it sits far below the
+  // frame), by the least scroll that shows it, clear of the floating nav (scroll-mt), and with no animation under
+  // reduced motion. A render already in view, as beside the frame on a wide screen, scrolls nothing. A live render can
+  // take up to two minutes, so the page moves only if the shopper has not scrolled it themselves meanwhile: `scroll`
+  // is armed by a pick and spent on its result, and any wheel, touch drag, page-scrolling key (keyScrollsPage) or
+  // scrollbar press while a request is in flight cancels it. The page's own movement (it shortens when the old result
+  // goes, and the browser clamps the scroll) is not the shopper's and cancels nothing. `picks` counts picks, so picking
+  // the sample face's same bottle again, which lands the same recorded image in the same render, is checked again too.
+  const resultRef = useRef<HTMLDivElement>(null);
+  const scroll = useRef<{ armed: boolean; cancelled: boolean }>({ armed: false, cancelled: false });
+  const [picks, setPicks] = useState(0);
+  useEffect(() => {
+    if (!waiting) return;
+    const cancel = () => {
+      scroll.current.cancelled = true;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (keyScrollsPage(e)) cancel();
+    };
+    // A press on the page's own scrollbar lands on the root element.
+    const onPress = (e: PointerEvent) => {
+      if (e.target === document.documentElement) cancel();
+    };
+    window.addEventListener("wheel", cancel, { passive: true });
+    window.addEventListener("touchmove", cancel, { passive: true });
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPress);
+    return () => {
+      window.removeEventListener("wheel", cancel);
+      window.removeEventListener("touchmove", cancel);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPress);
+    };
+  }, [waiting]);
+  useEffect(() => {
+    const el = resultRef.current;
+    if (!revealed || !el || typeof el.scrollIntoView !== "function") return;
+    const { armed, cancelled } = scroll.current;
+    scroll.current = { armed: false, cancelled: false };
+    if (!armed || cancelled) return;
+    const clearOfNav = Number.parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+    const box = el.getBoundingClientRect();
+    if (box.top >= clearOfNav && box.bottom <= window.innerHeight) return;
+    el.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "nearest" });
+  }, [revealed, resultUrl, picks]);
+
   const onImage = (image: PreparedImage) => {
     run.current++;
     send({ type: "PHOTO_READY", image });
@@ -152,6 +216,8 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     if (picked === before || !picked.image || typeof picked.tone !== "number") return;
     const tone = picked.tone;
     wait.start();
+    scroll.current = { armed: true, cancelled: false };
+    setPicks((n) => n + 1);
     const mine = ++run.current;
     const current = () => mine === run.current;
     if (picked.image.sample) {
@@ -225,21 +291,26 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   const shown = bottle && typeof state.tone === "number" ? toneOf(bottle, state.tone) : undefined;
   const [lo, hi] = domain ?? whiteningDomain(chips);
 
+  // One column on phones. From lg the frame sits left with the controls right and the result under them; from xl the
+  // result gets its own column beside the controls, so the face and the number are on screen together at once. Where
+  // the window is tall enough the frame stays in view while the page scrolls down to the result.
   return (
-    <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] items-start">
-      <CaptureFrame
-        image={state.image}
-        busy={busy}
-        onImage={onImage}
-        onError={onImageError}
-        prepare={prepare}
-        resultUrl={resultUrl}
-        onResultError={() => send({ type: "IMAGE_EXPIRED" })}
-        onResultLoad={() => setShownUrl(resultUrl)}
-        onPreparing={setPreparing}
-        onSample={sample && bottles.length > 0 ? sample.load : undefined}
-        resultNote={recordedOn ? recordedRenderLine(recordedOn) : null}
-      />
+    <div className="mt-8 grid gap-6 items-start lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="min-w-0 lg:row-span-2 xl:row-span-1 lg:[@media(min-height:46rem)]:sticky lg:[@media(min-height:46rem)]:top-20">
+        <CaptureFrame
+          image={state.image}
+          busy={busy}
+          onImage={onImage}
+          onError={onImageError}
+          prepare={prepare}
+          resultUrl={resultUrl}
+          onResultError={() => send({ type: "IMAGE_EXPIRED" })}
+          onResultLoad={() => setShownUrl(resultUrl)}
+          onPreparing={setPreparing}
+          onSample={sample && bottles.length > 0 ? sample.load : undefined}
+          resultNote={recordedOn ? recordedRenderLine(recordedOn) : null}
+        />
+      </div>
       <div className="grid gap-4 min-w-0">
         {bottles.length > 0 && (
           <ToneSwatches tones={tones} selected={state.tone} disabled={busy || preparing} onPick={(tone) => send({ type: "TONE", tone })} />
@@ -284,23 +355,23 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
             </span>
           )}
         </p>
-        {bottle && shown && (
-          <>
-            <ResultBlock word={formatValue(shown.whitening)} line={`${bottle.name} on skin of L* ${shown.lStar}. Predicted from the label; the picture is an approximation.`} />
-            {hi > lo && (
-              <Bars
-                rows={[{ label: bottle.name, value: shown.whitening.value, low: shown.whitening.low, high: shown.whitening.high }]}
-                domain={[lo, hi]}
-                format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${shown.whitening.unit}`}
-                ariaLabel="Predicted white cast"
-              />
-            )}
-            <Link href="/evidence" className="justify-self-start font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">
-              See the evidence
-            </Link>
-          </>
-        )}
       </div>
+      {bottle && shown && (
+        <div ref={resultRef} data-testid="result-panel" className="grid gap-4 min-w-0 scroll-mt-24 lg:col-start-2 xl:col-start-3 xl:row-start-1">
+          <ResultBlock word={formatValue(shown.whitening)} line={`${bottle.name} on skin of L* ${shown.lStar}. Predicted from the label; the picture is an approximation.`} />
+          {hi > lo && (
+            <Bars
+              rows={[{ label: bottle.name, value: shown.whitening.value, low: shown.whitening.low, high: shown.whitening.high }]}
+              domain={[lo, hi]}
+              format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${shown.whitening.unit}`}
+              ariaLabel="Predicted white cast"
+            />
+          )}
+          <Link href="/evidence" className="justify-self-start font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">
+            See the evidence
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

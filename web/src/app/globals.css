@@ -81,11 +81,13 @@ body {
   line-height: 1;
 }
 
-/* Section card: full-bleed saturated block with big rounded corners (reference technique: stacked color cards). */
+/* Section card: full-bleed saturated block with big rounded corners (reference technique: stacked color cards).
+   Clipped with overflow: clip, not hidden: hidden would make the card a scroll container, and a sticky element inside
+   it (the Try page's frame) would then stick to the card, which never scrolls, instead of to the window. */
 .section-card {
   border-radius: var(--radius-section);
   position: relative;
-  overflow: hidden;
+  overflow: clip;
 }
 
 /* Squash-and-bounce button: the two scales multiply to exactly 1, so it squashes then springs back. */

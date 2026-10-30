@@ -146,10 +146,12 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
               className="pointer-events-none absolute top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-ink bg-paper peer-focus-visible:ring-4 peer-focus-visible:ring-amber"
               style={{ left: `${at}%` }}
             />
-            <span aria-hidden="true" className="pointer-events-none absolute left-3 top-3 rounded-full bg-ink px-3 py-1 text-sm font-bold text-paper">
+            {/* At the bottom corners: on a phone the floating nav covers the top of the frame whenever it is scrolled up
+                to the top of the screen, which is exactly where these labels used to be. */}
+            <span data-testid="before-label" aria-hidden="true" className="pointer-events-none absolute left-3 bottom-3 rounded-full bg-ink px-3 py-1 text-sm font-bold text-paper">
               Before
             </span>
-            <span aria-hidden="true" className="pointer-events-none absolute right-3 top-3 rounded-full bg-ink px-3 py-1 text-sm font-bold text-paper">
+            <span data-testid="after-label" aria-hidden="true" className="pointer-events-none absolute right-3 bottom-3 rounded-full bg-ink px-3 py-1 text-sm font-bold text-paper">
               After
             </span>
           </>

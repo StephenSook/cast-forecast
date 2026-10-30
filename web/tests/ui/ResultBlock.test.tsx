@@ -36,10 +36,11 @@ test("the word wraps instead of overflowing and children render below", () => {
     </ResultBlock>,
   );
   const [word, line] = screen.getByTestId("result").querySelectorAll("p");
-  expect(word).toHaveClass("display", "text-[clamp(3.2rem,12vw,11rem)]", "break-words");
-  expect(line).toHaveClass("text-lg", "sm:text-2xl", "font-bold");
+  // The word is capped by the block's own width (28cqi of the @container), so it also fits a narrow column.
+  expect(word).toHaveClass("display", "text-[length:min(clamp(3.2rem,12vw,11rem),28cqi)]", "break-words");
+  expect(line).toHaveClass("text-lg", "@md:text-2xl", "font-bold");
   expect(screen.getByText("extra")).toBeInTheDocument();
-  expect(screen.getByTestId("result")).toHaveClass("bg-paper");
+  expect(screen.getByTestId("result")).toHaveClass("bg-paper", "@container");
 });
 
 test("skips the entrance pop under reduced motion", () => {
