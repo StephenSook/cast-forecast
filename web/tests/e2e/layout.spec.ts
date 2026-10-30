@@ -117,3 +117,40 @@ test("phone: with the frame scrolled to the top, the nav does not cover the Befo
     }
   }
 });
+
+// A slow live render, stubbed in the browser (the e2e server has no key; no request leaves the page): while it is in
+// flight the shopper scrolls with Space on a focused link, and when it lands the page stays where they put it.
+test("lg width: a slow render does not pull the page back after the shopper scrolled with Space on a link", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "desktop keyboard only");
+  await page.setViewportSize({ width: 1100, height: 700 });
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/upload", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ fileId: "stub-file" }) }));
+  await page.route("**/api/render", async (r) => {
+    await held;
+    const { bottleId } = JSON.parse(r.request().postData() ?? "{}");
+    await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ imageUrl: "https://render.test/r.jpg", bottleId, colorIntensity: 8, predictedBlend: 0.0275, expiresAt: Date.now() + 6_000_000 }) });
+  });
+  await page.route("https://render.test/**", (r) => r.fulfill({ status: 200, contentType: "image/jpeg", path: "tests/fixtures/plain-640x480.jpg" }));
+  await page.goto("/");
+  await expect(async () => {
+    await page.getByTestId("upload-input").setInputFiles("tests/fixtures/plain-640x480.jpg");
+    await expect(page.getByTestId("selfie-preview")).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Skin L* 55" }).click();
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await page.locator("main button[aria-pressed]", { hasText: "Cetaphil" }).click();
+  await expect(page.getByRole("main").getByRole("status").filter({ hasText: /Rendering|Sending/ })).toBeVisible();
+  // Space on a focused link scrolls the page; it does not follow the link.
+  await page.getByRole("link", { name: "Evidence" }).first().focus();
+  const before = await page.evaluate(() => window.scrollY);
+  await page.keyboard.press(" ");
+  await settled(page);
+  const after = await page.evaluate(() => window.scrollY);
+  expect(after).toBeGreaterThan(before);
+  expect(new URL(page.url()).pathname).toBe("/");
+  release();
+  await expect(page.getByTestId("result-panel")).toBeAttached();
+  await settled(page);
+  expect(await page.evaluate(() => window.scrollY)).toBe(after);
+});

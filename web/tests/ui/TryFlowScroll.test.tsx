@@ -151,7 +151,8 @@ test("keyScrollsPage: which key presses scroll the page itself", () => {
   expect(on(button, "ArrowDown")).toBe(true);
   expect(on(link, "End")).toBe(true);
   expect(on(button, " ")).toBe(false);
-  expect(on(link, " ")).toBe(false);
+  expect(on(link, " ")).toBe(true); // Space scrolls the page from a link; Enter follows it
+  expect(on(link, "Enter")).toBe(false);
   expect(on(text, "ArrowDown")).toBe(false);
   expect(on(text, " ")).toBe(false);
   expect(on(range, "ArrowUp")).toBe(false);

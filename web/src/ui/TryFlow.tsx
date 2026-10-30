@@ -27,13 +27,14 @@ const FIELD = "textarea, select, [contenteditable], input:not([type=button]):not
 /**
  * True when this key press scrolls the page itself rather than acting on the focused element: a scroll key that no
  * handler took (defaultPrevented, as the search list's arrows are), not pressed in a field or on a slider, and not Space
- * on a button or link (which presses it). PageDown, arrows, Home and End on a button do scroll the page, so they count.
+ * on a button, checkbox or summary (which presses it). PageDown, arrows, Home and End on a button do scroll the page,
+ * and so does Space on a link (a link is followed with Enter), so they count.
  */
 export function keyScrollsPage(e: KeyboardEvent): boolean {
   if (e.defaultPrevented || !SCROLL_KEYS.has(e.key)) return false;
   const target = e.target instanceof Element ? e.target : null;
   if (target?.closest(FIELD)) return false;
-  return !(e.key === " " && target?.closest("button, a[href], input, summary"));
+  return !(e.key === " " && target?.closest("button, input, summary"));
 }
 
 /** Shown when the shopper's skin is deeper than any tone the study measured. */
