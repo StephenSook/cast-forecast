@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ImageError, type PreparedImage, prepareImage, releaseImage } from "@/lib/image";
 import type { CfErrorCode } from "@/lib/messages";
 import { SquashButton } from "./SquashButton";
@@ -26,6 +26,8 @@ type Props = {
   onSample?: () => Promise<PreparedImage>;
   /** A short line under the frame while the render shows, such as the recorded render label. */
   resultNote?: string | null;
+  /** Shown right under the picture and its label, above the photo buttons: the result, on narrow screens. */
+  below?: ReactNode;
 };
 
 function CameraIcon() {
@@ -47,7 +49,7 @@ function CameraIcon() {
  * right of it. Each new render starts at the middle. The sample face, when offered, is a third source that joins the
  * same race: the newest photo of any source wins.
  */
-export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareImage, resultUrl = null, onResultError, onPreparing, onResultLoad, onSample, resultNote = null }: Props) {
+export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareImage, resultUrl = null, onResultError, onPreparing, onResultLoad, onSample, resultNote = null, below = null }: Props) {
   const camera = useRef<HTMLInputElement>(null);
   const upload = useRef<HTMLInputElement>(null);
   const newest = useRef(0);
@@ -178,6 +180,7 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
           {resultNote}
         </p>
       )}
+      {below}
       {/* Visually hidden, not display:none: some phone browsers ignore a programmatic click on a display:none file
           input. The buttons below are what people and screen readers use, so the inputs stay out of both. */}
       <input ref={camera} data-testid="camera-input" type="file" accept={ACCEPT} capture="user" disabled={off} tabIndex={-1} aria-hidden="true" className="sr-only" onChange={onChange} />

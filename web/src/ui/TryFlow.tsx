@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ApiFailure, readSkinType, renderBottle, searchLabels, uploadSelfie } from "@/lib/apiClient";
 import { type Bottle, TONES, type Tone, findBottle, formatValue, toneOf, whiteningDomain } from "@/lib/catalogue";
 import { type PreparedImage, releaseImage } from "@/lib/image";
@@ -35,6 +35,19 @@ export function keyScrollsPage(e: KeyboardEvent): boolean {
   const target = e.target instanceof Element ? e.target : null;
   if (target?.closest(FIELD)) return false;
   return !(e.key === " " && target?.closest("button, input, summary"));
+}
+
+/** Tailwind's lg breakpoint, where the result moves out of the frame card into a column beside it. */
+const WIDE = "(min-width: 64rem)";
+const onWideChange = (notify: () => void) => {
+  const m = window.matchMedia(WIDE);
+  m.addEventListener("change", notify);
+  return () => m.removeEventListener("change", notify);
+};
+
+/** True from lg up. False on the server; the result it places only exists after a tap, so nothing renders differently. */
+function useWide(): boolean {
+  return useSyncExternalStore(onWideChange, () => window.matchMedia(WIDE).matches, () => false);
 }
 
 /** Shown when the shopper's skin is deeper than any tone the study measured. */
@@ -155,9 +168,9 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   const waiting = busy || (resultUrl !== null && !revealed);
   const wait = useWaitClock(waiting);
 
-  // Once a render shows, its number is brought into view if it is not fully on screen (on a phone it sits far below the
-  // frame), by the least scroll that shows it, clear of the floating nav (scroll-mt), and with no animation under
-  // reduced motion. A render already in view, as beside the frame on a wide screen, scrolls nothing. A live render can
+  // Once a render shows, it is brought into view if it is not on screen: from lg the result panel, by the least scroll
+  // that shows it, clear of the floating nav (scroll-mt); below lg the frame with the result under it (see `wide`).
+  // There is no animation under reduced motion, and a render already in view scrolls nothing. A live render can
   // take up to two minutes, so the page moves only if the shopper has not scrolled it themselves meanwhile: `scroll`
   // is armed by a pick and spent on its result, and any wheel, touch drag, page-scrolling key (keyScrollsPage) or
   // scrollbar press while a request is in flight cancels it. The page's own movement (it shortens when the old result
@@ -189,17 +202,32 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
       window.removeEventListener("pointerdown", onPress);
     };
   }, [waiting]);
+  // Below lg (`wide` false) the result sits inside the frame card, right under the picture, and the face is the payoff:
+  // the frame's top is brought to just under the nav, with the number below it, unless both are already on screen.
+  const wide = useWide();
+  const frameRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const el = resultRef.current;
-    if (!revealed || !el || typeof el.scrollIntoView !== "function") return;
+    const panel = resultRef.current;
+    if (!revealed || !panel) return;
     const { armed, cancelled } = scroll.current;
     scroll.current = { armed: false, cancelled: false };
     if (!armed || cancelled) return;
-    const clearOfNav = Number.parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
-    const box = el.getBoundingClientRect();
-    if (box.top >= clearOfNav && box.bottom <= window.innerHeight) return;
-    el.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "nearest" });
-  }, [revealed, resultUrl, picks]);
+    const behavior: ScrollBehavior = prefersReducedMotion() ? "auto" : "smooth";
+    if (wide) {
+      if (typeof panel.scrollIntoView !== "function") return;
+      const clearOfNav = Number.parseFloat(getComputedStyle(panel).scrollMarginTop) || 0;
+      const box = panel.getBoundingClientRect();
+      if (box.top >= clearOfNav && box.bottom <= window.innerHeight) return;
+      panel.scrollIntoView({ behavior, block: "nearest" });
+      return;
+    }
+    const frame = frameRef.current;
+    if (!frame || typeof frame.scrollIntoView !== "function") return;
+    const clearOfNav = Number.parseFloat(getComputedStyle(frame).scrollMarginTop) || 0;
+    const number = panel.querySelector('[data-testid="result-word"]')?.getBoundingClientRect();
+    if (frame.getBoundingClientRect().top >= clearOfNav - 1 && number && number.bottom <= window.innerHeight) return;
+    frame.scrollIntoView({ behavior, block: "start" });
+  }, [revealed, resultUrl, picks, wide]);
 
   const onImage = (image: PreparedImage) => {
     run.current++;
@@ -291,12 +319,40 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   const shown = bottle && typeof state.tone === "number" ? toneOf(bottle, state.tone) : undefined;
   const [lo, hi] = domain ?? whiteningDomain(chips);
 
-  // One column on phones. From lg the frame sits left with the controls right and the result under them; from xl the
-  // result gets its own column beside the controls, so the face and the number are on screen together at once. Where
-  // the window is tall enough the frame stays in view while the page scrolls down to the result.
+  // The result: inside the frame card, right under the picture and its label, below lg; in the grid from lg.
+  const resultPanel =
+    bottle && shown ? (
+      <div
+        ref={resultRef}
+        data-testid="result-panel"
+        className={wide ? "grid gap-4 min-w-0 scroll-mt-24 lg:col-start-2 xl:col-start-3 xl:row-start-1" : "mt-4 grid gap-4 min-w-0"}
+      >
+        <ResultBlock word={formatValue(shown.whitening)} line={`${bottle.name} on skin of L* ${shown.lStar}. Predicted from the label; the picture is an approximation.`} />
+        {hi > lo && (
+          <Bars
+            rows={[{ label: bottle.name, value: shown.whitening.value, low: shown.whitening.low, high: shown.whitening.high }]}
+            domain={[lo, hi]}
+            format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${shown.whitening.unit}`}
+            ariaLabel="Predicted white cast"
+          />
+        )}
+        <Link href="/evidence" className="justify-self-start font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">
+          See the evidence
+        </Link>
+      </div>
+    ) : null;
+
+  // One column on phones, with the result in the frame card under the face. From lg the frame sits left with the
+  // controls right and the result under them; from xl the result gets its own column beside the controls, so the face
+  // and the number are on screen together at once. Where the window is tall enough the frame stays in view while the
+  // page scrolls down to the result. scroll-mt-20 keeps the frame clear of the phone nav band when it is scrolled to.
   return (
     <div className="mt-8 grid gap-6 items-start lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)_minmax(0,1fr)]">
-      <div className="min-w-0 lg:row-span-2 xl:row-span-1 lg:[@media(min-height:46rem)]:sticky lg:[@media(min-height:46rem)]:top-20">
+      <div
+        ref={frameRef}
+        data-testid="frame-slot"
+        className="min-w-0 scroll-mt-20 lg:row-span-2 xl:row-span-1 lg:[@media(min-height:46rem)]:sticky lg:[@media(min-height:46rem)]:top-20"
+      >
         <CaptureFrame
           image={state.image}
           busy={busy}
@@ -309,6 +365,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
           onPreparing={setPreparing}
           onSample={sample && bottles.length > 0 ? sample.load : undefined}
           resultNote={recordedOn ? recordedRenderLine(recordedOn) : null}
+          below={wide ? null : resultPanel}
         />
       </div>
       <div className="grid gap-4 min-w-0">
@@ -356,22 +413,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
           )}
         </p>
       </div>
-      {bottle && shown && (
-        <div ref={resultRef} data-testid="result-panel" className="grid gap-4 min-w-0 scroll-mt-24 lg:col-start-2 xl:col-start-3 xl:row-start-1">
-          <ResultBlock word={formatValue(shown.whitening)} line={`${bottle.name} on skin of L* ${shown.lStar}. Predicted from the label; the picture is an approximation.`} />
-          {hi > lo && (
-            <Bars
-              rows={[{ label: bottle.name, value: shown.whitening.value, low: shown.whitening.low, high: shown.whitening.high }]}
-              domain={[lo, hi]}
-              format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} ${shown.whitening.unit}`}
-              ariaLabel="Predicted white cast"
-            />
-          )}
-          <Link href="/evidence" className="justify-self-start font-extrabold underline decoration-[3px] underline-offset-4 decoration-amber">
-            See the evidence
-          </Link>
-        </div>
-      )}
+      {wide && resultPanel}
     </div>
   );
 }

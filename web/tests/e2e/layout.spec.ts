@@ -50,7 +50,7 @@ test("desktop: the result sits beside the frame and both are on screen without s
 test("lg width, tall window: the frame stays in view (sticky) while the page scrolls down to the result", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "desktop layout only");
   await page.setViewportSize({ width: 1100, height: 900 });
-  const before = await sampleResult(page);
+  await sampleResult(page);
   // The result is under the controls here, so the page scrolls to it ...
   await expect(async () => {
     const result = await box(page, "result");
@@ -71,32 +71,43 @@ test("lg width, tall window: the frame stays in view (sticky) while the page scr
   expect(inViewport(await box(page, "capture-frame"), 1100, 900)).toBe(true);
 });
 
-test("phone: after a render the result is scrolled into view", async ({ page }, info) => {
+/** On a phone: the face (top of the frame) just under the nav band, and the big number on screen right below it. */
+async function faceAndNumberTogether(page: Page): Promise<void> {
+  const vh = (page.viewportSize() as { height: number }).height;
+  await settled(page);
+  const nav = (await page.locator("header").first().boundingBox()) as Box;
+  const slot = (await page.getByTestId("frame-slot").boundingBox()) as Box;
+  const word = (await page.getByTestId("result-word").boundingBox()) as Box;
+  const picture = await box(page, "capture-frame");
+  expect(slot.y, "the frame's top sits just under the nav").toBeGreaterThanOrEqual(nav.y + nav.height - 1);
+  expect(slot.y).toBeLessThanOrEqual(nav.y + nav.height + 24);
+  expect(word.y, "the number is right under the picture").toBeGreaterThan(picture.y + picture.height);
+  expect(word.y + word.height, "and on screen").toBeLessThanOrEqual(vh);
+}
+
+test("phone: after a render the face and the number show together, the number right under the picture", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone layout only");
   const before = await sampleResult(page);
-  const vh = (page.viewportSize() as { height: number }).height;
-  await expect(async () => {
-    const result = await box(page, "result");
-    expect(result.y).toBeGreaterThanOrEqual(0);
-    expect(result.y + result.height).toBeLessThanOrEqual(vh);
-  }).toPass({ timeout: 5_000 });
-  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(before); // the page moved to the result
+  // The result sits in the frame card, between the picture's label and the photo buttons.
+  const note = await box(page, "result-note");
+  const result = await box(page, "result");
+  const takeSelfie = (await page.getByRole("button", { name: /Take a selfie/ }).boundingBox()) as Box;
+  expect(result.y).toBeGreaterThan(note.y + note.height - 1);
+  expect(result.y + result.height).toBeLessThan(takeSelfie.y);
+  await faceAndNumberTogether(page);
+  // The pick was made down at the chips; the page moved back up to the face.
+  expect(await page.evaluate(() => window.scrollY)).toBeLessThan(before);
 });
 
-test("phone: a second render near the end of the page is brought into view too", async ({ page }, info) => {
+test("phone: a second render is shown with the face too", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone layout only");
   await sampleResult(page);
   await settled(page);
-  const vh = (page.viewportSize() as { height: number }).height;
   // Back up to the chips and pick another: the old result goes while the new one loads, so the page shortens under the
-  // shopper and the browser clamps the scroll. That is not the shopper scrolling, so the new result is still shown.
+  // shopper and the browser can clamp the scroll. That is not the shopper scrolling, so the new result is still shown.
   await page.locator("main button[aria-pressed]", { hasText: "Babo" }).click();
   await expect(page.getByTestId("result")).toContainText("Babo");
-  await expect(async () => {
-    const result = await box(page, "result");
-    expect(result.y).toBeGreaterThanOrEqual(0);
-    expect(result.y + result.height).toBeLessThanOrEqual(vh);
-  }).toPass({ timeout: 5_000 });
+  await faceAndNumberTogether(page);
 });
 
 test("phone: with the frame scrolled to the top, the nav does not cover the Before and After labels", async ({ page }, info) => {

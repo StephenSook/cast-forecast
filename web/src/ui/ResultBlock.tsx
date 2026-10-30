@@ -37,7 +37,9 @@ export function ResultBlock({ word, line, tone = "paper", children }: { word: st
       {/* Sized by the viewport as before, but never wider than the block itself (28cqi), so the word still fits when the
           block is a narrow column beside the selfie; the line drops to text-lg when the block is under 28rem. */}
       <div className="min-w-0">
-        <p className="display text-[length:min(clamp(3.2rem,12vw,11rem),28cqi)] break-words">{word}</p>
+        <p data-testid="result-word" className="display text-[length:min(clamp(3.2rem,12vw,11rem),28cqi)] break-words">
+          {word}
+        </p>
         <p className="mt-2 text-lg @md:text-2xl font-bold max-w-[34em]">{line}</p>
       </div>
       {children}
