@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Sample } from "@/lib/sample";
-import { TryFlow } from "@/ui/TryFlow";
+import { TryFlow, keyScrollsPage } from "@/ui/TryFlow";
 import { testEntry } from "../helpers/entries";
 
 // After a render shows, its result is scrolled into view only when it is not already fully on screen.
@@ -77,6 +77,7 @@ async function slowLiveRender() {
     upload: vi.fn(async () => ({ fileId: "file-1" })),
     render: vi.fn(() => new Promise<{ imageUrl: string; bottleId: string; colorIntensity: number; predictedBlend: number; expiresAt: number }>((resolve) => (finish = resolve))),
     readSkinType: vi.fn(),
+    search: vi.fn(async () => ({ total: 0, bottles: [] })),
   };
   const own = { blob: new Blob(["x"], { type: "image/jpeg" }), width: 640, height: 480, url: "blob:own" };
   const user = userEvent.setup();
@@ -99,6 +100,7 @@ test.each([
   ["a mouse wheel", () => fireEvent.wheel(window, { deltaY: 400 })],
   ["a touch drag", () => fireEvent.touchMove(window, { touches: [{ clientX: 10, clientY: 10 }] })],
   ["Page Down", () => fireEvent.keyDown(document.body, { key: "PageDown" })],
+  ["Page Down with a button focused", () => fireEvent.keyDown(screen.getByRole("button", { name: "Suggest my tone" }), { key: "PageDown" })],
   ["a press on the page's scrollbar", () => fireEvent.pointerDown(document.documentElement)],
 ])("a slow live render that lands after the shopper scrolled away (%s) does not move the page", async (_how, scrollAway) => {
   const { scroll, land } = await slowLiveRender();
@@ -114,9 +116,39 @@ test("the page moving by itself (it shortened, and the browser clamped the scrol
   expect(scroll).toHaveBeenCalledTimes(1);
 });
 
-test("keys on a control (Space on a button) are not the shopper scrolling", async () => {
+test("keys a control takes for itself are not the shopper scrolling: Space on a button, arrows in the search field", async () => {
   const { scroll, land } = await slowLiveRender();
   fireEvent.keyDown(screen.getByRole("button", { name: "Suggest my tone" }), { key: " " });
+  fireEvent.keyDown(screen.getByRole("combobox", { name: "Find your sunscreen" }), { key: "ArrowDown" });
   await land();
   expect(scroll).toHaveBeenCalledTimes(1);
+});
+
+test("keyScrollsPage: which key presses scroll the page itself", () => {
+  const on = (el: Element, key: string, prevented = false) => {
+    let out = false;
+    const listen = (e: Event) => (out = keyScrollsPage(e as KeyboardEvent));
+    window.addEventListener("keydown", listen);
+    const e = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    if (prevented) e.preventDefault();
+    el.dispatchEvent(e);
+    window.removeEventListener("keydown", listen);
+    return out;
+  };
+  document.body.innerHTML = '<button>b</button><input type="text"><input type="range"><a href="/x">a</a><textarea></textarea>';
+  const [button, text, range, link, area] = ["button", "input[type=text]", "input[type=range]", "a", "textarea"].map((s) => document.querySelector(s) as Element);
+  expect(on(document.body, "PageDown")).toBe(true);
+  expect(on(document.body, " ")).toBe(true);
+  expect(on(button, "PageDown")).toBe(true);
+  expect(on(button, "ArrowDown")).toBe(true);
+  expect(on(link, "End")).toBe(true);
+  expect(on(button, " ")).toBe(false);
+  expect(on(link, " ")).toBe(false);
+  expect(on(text, "ArrowDown")).toBe(false);
+  expect(on(text, " ")).toBe(false);
+  expect(on(range, "ArrowUp")).toBe(false);
+  expect(on(area, "PageDown")).toBe(false);
+  expect(on(document.body, "a")).toBe(false);
+  expect(on(document.body, "PageDown", true)).toBe(false); // a handler took it
+  document.body.innerHTML = "";
 });

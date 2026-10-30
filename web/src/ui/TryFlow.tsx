@@ -19,8 +19,22 @@ import { ToneSwatches } from "./ToneSwatches";
 
 /** After this long in flight the status line says the wait can be long, and how long. */
 const SLOW_MS = 10_000;
-/** Keys that scroll the page when no control has focus; pressing one while a render is in flight is the shopper scrolling. */
+/** Keys that can scroll the page; pressing one while a render is in flight can be the shopper scrolling. */
 const SCROLL_KEYS: ReadonlySet<string> = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+/** Text fields, selects and sliders, which use every scroll key themselves. Button-like inputs are not fields. */
+const FIELD = "textarea, select, [contenteditable], input:not([type=button]):not([type=submit]):not([type=reset]):not([type=checkbox])";
+
+/**
+ * True when this key press scrolls the page itself rather than acting on the focused element: a scroll key that no
+ * handler took (defaultPrevented, as the search list's arrows are), not pressed in a field or on a slider, and not Space
+ * on a button or link (which presses it). PageDown, arrows, Home and End on a button do scroll the page, so they count.
+ */
+export function keyScrollsPage(e: KeyboardEvent): boolean {
+  if (e.defaultPrevented || !SCROLL_KEYS.has(e.key)) return false;
+  const target = e.target instanceof Element ? e.target : null;
+  if (target?.closest(FIELD)) return false;
+  return !(e.key === " " && target?.closest("button, a[href], input, summary"));
+}
 
 /** Shown when the shopper's skin is deeper than any tone the study measured. */
 export const DEEPER_LINE = "The study behind these numbers measured skin down to L* 44. Deeper skin has no prediction yet.";
@@ -144,8 +158,8 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   // frame), by the least scroll that shows it, clear of the floating nav (scroll-mt), and with no animation under
   // reduced motion. A render already in view, as beside the frame on a wide screen, scrolls nothing. A live render can
   // take up to two minutes, so the page moves only if the shopper has not scrolled it themselves meanwhile: `scroll`
-  // is armed by a pick and spent on its result, and any wheel, touch drag, scroll key or scrollbar press while a request
-  // is in flight cancels it. The page's own movement (it shortens when the old result goes, and the browser clamps the
+  // is armed by a pick and spent on its result, and any wheel, touch drag, page-scrolling key (keyScrollsPage) or
+  // scrollbar press while a request is in flight cancels it. The page's own movement (it shortens when the old result goes, and the browser clamps the
   // scroll) is not the shopper's and cancels nothing.
   const resultRef = useRef<HTMLDivElement>(null);
   const scroll = useRef<{ armed: boolean; cancelled: boolean }>({ armed: false, cancelled: false });
@@ -155,9 +169,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
       scroll.current.cancelled = true;
     };
     const onKey = (e: KeyboardEvent) => {
-      // Keys typed into a field or pressed on a control (a slider's arrows, a button's Space) do not scroll the page.
-      const control = e.target instanceof Element && e.target.closest("input, textarea, select, button, [contenteditable]");
-      if (!control && SCROLL_KEYS.has(e.key)) cancel();
+      if (keyScrollsPage(e)) cancel();
     };
     // A press on the page's own scrollbar lands on the root element.
     const onPress = (e: PointerEvent) => {
