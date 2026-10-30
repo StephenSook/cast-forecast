@@ -159,10 +159,12 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
   // reduced motion. A render already in view, as beside the frame on a wide screen, scrolls nothing. A live render can
   // take up to two minutes, so the page moves only if the shopper has not scrolled it themselves meanwhile: `scroll`
   // is armed by a pick and spent on its result, and any wheel, touch drag, page-scrolling key (keyScrollsPage) or
-  // scrollbar press while a request is in flight cancels it. The page's own movement (it shortens when the old result goes, and the browser clamps the
-  // scroll) is not the shopper's and cancels nothing.
+  // scrollbar press while a request is in flight cancels it. The page's own movement (it shortens when the old result
+  // goes, and the browser clamps the scroll) is not the shopper's and cancels nothing. `picks` counts picks, so picking
+  // the sample face's same bottle again, which lands the same recorded image in the same render, is checked again too.
   const resultRef = useRef<HTMLDivElement>(null);
   const scroll = useRef<{ armed: boolean; cancelled: boolean }>({ armed: false, cancelled: false });
+  const [picks, setPicks] = useState(0);
   useEffect(() => {
     if (!waiting) return;
     const cancel = () => {
@@ -196,7 +198,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     const box = el.getBoundingClientRect();
     if (box.top >= clearOfNav && box.bottom <= window.innerHeight) return;
     el.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "nearest" });
-  }, [revealed, resultUrl]);
+  }, [revealed, resultUrl, picks]);
 
   const onImage = (image: PreparedImage) => {
     run.current++;
@@ -214,6 +216,7 @@ export function TryFlow({ bottles, tones = TONES, domain, initialBottleId = null
     const tone = picked.tone;
     wait.start();
     scroll.current = { armed: true, cancelled: false };
+    setPicks((n) => n + 1);
     const mine = ++run.current;
     const current = () => mine === run.current;
     if (picked.image.sample) {

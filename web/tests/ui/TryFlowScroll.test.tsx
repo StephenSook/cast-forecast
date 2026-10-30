@@ -49,6 +49,14 @@ test("a result below the screen is scrolled into view by the least scroll, witho
   expect(scroll).toHaveBeenCalledWith({ behavior: "auto", block: "nearest" });
 });
 
+test("picking the same sample bottle again, with its result off screen, brings it into view again", async () => {
+  const scroll = await renderResult(1200);
+  expect(scroll).toHaveBeenCalledTimes(1);
+  // The same recorded image lands in the same render, so nothing about the result changes but the pick.
+  await userEvent.setup().click(screen.getByRole("button", { name: "Test entry A" }));
+  await vi.waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
+});
+
 test("a result already on screen (beside the frame on a wide screen) scrolls nothing", async () => {
   const scroll = await renderResult(100);
   expect(scroll).not.toHaveBeenCalled();
