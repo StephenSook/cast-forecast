@@ -106,9 +106,9 @@ test("the recorded labels name the API and the date, in few words and within the
   expect(shortDate("2026-01-05")).toBe("Jan 5, 2026");
   expect(recordedRenderLine("2026-10-29")).toBe("Recorded render (YouCam Makeup VTO, Oct 29, 2026)");
   expect(recordedReadLine("IV", "2026-10-29")).toBe(
-    "Recorded read (YouCam Fitzpatrick Skin Type, Oct 29, 2026): type IV. We picked the closest tone (L* 55); change it if it looks off.",
+    "Recorded read (YouCam Fitzpatrick Skin Type, Oct 29, 2026): type IV. Suggested starting tone: L* 55. Change it if it looks off.",
   );
-  expect(recordedReadLine("VI", "2026-10-29")).toContain("We picked the closest tone (Deeper);");
+  expect(recordedReadLine("VI", "2026-10-29")).toContain("Suggested starting tone: Deeper.");
   expect(SAMPLE_LIVE_LINE).toBe("Live render needs your own selfie.");
   const lines = [recordedRenderLine("2026-10-29"), recordedReadLine("IV", "2026-10-29"), SAMPLE_LIVE_LINE].join("\n");
   expect(findCopyViolations(lines, "sample lines")).toEqual([]);

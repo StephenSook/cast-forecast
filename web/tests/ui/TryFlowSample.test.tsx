@@ -90,7 +90,7 @@ test("a second suggestion after a manual tone change is announced again, naming 
   await useSample();
   const region = screen.getByTestId("skin-line");
   await user.click(screen.getByRole("button", { name: "Suggest my tone" }));
-  await waitFor(() => expect(region).toHaveTextContent("We picked the closest tone (L* 60)"));
+  await waitFor(() => expect(region).toHaveTextContent("Suggested starting tone: L* 60."));
   const first = region.firstElementChild;
   await user.click(screen.getByRole("button", { name: "Skin L* 65" }));
   const changes: MutationRecord[] = [];
