@@ -37,3 +37,19 @@ test("desktop: the result sits beside the frame and both are on screen without s
   // The big number fits its column.
   expect(await page.getByTestId("result").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
+
+test("phone: with the frame scrolled to the top, the nav does not cover the Before and After labels", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "phone layout only");
+  await sampleResult(page);
+  await page.getByTestId("capture-frame").evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 8));
+  await expect.poll(() => page.getByTestId("capture-frame").evaluate((el) => Math.round(el.getBoundingClientRect().top))).toBe(8);
+  const pills = await page.locator("header a").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as Box));
+  expect(pills.length).toBeGreaterThanOrEqual(2);
+  for (const id of ["before-label", "after-label"]) {
+    const label = await box(page, id);
+    for (const p of pills) {
+      const overlap = label.x < p.x + p.width && p.x < label.x + label.width && label.y < p.y + p.height && p.y < label.y + label.height;
+      expect(overlap, `${id} under a nav pill`).toBe(false);
+    }
+  }
+});
