@@ -102,7 +102,13 @@ export function CaptureFrame({ image, busy, onImage, onError, prepare = prepareI
   const who = image?.sample ? "The sample face" : "Your selfie";
   return (
     <div className="relative rounded-[2rem] bg-paper border-[3px] border-ink p-4 sm:p-6 min-w-0">
-      <div data-testid="capture-frame" className="relative aspect-[3/4] rounded-2xl bg-ink overflow-hidden grid place-items-center">
+      {/* Below lg the picture is never taller than the screen less about 17rem (the nav, the label and the top of the
+          result under it), so on a short phone the face and the number still fit on screen together; the photo keeps
+          its shape (object-contain) inside the shorter box. */}
+      <div
+        data-testid="capture-frame"
+        className="relative aspect-[3/4] max-lg:max-h-[max(14rem,calc(100svh_-_17rem))] rounded-2xl bg-ink overflow-hidden grid place-items-center"
+      >
         {image && !shown && (
           // eslint-disable-next-line @next/next/no-img-element -- a blob: URL that exists only in this tab
           <img data-testid="selfie-preview" src={image.url} alt={who} className={FILL} />
