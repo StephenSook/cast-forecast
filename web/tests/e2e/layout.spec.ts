@@ -104,11 +104,13 @@ test("phone: after a render the face and the number show together, the number ri
   expect(await page.evaluate(() => window.scrollY)).toBeLessThan(before);
 });
 
-// Short phones: the picture shrinks so the face and the number still fit on screen together.
+// Short phones: the picture shrinks so the face and the number still fit on screen together, stacked (portrait).
 for (const [w, h] of [
   [390, 600],
   [430, 600],
   [360, 560],
+  [375, 500],
+  [320, 480],
 ] as const) {
   test(`phone ${w} x ${h}: the face and the number show together on a short screen`, async ({ page }, info) => {
     test.skip(info.project.name !== "phone", "phone layout only");
